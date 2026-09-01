@@ -1,7 +1,7 @@
 # iFlow — The Areas, Specified
 
 **Status:** approved, provisional
-**Version:** 1.0 — 2026-09-02
+**Version:** 2.0 — 2026-09-02
 **Schema:** [03-schema.md](./03-schema.md) — parameters P1–P10
 **Areas:** [02-areas.md](./02-areas.md)
 
@@ -13,9 +13,9 @@ Each area is stated against the ten parameters. Object names are used consistent
 
 ### 1. Intent and Criteria
 
-- **P1 Inputs.** `Intent`, `EstateModel`.
-- **P2 Outputs.** `Specification`, containing `AcceptanceCriteria`, `TerminationCondition` and `Scope`.
-- **P3 Decision rule.** A specification is complete when every criterion is either decidable by machine or explicitly marked as requiring a person.
+- **P1 Inputs.** `Intent`, `EstateModel`, the catalogue of `ChangeClass`.
+- **P2 Outputs.** `Specification`, containing `ChangeClass`, `AcceptanceCriteria`, `TerminationCondition` and `Scope`.
+- **P3 Decision rule.** A specification is complete when every criterion is either decidable by machine or explicitly marked as requiring a person. What is decidable is a property of the `ChangeClass`, not of the individual intent.
 - **P4 Completion.** Completeness reached, or ambiguity declared irreducible.
 - **P5 Invariant.** Criteria are fixed before execution and are not altered by it.
 - **P6 Failure semantics.** An intent that cannot be expressed as criteria is a failure of this area, not a poor specification passed downstream.
@@ -37,9 +37,22 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P9 Authority required.** Read the estate model. No write.
 - **P10 Escalation.** Coverage incomplete, or an area of effect that cannot be bounded.
 
-### 3. Execution
+### 3. Admission
 
-- **P1 Inputs.** `WorkUnit`, `ContextBundle`, `Grant`.
+- **P1 Inputs.** Pending `WorkUnit`s with their `AreaOfEffect`s, `EstateModel` including work in flight, `Budget`, policy.
+- **P2 Outputs.** `AdmissionDecision`, `Grant`, `Conflict`.
+- **P3 Decision rule.** A unit is admitted when its area of effect does not intersect that of an unfinished unit in a way that would invalidate either's evidence, an allocation exists for it, and a grant no wider than its `Scope` can be issued. Failing any of the three, it is held rather than started.
+- **P4 Completion.** Every pending unit is admitted, held with a stated reason, or refused.
+- **P5 Invariant.** No resources are committed to a unit that could not have been accepted had it succeeded.
+- **P6 Failure semantics.** Admitting a unit that later proves to have been in conflict is a failure of this area, not of landing. Holding a unit that could have run is a lesser failure and must be visible as queueing rather than as silence.
+- **P7 Evidence emitted.** For each decision, which of the three conditions decided it, and against what.
+- **P8 Cost and stopping.** The gate must cost far less than the work it withholds; a unit held beyond a stated age is escalated rather than held indefinitely.
+- **P9 Authority required.** Issue grants within policy; refuse and hold work. No ability to widen policy.
+- **P10 Escalation.** A unit held past its age limit; a conflict that no ordering resolves; a required grant wider than policy allows.
+
+### 4. Execution
+
+- **P1 Inputs.** `WorkUnit`, `ContextBundle`, `Grant` and `AdmissionDecision` from area 3.
 - **P2 Outputs.** `Candidate`, `Trace`.
 - **P3 Decision rule.** Act within `Scope` and stop on `TerminationCondition`; produce a candidate, never a change to the live system.
 - **P4 Completion.** A candidate exists, or the termination condition is met, or the step budget is exhausted.
@@ -50,11 +63,11 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P9 Authority required.** Exactly the `Grant` bound to the work unit, enforced outside the agent.
 - **P10 Escalation.** Repeated substrate failure, or task failure where the criteria were judged achievable.
 
-### 4. Assurance
+### 5. Assurance
 
 - **P1 Inputs.** `Candidate`, `Specification`, `EstateModel`, `Trace`.
 - **P2 Outputs.** `Verdict`, with the `Evidence` supporting it.
-- **P3 Decision rule.** Accept only when every criterion is supported by evidence produced independently of the executor; otherwise reject or leave undecided.
+- **P3 Decision rule.** Accept only when every criterion is supported by evidence produced independently of the executor; otherwise reject or leave undecided. Which evidence counts as sufficient is fixed per `ChangeClass` in advance, not chosen per candidate.
 - **P4 Completion.** A verdict exists for every criterion in the specification.
 - **P5 Invariant.** Evidence is not produced by the agent that produced the candidate.
 - **P6 Failure semantics.** Inability to obtain evidence is an *undecided* verdict, not a rejection, and the two must not be conflated.
@@ -63,24 +76,24 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P9 Authority required.** Execute tests and analyses in isolated environments. No write to the live system.
 - **P10 Escalation.** An undecided verdict, or a criterion marked as requiring a person.
 
-### 5. Landing
+### 6. Landing
 
-- **P1 Inputs.** Accepted `Candidate`s, their `AreaOfEffect`s, `EstateModel` including work still in flight.
-- **P2 Outputs.** `LandingPlan`, `Conflict`.
-- **P3 Decision rule.** Two units conflict when their areas of effect intersect such that either's evidence is invalidated; conflicting units are ordered rather than admitted together.
-- **P4 Completion.** Every accepted candidate has landed, been held, or been reversed.
-- **P5 Invariant.** Nothing lands while the evidence supporting it has expired or been invalidated by another landing.
-- **P6 Failure semantics.** Joint incorrectness discovered after landing is a failure of this area, not of assurance.
-- **P7 Evidence emitted.** The conflict analysis and the resulting order.
-- **P8 Cost and stopping.** Work held waiting, and re-verification after invalidation.
+- **P1 Inputs.** Accepted `Candidate`s with their `Verdict`s and `Evidence`, `EstateModel`.
+- **P2 Outputs.** `LandingPlan`, and the landed change itself.
+- **P3 Decision rule.** A candidate enters only while the evidence supporting its verdict is still valid; where an earlier entry has invalidated it, the affected evidence is re-established before entry rather than the candidate being dropped.
+- **P4 Completion.** Every accepted candidate has entered, awaits re-establishment of evidence, or has been reversed.
+- **P5 Invariant.** Nothing takes effect on evidence that has expired or been invalidated by another entry.
+- **P6 Failure semantics.** Joint incorrectness in production is a failure of this area, and must be traceable to a specific invalidation that went unnoticed. Conflict that should have prevented the work from starting is a failure of area 3, not of this one.
+- **P7 Evidence emitted.** What was invalidated by each entry, and what was re-established before the next.
+- **P8 Cost and stopping.** Re-verification after invalidation, and work waiting on it.
 - **P9 Authority required.** Write to the live system, narrowly and per target.
-- **P10 Escalation.** A conflict that cannot be resolved by ordering; a reversal that fails.
+- **P10 Escalation.** Evidence that cannot be re-established; a reversal that fails.
 
 ---
 
 ## Part II — Foundations
 
-### 6. Estate Representation
+### 7. Estate Representation
 
 - **P1 Inputs.** Code, configuration, version history, build and deployment records, runtime telemetry, `Lesson`.
 - **P2 Outputs.** `EstateModel`; answers to queries, chief among them `AreaOfEffect`.
@@ -93,7 +106,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P9 Authority required.** Read across artifacts and telemetry. No write.
 - **P10 Escalation.** A question that cannot be answered to the confidence the asking decision requires.
 
-### 7. Record
+### 8. Record
 
 - **P1 Inputs.** Everything every area emits.
 - **P2 Outputs.** `Trace`, and the durable binding between a `Verdict` and the evidence that supported it.
@@ -106,7 +119,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P9 Authority required.** Write to the record store only.
 - **P10 Escalation.** Record integrity broken or the store unavailable.
 
-### 8. Economy
+### 9. Economy
 
 - **P1 Inputs.** `Budget`, `CostRecord`, pending `WorkUnit`s, the priority of the intents behind them.
 - **P2 Outputs.** Admission decisions, allocations, stop signals.
@@ -119,7 +132,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P9 Authority required.** Refuse and stop work. No ability to alter budgets.
 - **P10 Escalation.** Exhaustion against work classified as mandatory, such as a production defect.
 
-### 9. Accumulation
+### 10. Accumulation
 
 - **P1 Inputs.** `Trace`, `Verdict`, `Conflict`, and decisions made by people during escalation.
 - **P2 Outputs.** `Lesson`, bound to places in the estate.
@@ -132,7 +145,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P9 Authority required.** Read traces and verdicts; write only to the lesson store.
 - **P10 Escalation.** None. Accumulation must never block work.
 
-### 10. Human Boundary
+### 11. Human Boundary
 
 - **P1 Inputs.** `Escalation` from any area; historical verdicts and their outcomes.
 - **P2 Outputs.** Routing of an escalation to a person, and revision of the escalation rules themselves.
@@ -145,7 +158,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P9 Authority required.** Interrupt and hold work.
 - **P10 Escalation.** This area is the escalation target. What happens when a person does not respond must itself be defined.
 
-### 11. Authority
+### 12. Authority
 
 - **P1 Inputs.** `WorkUnit`, declared policy.
 - **P2 Outputs.** `Grant`, bound to one work unit.
@@ -157,3 +170,16 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P8 Cost and stopping.** Negligible by requirement; enforcement must not become a throughput constraint.
 - **P9 Authority required.** Issue and revoke grants. This is the root of authority and must itself be governed by people.
 - **P10 Escalation.** A request for a grant wider than policy allows.
+
+### 13. Measurement
+
+- **P1 Inputs.** `Trace`, `Verdict`, `CostRecord`, `Escalation`, landed changes and their later outcomes, `Baseline`.
+- **P2 Outputs.** `Metric` series, per `ChangeClass`.
+- **P3 Decision rule.** A measurement counts only against a population and a class stated in advance; a figure without both is not published.
+- **P4 Completion.** Continuous, settled per period.
+- **P5 Invariant.** The baseline is measured on the same workload as the comparison, otherwise no comparison is made at all.
+- **P6 Failure semantics.** A metric that cannot detect the failure it is supposed to detect is worse than none. The governing case: a wrongly accepted change is by construction unread, so it can only be discovered later — from a defect, an incident or a reversal — and the lag between acceptance and discovery is itself the instrument's resolution.
+- **P7 Evidence emitted.** How each figure was obtained, over what population, in what period.
+- **P8 Cost and stopping.** Measurement must not perturb what it measures, and its cost is accounted against the work it observes.
+- **P9 Authority required.** Read records and outcomes. No write anywhere else.
+- **P10 Escalation.** A metric diverging from its target for longer than a stated period; loss of the baseline.
