@@ -6,24 +6,15 @@ A framework for software development and maintenance carried out at scale by aut
 
 **Status.** Research. Nothing is implemented yet.
 
-## Documents
+## The document
 
-| | |
-|---|---|
-| [`01-goal.md`](docs/research/01-goal.md) | The goal |
-| [`02-areas.md`](docs/research/02-areas.md) | Research framework, the thirteen areas, and the feedback loop |
-| [`03-schema.md`](docs/research/03-schema.md) | How an area is described |
-| [`04-areas-specified.md`](docs/research/04-areas-specified.md) | The areas, against that schema |
-| [`05-objects.md`](docs/research/05-objects.md) | The objects that pass between areas |
-| [`06-change-classes.md`](docs/research/06-change-classes.md) | Change classes, by how acceptance is decided |
-| [`07-reference-scenario.md`](docs/research/07-reference-scenario.md) | First run — the easiest class, end to end |
-| [`08-scenario-contract-change.md`](docs/research/08-scenario-contract-change.md) | Second run — a change across a contract |
+Everything is in one document: [`docs/iflow.md`](docs/iflow.md).
 
-Read them in order. Each is derived from the one before, and the runs exist to break what precedes them.
+Goal, research framework, the descriptive schema, the objects, the change classes, the thirteen areas, the feedback loop, two end-to-end validation runs, and what to build first.
 
 ## Versioning
 
-One minor release per approved document. Patch releases carry corrections to documents already released.
+One release per substantive revision of the document.
 
 ## Licence
 

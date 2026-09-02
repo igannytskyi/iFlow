@@ -1,0 +1,458 @@
+# iFlow
+
+**Status:** research, provisional
+**Version:** 1.0 — 2026-09-02
+
+A single document. It supersedes the eight it was assembled from; the git history holds those.
+
+---
+
+# 1. Goal
+
+> To make the development and maintenance of software an activity carried out at any scale by autonomous agents: a person contributes the intent and the criteria of an acceptable result, is free not to take part in how it is achieved, and is able to verify it at will; and the volume of such work is limited only by the resources one is willing to spend on it.
+
+Restated in clauses, cited throughout as the ground of every derivation:
+
+- **(a)** the work is carried out at any scale by autonomous agents;
+- **(b)** a person contributes the intent and the criteria of an acceptable result;
+- **(c)** that person is free not to take part in how the result is achieved;
+- **(d)** that person is able to verify it at will;
+- **(e)** the volume of work is limited only by the resources one is willing to spend.
+
+---
+
+# 2. Research framework
+
+**Object of study.** The process by which an organization creates and changes software systems whose scale and heterogeneity exceed what any individual participant can comprehend.
+
+**Subject of study.** The conditions and mechanisms under which that process can be carried out by autonomous agents while intent, criteria and the possibility of verification remain with a person.
+
+**Hypothesis.** A change can be accepted without a person who understands the system **if and only if** the criteria of acceptability are stated before execution and conformance to them is established by evidence produced independently of the executor. Each condition is load-bearing: criteria stated after the fact describe a result rather than judge it, and evidence produced by an executor about its own work establishes nothing.
+
+**Methods.** Derivation of requirements from the goal; comparative analysis of existing systems and of the practice of large-scale automated change; testing the derived structure against documented industry failure modes; end-to-end runs of a single change through the whole structure, whose purpose is to break it.
+
+**Claim to novelty.** Three positions, none of which is current practice. Acceptance without a reader is treated as the governing constraint rather than as a downstream quality concern. Knowledge of the system is divided by *derivability from artifacts* rather than by document type, and the non-derivable remainder is treated as harvestable only as a byproduct of decisions people are already making. The boundary of necessary human participation is treated as a computed and contracting quantity rather than as a fixed configuration.
+
+**Practical significance.** The framework separates the parts of the problem that platform vendors are commoditizing, and which should therefore be consumed rather than built, from the parts that remain specific to how an organization defines *correct* and *done*, and which must therefore be built.
+
+---
+
+# 3. How this is described
+
+## 3.1 Requirements on any object
+
+An object is anything that passes from one area to another. Without every one of these it cannot be handed over mechanically.
+
+| | Requirement | Meaning | Why |
+|---|---|---|---|
+| **O1** | Identity | A stable identifier surviving re-creation, citable from a record or a decision | Otherwise a decision cannot be tied to what it was made about |
+| **O2** | Schema | Fixed structure, not free text | An area whose output is prose does not compose with the next |
+| **O3** | Provenance | Derived from an artifact, asserted by a person, or produced by an agent | Distinguishes the established from the supposed |
+| **O4** | Confidence | A stated degree of certainty, on every object | A supposition presented as fact silently corrupts everything downstream |
+| **O5** | Validity | Until when it holds, and what invalidates it | The substrate is non-stationary; evidence has a shelf life |
+| **O6** | Ownership | The place in the estate it pertains to | So it surfaces where it applies and expires with what it describes |
+
+O1, O3, O4 and O6 apply universally and are not restated per object in §4.
+
+## 3.2 Parameters of any area
+
+Ten. Without any one of them an area cannot run unattended.
+
+| | Parameter | What must be stated | From |
+|---|---|---|---|
+| **P1** | Inputs | Which objects are consumed, and whence | (a), (c) — an unnamed input is supplied by a person |
+| **P2** | Outputs | Which objects are produced, in what form | (a) — an output that is not an object cannot be consumed |
+| **P3** | Decision rule | What decision is made here, by what rule | (c) — a decision without a rule requires a person |
+| **P4** | Completion | When work on an item is finished, including when it stops without success | (b) — criteria cover termination, not only acceptance |
+| **P5** | Invariant | What holds throughout, regardless of outcome | This is what is checked, as against what is declared |
+| **P6** | Failure semantics | How the area fails, and how failure differs from a wrong result | (a) — automation without defined failure yields silent corruption instead of an error |
+| **P7** | Evidence emitted | What it leaves so its own work can be checked later | (d) |
+| **P8** | Cost and stopping | What is consumed, how measured, when cut off | (e) |
+| **P9** | Authority required | Which permissions its actions need | (c) |
+| **P10** | Escalation | When it must draw in a person | (c), (d) |
+
+## 3.3 The test
+
+> **The output of an area is consumed by the next with no person in between.**
+
+If a person is needed to carry a result across a boundary, the output is not an object with a schema, and no automation inside the areas repairs that.
+
+Conversation, prose, dashboards and reports are therefore **not objects**. They may be rendered *from* objects; nothing passes between areas in that form.
+
+---
+
+# 4. Objects
+
+## Intent and specification
+
+| Object | What it is | Schema | Validity |
+|---|---|---|---|
+| **`Intent`** | A person's statement of what is to be achieved. The only object originating outside the system | statement; requester; priority; deadline | Until satisfied or withdrawn |
+| **`ChangeClass`** | A category of change defined by *how its acceptance is decided*, not by what it touches. See §5 | name; decidability; admissible evidence kinds; required evidence set; default scope shape; default budget profile | Long-lived; revised only by area 13 on measurement |
+| **`Criterion`** | One condition on an acceptable result | statement; decision procedure (machine or human); required evidence kind; threshold | Fixed with its specification |
+| **`AcceptanceCriteria`** | The criteria for one specification | criteria; completeness marker | Fixed with its specification |
+| **`TerminationCondition`** | When work stops without acceptance | condition; action on trigger | Fixed with its specification |
+| **`Scope`** | The declared region a change may touch | included; excluded; class default | Fixed with its specification |
+| **`Specification`** | The complete statement of a change to be made and judged | `Intent`; **default** `ChangeClass`; `AcceptanceCriteria`; `TerminationCondition`; `Scope` | **Immutable after admission.** A changed intent produces a new specification, never an edit |
+
+## The estate
+
+| Object | What it is | Schema | Validity |
+|---|---|---|---|
+| **`Statement`** | One assertion about the estate; the atom of the model | subject; relation; object; source artifact; derivation method | Until the source artifact changes — validity is per statement, not per model |
+| **`EstateModel`** | The body of statements and the queries answerable over it. Not a document | statements; query interface; freshness per region; observational adequacy per region; **reachability** — which consumers no change to the estate can reach | Never wholly valid or wholly stale; measured by region |
+| **`AreaOfEffect`** | The region a change can affect | node set; derivation; computed-at; estate version | **Short.** Invalidated by any landing intersecting it |
+| **`Testimony`** | A claim held on a person's word rather than derived, drawn from a decision they were already making | statement; the decision it came from; bound places; falsifier; expiry | Expires with what it was drawn from; never outranks a statement derived from current code |
+
+## Work
+
+| Object | What it is | Schema | Validity |
+|---|---|---|---|
+| **`WorkUnit`** | A bounded, executable piece of work with its own criteria | specification ref; **its own `ChangeClass`**; `Scope`; `AreaOfEffect`; inherited criteria; dependencies; size estimate | Until admitted, or until its area of effect is invalidated while waiting |
+| **`ChangePlan`** | The ordered phases realising one specification where they cannot all land at once | phases; unit membership; wait conditions, including waits on observation; **criterion that every intermediate state is a valid, shippable system**; rollback position per phase | Until every phase lands or the plan is abandoned; abandonment leaves the system at a named intermediate state, never mid-phase |
+| **`ContextBundle`** | The knowledge supplied to an executor for one unit | statements included; selection rule; estate version; budget consumed | One execution only; never reused |
+| **`AdmissionDecision`** | The decision to commit resources, or not | unit; outcome (admitted, held, refused); deciding condition; **the confidence of the estate edges it rested on**; decided-at | Held decisions expire into escalation at a stated age |
+| **`Grant`** | Permissions bound to one unit | unit; permitted operations; targets; credential reference; expiry | Expires with the run; never renewed by the agent holding it |
+| **`Conflict`** | A detected interference between two units | units; intersecting region; the evidence it would invalidate | Until one of the two terminates |
+
+## Result and evidence
+
+| Object | What it is | Schema | Validity |
+|---|---|---|---|
+| **`Candidate`** | A proposed change; never applied by what produced it | unit; artifact set; executor identity and version; produced-at | Until its supporting evidence expires |
+| **`Trace`** | The record of one run | run id; steps; tool calls; input and output digests; executor version; timestamps | Retained for the lifetime of the decisions it supports. Append-only; not writable by its subject |
+| **`Evidence`** | An artifact supporting one claim about a candidate **or about a transformation** | claim; **subject (candidate or transformation)**; kind (test run, static analysis, runtime observation, human affirmation, proof of a transformation's property); producer; **independence from the executor, and how established**; obtained-at | **Has a shelf life**, bound to the estate version and executor version it was obtained against |
+| **`Verdict`** | The acceptance decision on a candidate | candidate; per-criterion outcome (met, failed, **undecided**); evidence refs; overall; decided-by; **state (settled or deferred)**; observation window and baseline where deferred | Until invalidated by a landing touching its area of effect. A verdict that never closes is a failure, not a permanent state |
+| **`LandingPlan`** | The order in which accepted candidates enter | ordered entries; expected invalidations; re-establishment required before each | One landing cycle |
+
+## Governance
+
+| Object | What it is | Schema | Validity |
+|---|---|---|---|
+| **`Budget`** | The allowance against which work is admitted | owner; period; limit; consumed; weighting by class | One accounting period |
+| **`CostRecord`** | Consumption attributable to one unit | unit; tokens; steps; elapsed; money; attributed-to | Permanent |
+| **`Escalation`** | A request for human involvement, with its ground | origin area; ground; unit; raised-at; respondent; resolution; **behaviour on no response** | Expires; expiry is itself a recorded outcome |
+| **`Baseline`** | The present way of working, measured on the same workload | workload description; period; values; method | Re-established when the workload changes materially |
+| **`Metric`** | One measured figure | name; population; `ChangeClass`; period; value; method | One period |
+
+## Invariants across objects
+
+1. **A `Specification` is immutable after admission.** Otherwise criteria are shaped by what execution turned out to produce, and the hypothesis fails at its first condition.
+2. **A `Candidate` is never applied by the area that produced it.** Execution proposes; landing disposes.
+3. **`Evidence` records its independence from the executor and how that is established.** Evidence that cannot state this does not count toward a verdict.
+4. **A `Trace` is not writable by its subject.** A record an agent can edit is not a record.
+5. **Evidence about a transformation is amortized across its applications.** Establishing a property of a transformation once, rather than of each candidate, is what stops assurance cost scaling with volume. Any edit to the transformation invalidates every verdict resting on it.
+6. **A deferred `Verdict` lives inside a reversibility horizon.** Reversibility is not a property a change has or lacks; it shortens as other work builds on the change. A deferred verdict is admissible only while its observation window fits inside that horizon. Where the horizon expires first, a person decides at that moment — never quietly abandoned, never extended past the point of no return.
+
+---
+
+# 5. Change classes
+
+A class is defined by **how the acceptance of a change is decided** — not by what it touches, how large it is, or who asked. Two changes in the same file belong to different classes if one can be accepted on evidence and the other cannot.
+
+A class is assigned **per `WorkUnit`**; the `Specification` carries only a default. One intent legitimately spans several: a contract change is C1 for the producer's existing callers, C3 per consumer, C4 while old-shape traffic drains, and C5 at the residue.
+
+Acceptance requires an **oracle** — something that can pronounce on a result independently of what produced it. Classes are ordered by which oracle decides them.
+
+| | Class | The claim | Oracle | Decidability |
+|---|---|---|---|---|
+| **C1** | Behaviour-preserving | Nothing observable changed | The prior system itself | Full, given observational adequacy |
+| **C2** | Defect repair | This wrong behaviour is now right, and nothing else changed | A reproduction, plus C1's oracle for the rest | Full, given a reproduction exists |
+| **C3** | Contract-bounded | The system now satisfies this stated contract | The contract — types, schema, interface, property, policy | Full within the contract |
+| **C4** | Observable-effect | The deployed system behaves better against a measured quantity | Production observation against a baseline | Partial, and **delayed** |
+| **C5** | Judgment-bound | This is what was wanted | A person | None, by construction |
+
+**C1 — Behaviour-preserving.** Dependency and version upgrades, framework migrations, mechanical refactoring, dead-code removal, moves and renames. Two sub-modes: **proved**, where the transformation is behaviour-preserving by construction and acceptance costs nothing because nothing need be run; and **tested**, where behaviour is compared before and after.
+
+The proof rests on an equivalence claim, and **that claim must be recorded with its provenance.** Where it is derived — the compiler establishes it, the transformation is total over the semantic tree — the class holds. Where it comes from documentation or a person it is `Testimony`, and **an equivalence claim resting on testimony demotes the change to C1 tested.** Otherwise the strongest guarantee in the catalogue rests on an unexamined assertion that no downstream oracle can catch, because the proof is what replaced the oracle.
+
+The binding difficulty in C1 is never the oracle but **observational adequacy**. A second limit is inherent: where a language permits reflection or string-formed invocation, the set of call sites is not statically decidable. Criteria are written to what is decidable, with the residue stated, never to what merely sounds complete.
+
+**C2 — Defect repair.** Two halves, both needing evidence: the reported behaviour is corrected, and nothing else moved — the second half is C1. Decidability is conditional on a reproduction, whose own acceptance is decidable: the test must fail on the unmodified system, and fail for the stated reason rather than incidentally. **A defect without a reproduction is not a C2 change; it is a request for a reproduction, followed by one.**
+
+**C3 — Contract-bounded.** The criterion is an explicit statement the result must satisfy. What remains undecided is whether the contract was the right one; that residue belongs to area 1, where the criterion was written, and must not be smuggled into area 5 as though assurance could settle it.
+
+**C4 — Observable-effect.** The quantity does not exist until the change is exposed, so acceptance splits: before landing, only safety; after landing, effect against a baseline, completing or reversing the verdict. **C4 requires reversibility.** An irreversible change whose acceptance depends on observed effect is not C4 — it is C5, and needs a person before it lands.
+
+**C5 — Judgment-bound.** New user-facing behaviour, product decisions, anything whose criterion is desirability. No oracle exists and none can be built. The task is not to decide but to **reduce what must be judged**: establish everything establishable, hand the person a bounded decision rather than a diff, record the decision as testimony. **C5 does not become automatable. It becomes cheaper to judge.**
+
+## Modifiers
+
+These cut across the classes and must not be turned into any.
+
+**Observational adequacy** — whether behaviour in a region can be pinned down. Unknown by default in a brownfield estate, and it decides whether C1 and C2 are decidable *here* rather than in principle.
+
+**Reachability** — whether every consumer of a changed contract can be changed at all. Shipped applications, third parties, anything already in someone else's hands. **A contract change with an unreachable consumer cannot complete without a human decision, and that is knowable at area 1, before any work is done.**
+
+**Blast radius** — how far effects travel before anything detects them. Governs admission, not acceptance.
+
+**Reversibility** — whether a change can be withdrawn cheaply, and **for how long**; the horizon shortens as other work builds on it.
+
+## Order of capability
+
+**C1 proved → C1 tested → C2 → C3 → C4 → C5.** Each oracle is weaker than the last. The first is where the strongest guarantees and the existing industrial practice are. The last never arrives and should not be aimed at.
+
+---
+
+# 6. The areas
+
+Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13 are not steps at any point on that path; they hold across all of it at once. Each is derived from a clause of the goal, and stated as object, subject, aim, criterion of resolution, then P1–P10.
+
+## Part I — the path a change travels
+
+### 1. Intent and Criteria — *from (b)*
+
+**Object.** The act of stating what is to be changed and what result would be acceptable. **Subject.** The form and completeness of that statement, sufficient for execution and judgement without further participation by its author. **Aim.** A representation of intent and criteria fit for machine execution and machine judgement.
+**Criterion of resolution.** An executor raises no questions against the specification, and a judge decides without consulting its author.
+
+- **P1** `Intent`, `EstateModel`, the catalogue of `ChangeClass`.
+- **P2** `Specification`, containing a default `ChangeClass`, `AcceptanceCriteria`, `TerminationCondition`, `Scope`.
+- **P3** A specification is complete when every criterion is either decidable by machine or explicitly marked as requiring a person. What is decidable is a property of the class, not of the individual intent.
+- **P4** Completeness reached, or ambiguity declared irreducible.
+- **P5** Criteria are fixed before execution and are not altered by it.
+- **P6** An intent that cannot be expressed as criteria is a failure of this area, not a poor specification passed downstream.
+- **P7** What each criterion is grounded in, and who affirmed it.
+- **P8** Clarifying exchanges with a person; stop when further exchange stops raising decidability.
+- **P9** Read the estate model. No write.
+- **P10** An undecidable criterion, or a contradiction between criteria.
+
+### 2. Work Formation — *from (a), at any scale*
+
+**Object.** The conversion of an intent into units of work within a system spanning many components. **Subject.** The dependence of a unit's executability and reliability on its boundaries and size. **Aim.** A rule by which units with a known area of effect are derived from an intent and knowledge of the estate.
+**Criterion of resolution.** For a typical intent the plan is obtained reproducibly without a person, and covers the specification.
+
+- **P1** `Specification`, `EstateModel`.
+- **P2** A `ChangePlan` over a set of `WorkUnit`, each with its own `ChangeClass`, `AreaOfEffect`, inherited criteria and `Scope`. Where phases must be separated in time, the plan carries the wait conditions and the requirement that every intermediate state is a valid, shippable system — a criterion belonging to no single unit. Where a specification is not decidable as it stands, the plan includes **preparatory units** — a reproduction, characterization of behaviour in an inadequately observed region — whose own acceptance is decidable and on which the original unit depends.
+- **P3** Divide until each unit's area of effect is computable and its criteria decidable within it; do not divide past the point where criteria cease to be verifiable.
+- **P4** The units cover the specification, and none exceeds the size at which completion probability falls below the declared bound.
+- **P5** The union of unit criteria implies the specification's criteria — **but only where the estate query producing the scope was complete**; where completeness is not derivable, the residue is stated on the specification rather than assumed away.
+- **P6** A specification that cannot be covered returns to area 1; it is not passed on in parts. Emitting a unit that cannot be accepted, where a preparatory unit would have made it acceptable, is a failure of this area.
+- **P7** The derivation of each unit's boundary and area of effect.
+- **P8** Estate queries per unit; stop when further division stops reducing area of effect.
+- **P9** Read the estate model. No write.
+- **P10** Coverage incomplete, or an area of effect that cannot be bounded.
+
+### 3. Admission — *from (a) and (e)*
+
+**Object.** The decision to start work on a unit, or not. **Subject.** The conditions that must hold before resources are committed. **Aim.** A single gate at which conflict, allowance and permission are settled together, before execution rather than after it.
+**Criterion of resolution.** Work that could not have been accepted is not started, and the reason it was not started is recorded.
+
+*Why separate.* Conflict detected after execution has already been paid for. Three foundations — landing, economy and authority — meet the path at exactly one point, and that point is a decision to commit resources.
+
+- **P1** Pending `WorkUnit`s with their `AreaOfEffect`s, `EstateModel` including work in flight, `Budget`, policy.
+- **P2** `AdmissionDecision`, `Grant`, `Conflict`.
+- **P3** A unit is admitted when its area of effect does not intersect an unfinished unit's such that either's evidence would be invalidated, an allocation exists, and a grant no wider than its `Scope` can be issued. Failing any of the three it is held, not started.
+- **P4** Every pending unit admitted, held with a stated reason, or refused.
+- **P5** No resources are committed to a unit that could not have been accepted had it succeeded.
+- **P6** Admitting a unit later found to be in conflict is a failure of this area, not of landing. Holding one that could have run is a lesser failure, and must be visible as queueing rather than as silence.
+- **P7** Which of the three conditions decided it, against what, and **at what confidence** — a conflict found through a matched contract edge is only as certain as that edge.
+- **P8** The gate must cost far less than the work it withholds; a unit held past a stated age escalates rather than waiting indefinitely.
+- **P9** Issue grants within policy; refuse and hold work. No ability to widen policy.
+- **P10** A unit held past its age limit; a conflict no ordering resolves; a grant wider than policy allows.
+
+### 4. Execution — *from (a), by autonomous agents*
+
+**Object.** The work of an executor on one unit. An autonomous agent is one kind of executor; a deterministic transformation is another, preferred wherever the class admits it. **Subject.** The behaviour of execution on a substrate that is unreliable and non-stationary. **Aim.** Execution whose failures are detectable and whose results remain comparable across versions of the executor.
+**Criterion of resolution.** A failure of execution is distinguishable from a failure of the intent, and every result carries what produced it and when.
+
+- **P1** `WorkUnit`, `ContextBundle`, `Grant` and `AdmissionDecision`.
+- **P2** `Candidate`, `Trace`.
+- **P3** Act within `Scope`, stop on `TerminationCondition`, produce a candidate and never a change to the live system. **Where the class permits a deterministic transformation, using an agent instead is a defect** — it makes a reproducible result unreproducible and costs more.
+- **P4** A candidate exists, the termination condition is met, or the step budget is exhausted.
+- **P5** No effect outside the declared `Scope` and `Grant`; the estate itself is not modified.
+- **P6** Substrate failure — tool error, capacity exhaustion, timeout — is distinguished from task failure, the inability to satisfy the criteria. They are retried differently and only the second is informative about the work.
+- **P7** `Trace`, with the identity and version of the executor at the time of the run.
+- **P8** Tokens, steps, tool calls, elapsed time; a stopping rule for non-convergence. **A budget exhaustion is diagnosed before it is retried**, or the system pays repeatedly for a missing input.
+- **P9** Exactly the `Grant`, enforced outside the agent.
+- **P10** Repeated substrate failure, or task failure where the criteria were judged achievable.
+
+### 5. Assurance — *from (b) and (c)*
+
+**Object.** The establishment of conformance between a result and its criteria. **Subject.** The composition and sufficiency of the evidence that replaces a person reading the result. **Aim.** An acceptance decision reached on evidence.
+**Criterion of resolution.** The share of changes accepted without human reading is measurable, and the share wrongly accepted is bounded and observable.
+
+- **P1** `Candidate`, `Specification`, `EstateModel`, `Trace`.
+- **P2** `Verdict`, with the `Evidence` supporting it.
+- **P3** Accept only when every criterion is supported by evidence produced independently of the executor; otherwise reject or leave undecided. Which evidence suffices is fixed per `ChangeClass` in advance, not chosen per candidate.
+- **P4** A verdict exists for every criterion. A verdict on an effect that does not exist before exposure is **deferred rather than absent**: opened here with its observation window and baseline, closed by area 13 after landing.
+- **P5** Evidence is not produced by the agent that produced the candidate.
+- **P6** Inability to obtain evidence is an **undecided** verdict, not a rejection; the two must not be conflated.
+- **P7** The evidence itself, and how each item was obtained.
+- **P8** Verification runs; stop when the cost of assurance exceeds the value of the change — a decision that is itself recorded.
+- **P9** Tests and analyses in isolated environments, and **read production observations**, without which no C4 criterion is decidable. No write anywhere.
+- **P10** An undecided verdict, or a criterion marked as requiring a person.
+
+### 6. Landing — *from (a), since scale means simultaneity*
+
+**Object.** The entry of accepted changes into a system in operation. **Subject.** Whether evidence gathered before entry still holds at the moment of entry. **Aim.** Entry under which nothing takes effect on evidence another entry has already invalidated.
+**Criterion of resolution.** Joint incorrectness in production is traceable to a specific invalidation that was missed.
+
+*Conflict detection is not here.* It is area 3, because it must precede the commitment of resources.
+
+- **P1** Accepted `Candidate`s with their `Verdict`s and `Evidence`, `EstateModel`.
+- **P2** `LandingPlan`, and the landed change.
+- **P3** A candidate enters only while its supporting evidence is valid; where an earlier entry invalidated it, the evidence is re-established before entry rather than the candidate dropped.
+- **P4** Every accepted candidate has entered, awaits re-establishment, or has been reversed.
+- **P5** Nothing takes effect on expired or invalidated evidence. A candidate carrying a deferred verdict enters only while it remains reversible, and remains reversible until that verdict closes.
+- **P6** Joint incorrectness in production is a failure of this area. Conflict that should have prevented the work from starting is a failure of area 3.
+- **P7** What each entry invalidated, and what was re-established before the next.
+- **P8** Re-verification after invalidation, and work waiting on it.
+- **P9** Write to the live system, narrowly and per target.
+- **P10** Evidence that cannot be re-established; a reversal that fails.
+
+## Part II — foundations
+
+### 7. Estate Representation — *from (a), autonomy*
+
+**Object.** An organization's knowledge of its own software systems. **Subject.** The provenance and trustworthiness of that knowledge where the system's self-description is unreliable. **Aim.** A representation answering questions on demand, each answer carrying its provenance and confidence.
+**Criterion of resolution.** *What does this change affect* is answered together with what confirms the answer.
+
+- **P1** Code, configuration, version history, build and deployment records, runtime telemetry, `Testimony`.
+- **P2** `EstateModel`; answers to queries, chief among them `AreaOfEffect`, the observational adequacy of a region, and which consumers lie beyond the reach of any change.
+- **P3** A statement enters with its provenance and confidence; where a derived statement and an asserted one conflict, **the derived one prevails**.
+- **P4** Never complete. Measured by freshness, not coverage.
+- **P5** Every statement carries provenance, confidence and validity. Nothing is served as fact without a source.
+- **P6** Serving a stale answer as current is the failure mode of this area.
+- **P7** For every answer, what confirms it.
+- **P8** Indexing and re-derivation, incremental rather than whole-estate.
+- **P9** Read across artifacts and telemetry. No write.
+- **P10** A question unanswerable to the confidence the asking decision requires.
+
+### 8. Record — *from (d)*
+
+**Object.** The trace left by agent work. **Subject.** The composition of a record sufficient to reconstruct any step after the fact. **Aim.** An always-on record making verification possible at any moment.
+**Criterion of resolution.** Any step of any run is reconstructible without recourse to the executor that performed it.
+
+- **P1** Everything every area emits. **P2** `Trace`, and the durable binding between a `Verdict` and its evidence.
+- **P3** Record unconditionally; nothing is written selectively on expected interest.
+- **P4** A record closes when the work it covers reaches a terminal state.
+- **P5** Append-only, and not writable by the agent it describes.
+- **P6** **Failure to record is failure of the work**: work that cannot be recorded must not proceed.
+- **P7** The record is the evidence; its own integrity must be attestable.
+- **P8** Storage and retention, bound to the lifetime of the decisions it supports.
+- **P9** Write to the record store only. **P10** Integrity broken or store unavailable.
+
+### 9. Economy — *from (e)*
+
+**Object.** The consumption of resources by agent work. **Subject.** The mechanism bounding consumption against unbounded demand. **Aim.** Volume governed by declared limits rather than reported after the fact.
+**Criterion of resolution.** Exceeding a limit is prevented before the spend, not discovered after it.
+
+- **P1** `Budget`, `CostRecord`, pending units, the priority of the intents behind them. **P2** Admission decisions, allocations, stop signals.
+- **P3** Work is admitted only against an existing allocation; exceeding a limit blocks before the spend.
+- **P4** Continuous; settled per accounting period.
+- **P5** No work runs without an allocation attributable to it.
+- **P6** Unattributable spend is a failure — an agent whose cost cannot be attributed must not run.
+- **P7** Cost per unit of verified change, by class.
+- **P8** The accounting must be negligible against what it governs.
+- **P9** Refuse and stop work. No ability to alter budgets. **P10** Exhaustion against work classified as mandatory.
+
+### 10. Accumulation — *from (e)*
+
+**Object.** The carrying of knowledge from one task to the next. **Subject.** The conditions under which what has been accumulated remains true. **Aim.** Reduced repayment of orientation cost, without forming a second corpus that decays as documentation decays.
+**Criterion of resolution.** A second task in the same area costs less than the first, and accumulated statements do not diverge from the system undetected.
+
+- **P1** `Trace`, `Verdict`, `Conflict`, decisions made by people during escalation. **P2** `Testimony`, bound to places in the estate.
+- **P3** Capture only as a byproduct of a decision already being made; never as a separate request for someone to write something down.
+- **P4** Continuous.
+- **P5** Testimony carries what it was drawn from, expires with it, and never outranks a statement derived from current code.
+- **P6** Unfalsifiable testimony is worse than none and is refused at capture.
+- **P7** The decision it was drawn from. **P8** The cost of a second task in the same area relative to the first.
+- **P9** Read traces and verdicts; write only to the testimony store. **P10** None. Accumulation must never block work.
+
+### 11. Human Boundary — *from (c) and (d)*
+
+**Object.** Human participation in agent work. **Subject.** The rule determining when it is necessary. **Aim.** Participation only where required, with that region contracting as evidence accumulates.
+**Criterion of resolution.** Participation per unit of change is measured and declining, and cases where it was required but did not occur are detectable.
+
+- **P1** `Escalation` from any area; historical verdicts and their outcomes. **P2** Routing to a person, and revision of the escalation rules themselves.
+- **P3** A person is drawn in when a decision is undecidable on evidence, when authority is required, or when the consequence exceeds a declared threshold.
+- **P4** Every escalation resolved or expired, expiry being itself a recorded outcome.
+- **P5** A case that met the escalation rule and did not reach a person is detectable afterwards.
+- **P6** **Silent non-escalation is the failure mode of this area**; late escalation is the lesser one.
+- **P7** Participation per unit of change, and its trend. **P8** Human time, accounted as the scarcest resource there is.
+- **P9** Interrupt and hold work. **P10** This area is the escalation target; what happens when a person does not respond must itself be defined.
+
+### 12. Authority — *from (c)*
+
+**Object.** The actions an agent performs on real systems and data. **Subject.** Limits on permissible action, declared in advance. **Aim.** Permissions granted before execution and enforced independently of the agent.
+**Criterion of resolution.** No action outside the declared limits is performable, and every attempt is recorded.
+
+- **P1** `WorkUnit`, declared policy. **P2** `Grant`, bound to one unit.
+- **P3** A grant is the narrowest set sufficient for the declared `Scope`; anything wider is refused rather than warned about.
+- **P4** A grant exists before execution starts, or execution does not start.
+- **P5** Enforcement lies outside the agent. An agent cannot widen its own grant.
+- **P6** A refused action is a normal outcome, reported to the requester rather than retried by another route.
+- **P7** Every attempted action against its grant, allowed or refused. **P8** Negligible by requirement; enforcement must not become a throughput constraint.
+- **P9** Issue and revoke grants. This is the root of authority and must itself be governed by people. **P10** A request for a grant wider than policy allows.
+
+### 13. Measurement — *from the hypothesis*
+
+**Object.** The observation of the system's own behaviour. **Subject.** The instruments and the baseline against which any claim about the system is checked. **Aim.** Every criterion of resolution in this document rendered into something actually measurable.
+**Criterion of resolution.** The hypothesis can be confirmed or refuted on evidence rather than argued.
+
+*Why an area and not a method.* An instrument existing only in the research measures a prototype and then goes away. The claim is about a system in operation, so the system must observe itself.
+
+- **P1** `Trace`, `Verdict`, `CostRecord`, `Escalation`, landed changes and their later outcomes, `Baseline`. **P2** `Metric` series, per `ChangeClass`.
+- **P3** A measurement counts only against a population and a class stated in advance; a figure without both is not published.
+- **P4** Continuous, settled per period.
+- **P5** The baseline is measured on the same workload as the comparison, otherwise no comparison is made at all.
+- **P6** A metric that cannot detect the failure it is meant to detect is worse than none. The governing case: **a wrongly accepted change is by construction unread, so it is discovered only later — from a defect, an incident or a reversal — and the lag between acceptance and discovery is the instrument's resolution.**
+- **P7** How each figure was obtained, over what population, in what period. **P8** Measurement must not perturb what it measures.
+- **P9** Read records and outcomes. No write anywhere else. **P10** A metric diverging from target beyond a stated period; loss of the baseline.
+
+---
+
+# 7. The loop
+
+Areas 1–6 describe the path of one change. They do not describe the system, because the path feeds back into the foundations, and the behaviour of the whole over time is a property of that feedback rather than of the path.
+
+**What returns.** Verdicts and traces become testimony, which enters the estate representation and thereafter shapes work formation and the context supplied to execution. Outcomes of escalations revise the escalation rules themselves, which is what allows the human boundary to contract. Cost records govern admission. Landed changes invalidate statements about the estate and evidence resting on them.
+
+**Delays.** Every return has a lag. A system ignoring them acts on a picture stale by exactly the length of its own feedback.
+
+**What must converge.** Human participation per unit of change, downward. Cost per unit of verified change, downward or stable. The share of undecided verdicts, downward.
+
+**What can diverge — the failure mode of the loop.** Testimony that shapes criteria without being falsifiable lets the system reinforce its own error: it accepts what it accepted before, for reasons it recorded itself. Two rules hold this open — testimony that is unfalsifiable is refused at capture, and evidence must be independent of the executor.
+
+---
+
+# 8. Validation
+
+Two changes were carried end to end through the whole structure. Their purpose was falsification, and the eleven findings below are already applied above; they are recorded because each marks a place where the obvious design was wrong.
+
+## Run 1 — the easiest class
+
+A deprecated `Clock.nowUtc()` replaced by `Clock.instant()` across 200 repositories. C1 proved: mechanical, behaviour-preserving, no interface change, no production access.
+
+Outcome: **four human touchpoints against two hundred repositories**; 7 units of 200 escaped to a human decision. Cost was dominated by estate queries and verification, not by producing the changes — **for this class generation is nearly free and assurance is the bill.**
+
+- **F1** A proved equivalence claim usually rests on testimony, not derivation; where it does, the change is demoted to C1 tested.
+- **F2** Even the easiest class has an undecidable residue: call sites are not statically decidable where reflection exists.
+- **F3** The invariant that unit criteria imply specification criteria holds only where the estate query was complete.
+- **F4** The executor need not be an agent, and where a deterministic transformation will do, using an agent is a defect.
+- **F5** Evidence may attach to a transformation rather than a candidate, amortized across every application. This is what stops assurance cost scaling with volume.
+
+## Run 2 — a change across a contract
+
+A required `currency` field on `POST /orders`: five internal callers, an event carrying the same shape, and a mobile application already installed on users' devices.
+
+Outcome: three human touchpoints, but the shape of the work is entirely different — phased, waiting, and terminating in a decision no system can make. **A C5 decision reached by a C3 route**, and the right outcome: the person is handed a bounded question with everything establishable already established.
+
+- **G1** Class belongs to the work unit, not the specification; one intent spans C1, C3, C4 and C5.
+- **G2** Work formation produces a plan, not a set: phases, waits on observation, and the requirement that every intermediate state is shippable.
+- **G3** The estate has a boundary; consumers exist that no change reaches, and a contract change with one is knowably incompletable without a person, before any work is done.
+- **G4** Reversibility is a horizon that shortens, not a boolean.
+- **G5** Conflict detection inherits the confidence of the contract edges it rests on.
+- **G6** Assurance needs read access to production; no C4 criterion is decidable in an isolated environment.
+
+**Untested.** A conflict ordering cannot resolve. A reversal that fails midway. Two intents competing for the same scarce person. An estate region whose representation is wrong rather than stale. Agent executors disagreeing on the same unit.
+
+---
+
+# 9. Ordering, and what to build
+
+**Within the research.** Areas 1, 5 and 11 are defined through one another — criteria, conformance and the human boundary cannot be formulated separately — and are the natural starting point. Area 7 attempted before them degenerates into building a larger index without a statement of what it is for. Area 13 must be in place before any claim of improvement is made, and therefore before implementation rather than after it.
+
+**Against the market.** Platform vendors are commoditizing execution, context transport, memory, isolation and access control — areas 4, 8, 10, 12 and part of 7. They are not building areas 1, 2, 3, 5, 6, 11 and 13, and will not: those are specific to how an organization defines *correct* and *done*, and do not sell as a platform. **Consume the first set. Build the second.**
+
+**The first increment.** Not the estate model and not an orchestrator, but a thin vertical through the whole structure on **C1 proved**, where acceptance is decidable and the oracle is free — then widen by class. The framework's reach grows by its ability to generate the preparatory work that converts an undecidable situation into a decidable one.
