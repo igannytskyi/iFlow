@@ -1,7 +1,7 @@
 # iFlow — Object Catalogue
 
 **Status:** approved, provisional
-**Version:** 1.2 — 2026-09-02
+**Version:** 1.3 — 2026-09-02
 **Requirements on objects:** [03-schema.md](./03-schema.md), Part A
 **Objects are used in:** [04-areas-specified.md](./04-areas-specified.md)
 
@@ -21,14 +21,14 @@ Per `03` Part A, **identity (O1), provenance (O3), confidence (O4) and ownership
 | **`AcceptanceCriteria`** | The set of criteria for one specification. | criteria; completeness marker | Fixed with its specification |
 | **`TerminationCondition`** | Conditions under which work stops without acceptance. | condition; action on trigger | Fixed with its specification |
 | **`Scope`** | The declared region of the estate a change may touch. | included; excluded; derived-from class default | Fixed with its specification |
-| **`Specification`** | The complete statement of a change to be made and judged. | `Intent`; `ChangeClass`; `AcceptanceCriteria`; `TerminationCondition`; `Scope` | **Immutable after admission.** A changed intent produces a new specification; it does not edit an existing one |
+| **`Specification`** | The complete statement of a change to be made and judged. | `Intent`; **default** `ChangeClass`; `AcceptanceCriteria`; `TerminationCondition`; `Scope` | **Immutable after admission.** A changed intent produces a new specification; it does not edit an existing one |
 
 ## Group II — The estate
 
 | Object | What it is | Schema (O2) | Validity (O5) |
 |---|---|---|---|
 | **`Statement`** | One assertion about the estate. The atom of the estate model. | subject; relation; object; source artifact; derivation method | Until the source artifact changes; validity is per statement, not per model |
-| **`EstateModel`** | The body of statements together with the queries answerable over it. Not a document. | statements; query interface; freshness per region; **observational adequacy per region** — how well behaviour there can be pinned down | Never wholly valid or wholly stale; measured by region |
+| **`EstateModel`** | The body of statements together with the queries answerable over it. Not a document. | statements; query interface; freshness per region; **observational adequacy per region** — how well behaviour there can be pinned down; **reachability** — which consumers of the estate no change to it can reach | Never wholly valid or wholly stale; measured by region |
 | **`AreaOfEffect`** | The region a given change can affect. | node set; derivation; computed-at; estate version | **Short.** Invalidated by any landing intersecting it |
 | **`Testimony`** | A non-derivable statement drawn from a decision a person was already making. | statement; decision it was drawn from; bound places; falsifier; expiry | Expires with what it was drawn from; never outranks a statement derived from current code |
 
@@ -36,9 +36,10 @@ Per `03` Part A, **identity (O1), provenance (O3), confidence (O4) and ownership
 
 | Object | What it is | Schema (O2) | Validity (O5) |
 |---|---|---|---|
-| **`WorkUnit`** | A bounded, executable piece of work with its own criteria. | specification ref; `Scope`; `AreaOfEffect`; inherited criteria; dependencies; size estimate | Until admitted, or until its area of effect is invalidated while it waits |
+| **`WorkUnit`** | A bounded, executable piece of work with its own criteria. | specification ref; **its own `ChangeClass`**, which need not be the specification's default; `Scope`; `AreaOfEffect`; inherited criteria; dependencies; size estimate | Until admitted, or until its area of effect is invalidated while it waits |
 | **`ContextBundle`** | The subset of knowledge supplied to an agent for one unit. | statements included; selection rule; estate version; budget consumed | One execution only; never reused across runs |
-| **`AdmissionDecision`** | The decision to commit resources to a unit, or not. | unit; outcome (admitted, held, refused); deciding condition; decided-at | Held decisions expire into escalation at a stated age |
+| **`ChangePlan`** | The ordered phases by which one specification is realised, where they cannot all land at once. | phases; unit membership; wait conditions, including waits on observation; **criterion that every intermediate state is a valid, shippable system**; rollback position per phase | Until every phase has landed or the plan is abandoned; abandonment leaves the system at a named intermediate state, never mid-phase |
+| **`AdmissionDecision`** | The decision to commit resources to a unit, or not. | unit; outcome (admitted, held, refused); deciding condition; **the confidence of the estate edges the decision rested on**; decided-at | Held decisions expire into escalation at a stated age |
 | **`Grant`** | Permissions bound to one unit of work. | unit; permitted operations; targets; credential reference; expiry | Expires with the run; never renewed by the agent holding it |
 | **`Conflict`** | A detected interference between two units. | units; intersecting region; evidence it would invalidate | Until one of the two units terminates |
 
@@ -73,7 +74,7 @@ Four rules bind the catalogue together. Each restates, at the level of objects, 
 3. **`Evidence` records its independence from the executor, and how that independence is established.** Evidence that cannot state this does not count toward a verdict.
 4. **A `Trace` is not writable by its subject.** A record an agent can edit is not a record.
 5. **Evidence about a transformation is amortized across its applications.** Establishing a property of a transformation once, rather than of each candidate it produces, is the mechanism by which assurance cost stops scaling with the number of changes. Evidence about a transformation is valid for an application only while the transformation is unchanged, and any edit to it invalidates every verdict resting on it.
-6. **A deferred `Verdict` and reversibility are inseparable.** A change may be landed on an open verdict only while it can still be withdrawn. Losing reversibility closes the verdict by forcing a decision, it does not extend it.
+6. **A deferred `Verdict` lives inside a reversibility horizon.** Reversibility is not a property a change has or lacks: it shortens as other work builds on the change. A deferred verdict is admissible only while its observation window fits inside that horizon. Where the horizon expires first, a person decides at that moment — the verdict is never quietly abandoned, and never extended past the point of no return.
 
 ## What is not an object
 

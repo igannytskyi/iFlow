@@ -1,12 +1,12 @@
 # iFlow — Change Classes
 
 **Status:** approved, provisional
-**Version:** 1.1 — 2026-09-02
+**Version:** 1.2 — 2026-09-02
 **Object defined here:** `ChangeClass`, from [05-objects.md](./05-objects.md)
 
 A change class is defined by **how the acceptance of a change is decided**, not by what the change touches, how large it is, or which team requested it. Two changes in the same file belong to different classes if one can be accepted on evidence and the other cannot.
 
-The class is assigned in area 1 and is part of the `Specification`. It fixes, before any work begins, which evidence will be required, what budget profile applies, and what escalates by default. It is therefore the principal configuration lever of the whole system.
+A class is assigned per `WorkUnit`; the `Specification` carries only a default. One intent legitimately spans several classes — a contract change is C1 for the producer's existing callers, C3 per consumer, C4 while old-shape traffic drains, and C5 at the residue. It fixes, before any work begins, which evidence will be required, what budget profile applies, and what escalates by default. It is therefore the principal configuration lever of the whole system.
 
 ---
 
@@ -77,7 +77,9 @@ These cut across the classes. They are not classes and must not be turned into a
 
 **Blast radius.** How far the effects of the change can travel before anything detects them. It governs admission, not acceptance.
 
-**Reversibility.** Whether the change can be withdrawn cheaply. Data migrations, deletions and anything that leaves the system — messages sent, payments made, artifacts published — are irreversible regardless of class, and require a stricter gate than their class would otherwise imply.
+**Reachability.** Whether every consumer of the changed contract can be changed at all. Shipped applications, third parties and anything already in someone else's hands are consumers that no repository change reaches. **A contract change with an unreachable consumer cannot complete without a human decision, and that is knowable at area 1, before any work is done.**
+
+**Reversibility.** Whether the change can be withdrawn cheaply, and **for how long** — the horizon shortens as other work builds on the change. Data migrations, deletions and anything that leaves the system — messages sent, payments made, artifacts published — are irreversible regardless of class, and require a stricter gate than their class would otherwise imply.
 
 ---
 

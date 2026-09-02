@@ -1,7 +1,7 @@
 # iFlow — The Areas, Specified
 
 **Status:** approved, provisional
-**Version:** 2.2 — 2026-09-02
+**Version:** 2.3 — 2026-09-02
 **Schema:** [03-schema.md](./03-schema.md) — parameters P1–P10
 **Areas:** [02-areas.md](./02-areas.md)
 
@@ -27,7 +27,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 ### 2. Work Formation
 
 - **P1 Inputs.** `Specification`, `EstateModel`.
-- **P2 Outputs.** A set of `WorkUnit`, each carrying `AreaOfEffect`, inherited `AcceptanceCriteria` and `Scope`. Where the specification is not decidable as it stands, the output includes **preparatory units** — a reproduction, characterization of current behaviour in an inadequately observed region — whose own acceptance is decidable and on which the original unit depends.
+- **P2 Outputs.** A `ChangePlan` over a set of `WorkUnit`, each carrying its own `ChangeClass`, `AreaOfEffect`, inherited `AcceptanceCriteria` and `Scope`. Where phases must be separated in time, the plan carries the wait conditions and the requirement that every intermediate state is a valid, shippable system — a criterion belonging to no single unit. Where the specification is not decidable as it stands, the output includes **preparatory units** — a reproduction, characterization of current behaviour in an inadequately observed region — whose own acceptance is decidable and on which the original unit depends.
 - **P3 Decision rule.** Divide until each unit's area of effect is computable and its criteria are decidable within it; do not divide past the point where criteria cease to be verifiable.
 - **P4 Completion.** The units together cover the specification, and none exceeds the size at which completion probability falls below the declared bound.
 - **P5 Invariant.** The union of the units' criteria implies the specification's criteria — nothing acceptable is lost in the division. **This holds only where the estate query that produced the scope was complete**; where completeness is not derivable, the residue is stated on the specification rather than assumed away.
@@ -45,7 +45,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P4 Completion.** Every pending unit is admitted, held with a stated reason, or refused.
 - **P5 Invariant.** No resources are committed to a unit that could not have been accepted had it succeeded.
 - **P6 Failure semantics.** Admitting a unit that later proves to have been in conflict is a failure of this area, not of landing. Holding a unit that could have run is a lesser failure and must be visible as queueing rather than as silence.
-- **P7 Evidence emitted.** For each decision, which of the three conditions decided it, and against what.
+- **P7 Evidence emitted.** For each decision, which of the three conditions decided it, against what, and at what confidence — a conflict found through a matched contract edge is only as certain as that edge.
 - **P8 Cost and stopping.** The gate must cost far less than the work it withholds; a unit held beyond a stated age is escalated rather than held indefinitely.
 - **P9 Authority required.** Issue grants within policy; refuse and hold work. No ability to widen policy.
 - **P10 Escalation.** A unit held past its age limit; a conflict that no ordering resolves; a required grant wider than policy allows.
@@ -73,7 +73,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P6 Failure semantics.** Inability to obtain evidence is an *undecided* verdict, not a rejection, and the two must not be conflated.
 - **P7 Evidence emitted.** The evidence itself, and how each item was obtained.
 - **P8 Cost and stopping.** Verification runs; stop when the cost of assurance exceeds the value of the change, which is itself a decision that must be recorded.
-- **P9 Authority required.** Execute tests and analyses in isolated environments. No write to the live system.
+- **P9 Authority required.** Execute tests and analyses in isolated environments, and **read production observations**, which a C4 criterion cannot be decided without. No write anywhere.
 - **P10 Escalation.** An undecided verdict, or a criterion marked as requiring a person.
 
 ### 6. Landing
@@ -96,7 +96,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 ### 7. Estate Representation
 
 - **P1 Inputs.** Code, configuration, version history, build and deployment records, runtime telemetry, `Testimony`.
-- **P2 Outputs.** `EstateModel`; answers to queries, chief among them `AreaOfEffect` and the observational adequacy of a region, on which the assignment of a `ChangeClass` depends.
+- **P2 Outputs.** `EstateModel`; answers to queries, chief among them `AreaOfEffect`, the observational adequacy of a region, and which consumers of the estate lie beyond the reach of any change to it.
 - **P3 Decision rule.** A statement enters the model with its provenance and confidence; where a derived statement and an asserted one conflict, the derived one prevails.
 - **P4 Completion.** Never complete. Measured by freshness, not by coverage.
 - **P5 Invariant.** Every statement carries provenance, confidence and validity. Nothing is served as fact without a source.
