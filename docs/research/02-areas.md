@@ -1,7 +1,7 @@
 # iFlow — Research Framework and Areas to Solve
 
 **Status:** approved, provisional
-**Version:** 3.0 — 2026-09-02
+**Version:** 3.1 — 2026-09-02
 **Derived from:** [01-goal.md](./01-goal.md)
 
 ---
@@ -62,7 +62,7 @@
 
 ### 4. Execution — *from (a), by autonomous agents*
 
-- **Object.** The work of an autonomous agent on one unit of work.
+- **Object.** The work of an executor on one unit of work. An autonomous agent is one kind of executor; a deterministic transformation is another, and is preferred wherever the class admits it.
 - **Subject.** The behavior of execution on a substrate that is unreliable and non-stationary.
 - **Aim.** Execution whose failures are detectable and whose results remain comparable across versions of the executor.
 - **Tasks.** Determine the isolation in which an agent works; classify failure modes, including silent tool failure, capacity exhaustion and drift in the behavior of the underlying model; determine the shelf life of evidence; determine what reproducibility is required and what is unattainable.

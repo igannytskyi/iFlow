@@ -1,7 +1,7 @@
 # iFlow — Change Classes
 
 **Status:** approved, provisional
-**Version:** 1.0 — 2026-09-02
+**Version:** 1.1 — 2026-09-02
 **Object defined here:** `ChangeClass`, from [05-objects.md](./05-objects.md)
 
 A change class is defined by **how the acceptance of a change is decided**, not by what the change touches, how large it is, or which team requested it. Two changes in the same file belong to different classes if one can be accepted on evidence and the other cannot.
@@ -33,9 +33,13 @@ Dependency and version upgrades, framework migrations, mechanical refactoring, r
 Two sub-modes, and the distinction is worth more than it appears:
 
 - **Proved.** The transformation is behaviour-preserving by construction — a type-checked rename, a semantic-tree recipe. Acceptance costs nothing, because nothing needs to be run. This is the whole basis of industrial large-scale refactoring, and it is decidable in the strongest sense available anywhere in this document.
+
+  **The proof rests on an equivalence claim, and that claim must be recorded with its provenance.** Where it is derived — the compiler establishes it, the transformation is total over the semantic tree — the class holds. Where it comes from documentation or a person it is `Testimony`, and **an equivalence claim resting on testimony demotes the change to C1 tested.** Without this rule the strongest guarantee in the catalogue rests on an unexamined assertion that no downstream oracle can catch, because the proof is what replaced the oracle.
 - **Tested.** Behaviour is compared before and after. Acceptance costs a verification run and is only as good as what can be observed.
 
 The binding difficulty in C1 is never the oracle. It is **observational adequacy** — whether current behaviour can be pinned down at all. See §3.
+
+A second limit is inherent rather than circumstantial: where a language permits reflection or string-formed invocation, the set of call sites is not statically decidable. Criteria in this class are written to what is decidable, with the residue stated, never to what merely sounds complete.
 
 ### C2 — Defect repair
 

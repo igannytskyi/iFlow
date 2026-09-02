@@ -1,7 +1,7 @@
 # iFlow — The Areas, Specified
 
 **Status:** approved, provisional
-**Version:** 2.1 — 2026-09-02
+**Version:** 2.2 — 2026-09-02
 **Schema:** [03-schema.md](./03-schema.md) — parameters P1–P10
 **Areas:** [02-areas.md](./02-areas.md)
 
@@ -30,7 +30,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P2 Outputs.** A set of `WorkUnit`, each carrying `AreaOfEffect`, inherited `AcceptanceCriteria` and `Scope`. Where the specification is not decidable as it stands, the output includes **preparatory units** — a reproduction, characterization of current behaviour in an inadequately observed region — whose own acceptance is decidable and on which the original unit depends.
 - **P3 Decision rule.** Divide until each unit's area of effect is computable and its criteria are decidable within it; do not divide past the point where criteria cease to be verifiable.
 - **P4 Completion.** The units together cover the specification, and none exceeds the size at which completion probability falls below the declared bound.
-- **P5 Invariant.** The union of the units' criteria implies the specification's criteria — nothing acceptable is lost in the division.
+- **P5 Invariant.** The union of the units' criteria implies the specification's criteria — nothing acceptable is lost in the division. **This holds only where the estate query that produced the scope was complete**; where completeness is not derivable, the residue is stated on the specification rather than assumed away.
 - **P6 Failure semantics.** A specification that cannot be covered by units with computable areas of effect returns to area 1; it is not passed on in parts. Emitting a unit that cannot be accepted, where a preparatory unit would have made it acceptable, is a failure of this area.
 - **P7 Evidence emitted.** The derivation of each unit's boundary and area of effect from the estate model.
 - **P8 Cost and stopping.** Estate queries and analysis per unit; stop when further division stops reducing area of effect.
@@ -54,7 +54,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 
 - **P1 Inputs.** `WorkUnit`, `ContextBundle`, `Grant` and `AdmissionDecision` from area 3.
 - **P2 Outputs.** `Candidate`, `Trace`.
-- **P3 Decision rule.** Act within `Scope` and stop on `TerminationCondition`; produce a candidate, never a change to the live system.
+- **P3 Decision rule.** Act within `Scope` and stop on `TerminationCondition`; produce a candidate, never a change to the live system. The executor is whatever satisfies the class: **where the class permits a deterministic transformation, using an agent instead is a defect** — it makes a reproducible result unreproducible and costs more.
 - **P4 Completion.** A candidate exists, or the termination condition is met, or the step budget is exhausted.
 - **P5 Invariant.** No effect outside the declared `Scope` and `Grant`; the estate itself is not modified.
 - **P6 Failure semantics.** Substrate failure — tool error, capacity exhaustion, timeout — is distinguished from task failure, the inability to satisfy the criteria. The two are retried differently and only the second is informative about the work.

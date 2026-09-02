@@ -1,7 +1,7 @@
 # iFlow — Object Catalogue
 
 **Status:** approved, provisional
-**Version:** 1.1 — 2026-09-02
+**Version:** 1.2 — 2026-09-02
 **Requirements on objects:** [03-schema.md](./03-schema.md), Part A
 **Objects are used in:** [04-areas-specified.md](./04-areas-specified.md)
 
@@ -48,7 +48,7 @@ Per `03` Part A, **identity (O1), provenance (O3), confidence (O4) and ownership
 |---|---|---|---|
 | **`Candidate`** | A proposed change. Never applied by the area that produced it. | unit; artifact set; executor identity and version; produced-at | Until its supporting evidence expires |
 | **`Trace`** | The record of one run. | run id; steps; tool calls; input and output digests; executor version; timestamps | Retained for the lifetime of the decisions it supports. Append-only; not writable by its subject |
-| **`Evidence`** | An artifact supporting one claim about a candidate. | claim; kind (test run, static analysis, runtime observation, human affirmation); producer; **independence from the executor, and how it is established**; obtained-at | **Has a shelf life.** Bound to the estate version and executor version it was obtained against |
+| **`Evidence`** | An artifact supporting one claim about a candidate **or about a transformation**. | claim; **subject (candidate or transformation)**; kind (test run, static analysis, runtime observation, human affirmation, proof of a transformation's property); producer; **independence from the executor, and how it is established**; obtained-at | **Has a shelf life.** Bound to the estate version and executor version it was obtained against |
 | **`Verdict`** | The acceptance decision on a candidate. | candidate; per-criterion outcome (met, failed, **undecided**); evidence refs; overall outcome; decided-by; **state (settled or deferred)**; observation window and baseline, where deferred | Until invalidated by a landing that touches its area of effect. **A deferred verdict holds its candidate reversible until it closes**, and a verdict that never closes is a failure, not a permanent state |
 | **`LandingPlan`** | The order in which accepted candidates enter the live system. | ordered entries; expected invalidations; re-establishment required before each | One landing cycle |
 
@@ -72,7 +72,8 @@ Four rules bind the catalogue together. Each restates, at the level of objects, 
 2. **A `Candidate` is never applied by the area that produced it.** Execution proposes; landing disposes.
 3. **`Evidence` records its independence from the executor, and how that independence is established.** Evidence that cannot state this does not count toward a verdict.
 4. **A `Trace` is not writable by its subject.** A record an agent can edit is not a record.
-5. **A deferred `Verdict` and reversibility are inseparable.** A change may be landed on an open verdict only while it can still be withdrawn. Losing reversibility closes the verdict by forcing a decision, it does not extend it.
+5. **Evidence about a transformation is amortized across its applications.** Establishing a property of a transformation once, rather than of each candidate it produces, is the mechanism by which assurance cost stops scaling with the number of changes. Evidence about a transformation is valid for an application only while the transformation is unchanged, and any edit to it invalidates every verdict resting on it.
+6. **A deferred `Verdict` and reversibility are inseparable.** A change may be landed on an open verdict only while it can still be withdrawn. Losing reversibility closes the verdict by forcing a decision, it does not extend it.
 
 ## What is not an object
 
