@@ -24,3 +24,9 @@ Read them in order. Each is derived from the one before, and the runs exist to b
 ## Versioning
 
 One minor release per approved document. Patch releases carry corrections to documents already released.
+
+## Licence
+
+Documentation is under [CC BY-SA 4.0](LICENSES/CC-BY-SA-4.0.txt) — read, cite, translate and adapt it, including commercially, with attribution and under the same terms. Source code, present and future, is under [BUSL-1.1](LICENSES/BUSL-1.1.txt): production use is permitted except as a hosted service or in competition with the Licensor, and each version converts to AGPL-3.0-or-later on its Change Date. See [LICENSE](LICENSE).
+
+Copyright (c) 2026 Illia Gannytskyi. The Licensor retains the right to license this work on other terms.

@@ -1,0 +1,37 @@
+iFlow — licensing
+
+Copyright (c) 2026 Illia Gannytskyi.
+
+This repository is licensed in two parts.
+
+1. DOCUMENTATION — everything under docs/, README.md, and any other prose,
+   diagrams or research material in this repository:
+
+   Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+   Full text: LICENSES/CC-BY-SA-4.0.txt
+
+   You may read, share, translate and build upon this material, including
+   commercially, provided you give attribution and license your adaptations
+   under the same terms.
+
+2. SOFTWARE — all source code in this repository, present and future:
+
+   Business Source License 1.1 (BUSL-1.1).
+   Full text and parameters: LICENSES/BUSL-1.1.txt
+
+   Non-production use is permitted. Production use is permitted except as a
+   hosted or managed service offered to third parties, and except to provide
+   anything competing with a product or service of the Licensor. On the
+   Change Date stated in the parameters, each version converts automatically
+   to the GNU Affero General Public License, version 3 or later.
+
+   BUSL-1.1 is a source-available licence, not an open-source licence.
+
+Where a file's category is unclear, the documentation licence applies.
+
+The Licensor retains the right to license this work separately, on other
+terms, to anyone. Nothing here grants any trademark right.
+
+TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE WORK IS PROVIDED "AS IS",
+WITHOUT WARRANTY OR CONDITION OF ANY KIND, AND THE LICENSOR IS NOT LIABLE FOR
+ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE WORK OR ITS USE.
