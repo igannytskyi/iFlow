@@ -1,0 +1,33 @@
+iFlow — licensing
+
+Copyright (c) 2026 igannytskyi. All rights reserved except as granted below.
+
+This repository is licensed in two parts.
+
+1. DOCUMENTATION — everything under docs/, README.md, and any other prose,
+   diagrams or research material in this repository:
+
+   Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International
+   (CC BY-NC-ND 4.0). Full text: LICENSES/CC-BY-NC-ND-4.0.txt
+
+   You may read, share and cite this material with attribution. You may not
+   use it commercially, and you may not distribute modified versions of it.
+
+2. SOFTWARE — all source code in this repository, present and future:
+
+   GNU Affero General Public License, version 3 (AGPL-3.0).
+   Full text: LICENSES/AGPL-3.0.txt
+
+   You may use, modify and distribute it, including over a network, provided
+   that you release the complete corresponding source of your version under
+   the same licence.
+
+Where a file's category is unclear, the documentation licence applies.
+
+The copyright holder retains the right to license this work separately, on
+other terms, to anyone. Nothing here grants any trademark right or any patent
+right beyond what the applicable licence grants.
+
+THE WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. THE COPYRIGHT HOLDER IS NOT LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY ARISING FROM THE WORK OR ITS USE.
