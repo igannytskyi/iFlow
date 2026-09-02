@@ -24,9 +24,3 @@ Read them in order. Each is derived from the one before, and the runs exist to b
 ## Versioning
 
 One minor release per approved document. Patch releases carry corrections to documents already released.
-
-## Licence
-
-Documentation is under [CC BY-NC-ND 4.0](LICENSES/CC-BY-NC-ND-4.0.txt): read, share and cite with attribution, no commercial use, no derivatives. Source code, present and future, is under [AGPL-3.0](LICENSES/AGPL-3.0.txt). See [LICENSE](LICENSE).
-
-Copyright (c) 2026 igannytskyi. The copyright holder retains the right to license this work on other terms.
