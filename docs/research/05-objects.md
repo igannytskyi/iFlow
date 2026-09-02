@@ -1,7 +1,7 @@
 # iFlow — Object Catalogue
 
 **Status:** approved, provisional
-**Version:** 1.0 — 2026-09-02
+**Version:** 1.1 — 2026-09-02
 **Requirements on objects:** [03-schema.md](./03-schema.md), Part A
 **Objects are used in:** [04-areas-specified.md](./04-areas-specified.md)
 
@@ -16,7 +16,7 @@ Per `03` Part A, **identity (O1), provenance (O3), confidence (O4) and ownership
 | Object | What it is | Schema (O2) | Validity (O5) |
 |---|---|---|---|
 | **`Intent`** | A person's statement of what is to be achieved. The only object originating outside the system. | statement; requester; priority; deadline | Until satisfied or withdrawn |
-| **`ChangeClass`** | A category of change defined by *how its acceptance is decided*, not by what it touches. | name; decidability (full, partial, none); admissible evidence kinds; required evidence set; default scope shape; default budget profile | Long-lived; revised only by area 13 on measurement |
+| **`ChangeClass`** | A category of change defined by *how its acceptance is decided*, not by what it touches. The typology is [06-change-classes.md](./06-change-classes.md). | name; decidability (full, partial, none); admissible evidence kinds; required evidence set; default scope shape; default budget profile | Long-lived; revised only by area 13 on measurement |
 | **`Criterion`** | One condition on an acceptable result. | statement; decision procedure (machine or human); required evidence kind; threshold | Fixed with its specification |
 | **`AcceptanceCriteria`** | The set of criteria for one specification. | criteria; completeness marker | Fixed with its specification |
 | **`TerminationCondition`** | Conditions under which work stops without acceptance. | condition; action on trigger | Fixed with its specification |
@@ -28,7 +28,7 @@ Per `03` Part A, **identity (O1), provenance (O3), confidence (O4) and ownership
 | Object | What it is | Schema (O2) | Validity (O5) |
 |---|---|---|---|
 | **`Statement`** | One assertion about the estate. The atom of the estate model. | subject; relation; object; source artifact; derivation method | Until the source artifact changes; validity is per statement, not per model |
-| **`EstateModel`** | The body of statements together with the queries answerable over it. Not a document. | statements; query interface; freshness per region | Never wholly valid or wholly stale; measured by region |
+| **`EstateModel`** | The body of statements together with the queries answerable over it. Not a document. | statements; query interface; freshness per region; **observational adequacy per region** — how well behaviour there can be pinned down | Never wholly valid or wholly stale; measured by region |
 | **`AreaOfEffect`** | The region a given change can affect. | node set; derivation; computed-at; estate version | **Short.** Invalidated by any landing intersecting it |
 | **`Testimony`** | A non-derivable statement drawn from a decision a person was already making. | statement; decision it was drawn from; bound places; falsifier; expiry | Expires with what it was drawn from; never outranks a statement derived from current code |
 
@@ -49,7 +49,7 @@ Per `03` Part A, **identity (O1), provenance (O3), confidence (O4) and ownership
 | **`Candidate`** | A proposed change. Never applied by the area that produced it. | unit; artifact set; executor identity and version; produced-at | Until its supporting evidence expires |
 | **`Trace`** | The record of one run. | run id; steps; tool calls; input and output digests; executor version; timestamps | Retained for the lifetime of the decisions it supports. Append-only; not writable by its subject |
 | **`Evidence`** | An artifact supporting one claim about a candidate. | claim; kind (test run, static analysis, runtime observation, human affirmation); producer; **independence from the executor, and how it is established**; obtained-at | **Has a shelf life.** Bound to the estate version and executor version it was obtained against |
-| **`Verdict`** | The acceptance decision on a candidate. | candidate; per-criterion outcome (met, failed, **undecided**); evidence refs; overall outcome; decided-by | Until invalidated by a landing that touches its area of effect |
+| **`Verdict`** | The acceptance decision on a candidate. | candidate; per-criterion outcome (met, failed, **undecided**); evidence refs; overall outcome; decided-by; **state (settled or deferred)**; observation window and baseline, where deferred | Until invalidated by a landing that touches its area of effect. **A deferred verdict holds its candidate reversible until it closes**, and a verdict that never closes is a failure, not a permanent state |
 | **`LandingPlan`** | The order in which accepted candidates enter the live system. | ordered entries; expected invalidations; re-establishment required before each | One landing cycle |
 
 ## Group V — Governance
@@ -72,6 +72,7 @@ Four rules bind the catalogue together. Each restates, at the level of objects, 
 2. **A `Candidate` is never applied by the area that produced it.** Execution proposes; landing disposes.
 3. **`Evidence` records its independence from the executor, and how that independence is established.** Evidence that cannot state this does not count toward a verdict.
 4. **A `Trace` is not writable by its subject.** A record an agent can edit is not a record.
+5. **A deferred `Verdict` and reversibility are inseparable.** A change may be landed on an open verdict only while it can still be withdrawn. Losing reversibility closes the verdict by forcing a decision, it does not extend it.
 
 ## What is not an object
 

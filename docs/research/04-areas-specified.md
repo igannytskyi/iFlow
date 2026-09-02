@@ -1,7 +1,7 @@
 # iFlow — The Areas, Specified
 
 **Status:** approved, provisional
-**Version:** 2.0 — 2026-09-02
+**Version:** 2.1 — 2026-09-02
 **Schema:** [03-schema.md](./03-schema.md) — parameters P1–P10
 **Areas:** [02-areas.md](./02-areas.md)
 
@@ -27,11 +27,11 @@ Each area is stated against the ten parameters. Object names are used consistent
 ### 2. Work Formation
 
 - **P1 Inputs.** `Specification`, `EstateModel`.
-- **P2 Outputs.** A set of `WorkUnit`, each carrying `AreaOfEffect`, inherited `AcceptanceCriteria` and `Scope`.
+- **P2 Outputs.** A set of `WorkUnit`, each carrying `AreaOfEffect`, inherited `AcceptanceCriteria` and `Scope`. Where the specification is not decidable as it stands, the output includes **preparatory units** — a reproduction, characterization of current behaviour in an inadequately observed region — whose own acceptance is decidable and on which the original unit depends.
 - **P3 Decision rule.** Divide until each unit's area of effect is computable and its criteria are decidable within it; do not divide past the point where criteria cease to be verifiable.
 - **P4 Completion.** The units together cover the specification, and none exceeds the size at which completion probability falls below the declared bound.
 - **P5 Invariant.** The union of the units' criteria implies the specification's criteria — nothing acceptable is lost in the division.
-- **P6 Failure semantics.** A specification that cannot be covered by units with computable areas of effect returns to area 1; it is not passed on in parts.
+- **P6 Failure semantics.** A specification that cannot be covered by units with computable areas of effect returns to area 1; it is not passed on in parts. Emitting a unit that cannot be accepted, where a preparatory unit would have made it acceptable, is a failure of this area.
 - **P7 Evidence emitted.** The derivation of each unit's boundary and area of effect from the estate model.
 - **P8 Cost and stopping.** Estate queries and analysis per unit; stop when further division stops reducing area of effect.
 - **P9 Authority required.** Read the estate model. No write.
@@ -68,7 +68,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P1 Inputs.** `Candidate`, `Specification`, `EstateModel`, `Trace`.
 - **P2 Outputs.** `Verdict`, with the `Evidence` supporting it.
 - **P3 Decision rule.** Accept only when every criterion is supported by evidence produced independently of the executor; otherwise reject or leave undecided. Which evidence counts as sufficient is fixed per `ChangeClass` in advance, not chosen per candidate.
-- **P4 Completion.** A verdict exists for every criterion in the specification.
+- **P4 Completion.** A verdict exists for every criterion in the specification. A verdict on an effect that does not exist before exposure is **deferred rather than absent**: it is opened here with its observation window and baseline, and closed by area 13 after landing.
 - **P5 Invariant.** Evidence is not produced by the agent that produced the candidate.
 - **P6 Failure semantics.** Inability to obtain evidence is an *undecided* verdict, not a rejection, and the two must not be conflated.
 - **P7 Evidence emitted.** The evidence itself, and how each item was obtained.
@@ -82,7 +82,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 - **P2 Outputs.** `LandingPlan`, and the landed change itself.
 - **P3 Decision rule.** A candidate enters only while the evidence supporting its verdict is still valid; where an earlier entry has invalidated it, the affected evidence is re-established before entry rather than the candidate being dropped.
 - **P4 Completion.** Every accepted candidate has entered, awaits re-establishment of evidence, or has been reversed.
-- **P5 Invariant.** Nothing takes effect on evidence that has expired or been invalidated by another entry.
+- **P5 Invariant.** Nothing takes effect on evidence that has expired or been invalidated by another entry. A candidate carrying a deferred verdict enters only while it remains reversible, and remains reversible until that verdict closes.
 - **P6 Failure semantics.** Joint incorrectness in production is a failure of this area, and must be traceable to a specific invalidation that went unnoticed. Conflict that should have prevented the work from starting is a failure of area 3, not of this one.
 - **P7 Evidence emitted.** What was invalidated by each entry, and what was re-established before the next.
 - **P8 Cost and stopping.** Re-verification after invalidation, and work waiting on it.
@@ -96,7 +96,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 ### 7. Estate Representation
 
 - **P1 Inputs.** Code, configuration, version history, build and deployment records, runtime telemetry, `Testimony`.
-- **P2 Outputs.** `EstateModel`; answers to queries, chief among them `AreaOfEffect`.
+- **P2 Outputs.** `EstateModel`; answers to queries, chief among them `AreaOfEffect` and the observational adequacy of a region, on which the assignment of a `ChangeClass` depends.
 - **P3 Decision rule.** A statement enters the model with its provenance and confidence; where a derived statement and an asserted one conflict, the derived one prevails.
 - **P4 Completion.** Never complete. Measured by freshness, not by coverage.
 - **P5 Invariant.** Every statement carries provenance, confidence and validity. Nothing is served as fact without a source.
