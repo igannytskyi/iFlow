@@ -30,7 +30,7 @@ Per `03` Part A, **identity (O1), provenance (O3), confidence (O4) and ownership
 | **`Statement`** | One assertion about the estate. The atom of the estate model. | subject; relation; object; source artifact; derivation method | Until the source artifact changes; validity is per statement, not per model |
 | **`EstateModel`** | The body of statements together with the queries answerable over it. Not a document. | statements; query interface; freshness per region | Never wholly valid or wholly stale; measured by region |
 | **`AreaOfEffect`** | The region a given change can affect. | node set; derivation; computed-at; estate version | **Short.** Invalidated by any landing intersecting it |
-| **`Lesson`** | A non-derivable statement drawn from a decision a person was already making. | statement; decision it was drawn from; bound places; falsifier; expiry | Expires with what it was drawn from; never outranks a statement derived from current code |
+| **`Testimony`** | A non-derivable statement drawn from a decision a person was already making. | statement; decision it was drawn from; bound places; falsifier; expiry | Expires with what it was drawn from; never outranks a statement derived from current code |
 
 ## Group III — Work
 

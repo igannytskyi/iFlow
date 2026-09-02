@@ -95,7 +95,7 @@ Each area is stated against the ten parameters. Object names are used consistent
 
 ### 7. Estate Representation
 
-- **P1 Inputs.** Code, configuration, version history, build and deployment records, runtime telemetry, `Lesson`.
+- **P1 Inputs.** Code, configuration, version history, build and deployment records, runtime telemetry, `Testimony`.
 - **P2 Outputs.** `EstateModel`; answers to queries, chief among them `AreaOfEffect`.
 - **P3 Decision rule.** A statement enters the model with its provenance and confidence; where a derived statement and an asserted one conflict, the derived one prevails.
 - **P4 Completion.** Never complete. Measured by freshness, not by coverage.
@@ -135,14 +135,14 @@ Each area is stated against the ten parameters. Object names are used consistent
 ### 10. Accumulation
 
 - **P1 Inputs.** `Trace`, `Verdict`, `Conflict`, and decisions made by people during escalation.
-- **P2 Outputs.** `Lesson`, bound to places in the estate.
+- **P2 Outputs.** `Testimony`, bound to places in the estate.
 - **P3 Decision rule.** Capture only as a byproduct of a decision already being made; never as a separate request for someone to write something down.
 - **P4 Completion.** Continuous.
-- **P5 Invariant.** A lesson carries what it was drawn from and expires with it, and never outranks a statement derived from current code.
-- **P6 Failure semantics.** An unfalsifiable lesson is worse than none and is refused at capture.
-- **P7 Evidence emitted.** The decision the lesson was drawn from.
+- **P5 Invariant.** Testimony carries what it was drawn from and expires with it, and never outranks a statement derived from current code.
+- **P6 Failure semantics.** Unfalsifiable testimony is worse than none and is refused at capture.
+- **P7 Evidence emitted.** The decision the testimony was drawn from.
 - **P8 Cost and stopping.** Measured as the cost of a second task in the same area relative to the first.
-- **P9 Authority required.** Read traces and verdicts; write only to the lesson store.
+- **P9 Authority required.** Read traces and verdicts; write only to the testimony store.
 - **P10 Escalation.** None. Accumulation must never block work.
 
 ### 11. Human Boundary

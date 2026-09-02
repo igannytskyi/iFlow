@@ -154,13 +154,13 @@
 
 Areas 1–6 describe the path of one change. They do not describe the system, because the path feeds back into the foundations, and the behaviour of the whole over time is a property of that feedback rather than of the path.
 
-**What returns.** Verdicts and traces become lessons, which enter the estate representation and thereafter shape work formation and the context supplied to execution. Outcomes of escalations revise the escalation rules themselves, which is what allows the human boundary to contract. Cost records govern admission. Landed changes invalidate statements about the estate and evidence that rested on them.
+**What returns.** Verdicts and traces become testimony, which enters the estate representation and thereafter shape work formation and the context supplied to execution. Outcomes of escalations revise the escalation rules themselves, which is what allows the human boundary to contract. Cost records govern admission. Landed changes invalidate statements about the estate and evidence that rested on them.
 
-**Delays.** Each return has a lag: the estate is refreshed after the fact, a lesson is written after a decision, a baseline shifts slowly. A system that ignores these lags will act on a picture that is stale by exactly the length of its own feedback.
+**Delays.** Each return has a lag: the estate is refreshed after the fact, testimony is recorded after a decision, a baseline shifts slowly. A system that ignores these lags will act on a picture that is stale by exactly the length of its own feedback.
 
 **What must converge.** Human participation per unit of change, downward. Cost per unit of verified change, downward or stable. The share of undecided verdicts, downward.
 
-**What can diverge, and is the failure mode of the loop.** Lessons that shape criteria without being falsifiable let the system reinforce its own error: it accepts what it accepted before, for reasons it recorded itself. This is why area 10 refuses unfalsifiable lessons at capture, and why area 5 requires evidence independent of the executor. Those two rules are what keep this loop from closing on itself.
+**What can diverge, and is the failure mode of the loop.** Testimony that shapes criteria without being falsifiable lets the system reinforce its own error: it accepts what it accepted before, for reasons it recorded itself. This is why area 10 refuses unfalsifiable testimony at capture, and why area 5 requires evidence independent of the executor. Those two rules are what keep this loop from closing on itself.
 
 ---
 
