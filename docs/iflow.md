@@ -1,7 +1,7 @@
 # iFlow
 
 **Status:** research, provisional
-**Version:** 1.0 — 2026-09-02
+**Version:** 1.1 — 2026-09-02
 
 A single document. It supersedes the eight it was assembled from; the git history holds those.
 
@@ -87,7 +87,7 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 
 | Object | What it is | Schema | Validity |
 |---|---|---|---|
-| **`Intent`** | A person's statement of what is to be achieved. The only object originating outside the system | statement; requester; priority; deadline | Until satisfied or withdrawn |
+| **`Intent`** | A person's statement of what is to be achieved. The only object originating outside the system | statement; requester; **the authority that may decide it against a competing intent**; priority; deadline | Until satisfied or withdrawn |
 | **`ChangeClass`** | A category of change defined by *how its acceptance is decided*, not by what it touches. See §5 | name; decidability; admissible evidence kinds; required evidence set; default scope shape; default budget profile | Long-lived; revised only by area 13 on measurement |
 | **`Criterion`** | One condition on an acceptable result | statement; decision procedure (machine or human); required evidence kind; threshold | Fixed with its specification |
 | **`AcceptanceCriteria`** | The criteria for one specification | criteria; completeness marker | Fixed with its specification |
@@ -210,7 +210,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 - **P3** A specification is complete when every criterion is either decidable by machine or explicitly marked as requiring a person. What is decidable is a property of the class, not of the individual intent.
 - **P4** Completeness reached, or ambiguity declared irreducible.
 - **P5** Criteria are fixed before execution and are not altered by it.
-- **P6** An intent that cannot be expressed as criteria is a failure of this area, not a poor specification passed downstream.
+- **P6** An intent that cannot be expressed as criteria is a failure of this area, not a poor specification passed downstream. Criteria that admit two materially different acceptable results are incomplete, and the discovery of that fact anywhere downstream returns here.
 - **P7** What each criterion is grounded in, and who affirmed it.
 - **P8** Clarifying exchanges with a person; stop when further exchange stops raising decidability.
 - **P9** Read the estate model. No write.
@@ -241,14 +241,14 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 - **P1** Pending `WorkUnit`s with their `AreaOfEffect`s, `EstateModel` including work in flight, `Budget`, policy.
 - **P2** `AdmissionDecision`, `Grant`, `Conflict`.
-- **P3** A unit is admitted when its area of effect does not intersect an unfinished unit's such that either's evidence would be invalidated, an allocation exists, and a grant no wider than its `Scope` can be issued. Failing any of the three it is held, not started.
+- **P3** A unit is admitted when its area of effect does not intersect an unfinished unit's such that either's evidence would be invalidated, an allocation exists, and a grant no wider than its `Scope` can be issued. Failing any of the three it is held, not started. **A cycle among held units is detected structurally and immediately, not discovered by timeout**: age-based expiry is for contention, a cycle is a defect.
 - **P4** Every pending unit admitted, held with a stated reason, or refused.
 - **P5** No resources are committed to a unit that could not have been accepted had it succeeded.
 - **P6** Admitting a unit later found to be in conflict is a failure of this area, not of landing. Holding one that could have run is a lesser failure, and must be visible as queueing rather than as silence.
 - **P7** Which of the three conditions decided it, against what, and **at what confidence** — a conflict found through a matched contract edge is only as certain as that edge.
 - **P8** The gate must cost far less than the work it withholds; a unit held past a stated age escalates rather than waiting indefinitely.
 - **P9** Issue grants within policy; refuse and hold work. No ability to widen policy.
-- **P10** A unit held past its age limit; a conflict no ordering resolves; a grant wider than policy allows.
+- **P10** A unit held past its age limit; a conflict no ordering resolves, which escalates **to an authority over both intents, whose absence is itself a finding reported here rather than at the point of deadlock**; a grant wider than policy allows.
 
 ### 4. Execution — *from (a), by autonomous agents*
 
@@ -264,7 +264,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 - **P7** `Trace`, with the identity and version of the executor at the time of the run.
 - **P8** Tokens, steps, tool calls, elapsed time; a stopping rule for non-convergence. **A budget exhaustion is diagnosed before it is retried**, or the system pays repeatedly for a missing input.
 - **P9** Exactly the `Grant`, enforced outside the agent.
-- **P10** Repeated substrate failure, or task failure where the criteria were judged achievable.
+- **P10** Repeated substrate failure, or task failure where the criteria were judged achievable. **Two executors producing different candidates that both satisfy the criteria is not adjudicated here**: it is evidence that the criteria under-determine the result, and it escalates to area 1. Running a unit twice on purpose is therefore a cheap probe of criteria completeness.
 
 ### 5. Assurance — *from (b) and (c)*
 
@@ -290,11 +290,11 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 *Conflict detection is not here.* It is area 3, because it must precede the commitment of resources.
 
 - **P1** Accepted `Candidate`s with their `Verdict`s and `Evidence`, `EstateModel`.
-- **P2** `LandingPlan`, and the landed change.
+- **P2** `LandingPlan`, and the landed change. **A reversal is a change**: it carries its own criteria, evidence and plan, and is not a privileged instant operation exempt from them.
 - **P3** A candidate enters only while its supporting evidence is valid; where an earlier entry invalidated it, the evidence is re-established before entry rather than the candidate dropped.
 - **P4** Every accepted candidate has entered, awaits re-establishment, or has been reversed.
 - **P5** Nothing takes effect on expired or invalidated evidence. A candidate carrying a deferred verdict enters only while it remains reversible, and remains reversible until that verdict closes.
-- **P6** Joint incorrectness in production is a failure of this area. Conflict that should have prevented the work from starting is a failure of area 3.
+- **P6** Joint incorrectness in production is a failure of this area. Conflict that should have prevented the work from starting is a failure of area 3. **A partial failure leaves the system in a state no plan declared valid**; that state halts every further entry within its area of effect until it is resolved, and the halt is the failure's first consequence rather than a decision someone makes later.
 - **P7** What each entry invalidated, and what was re-established before the next.
 - **P8** Re-verification after invalidation, and work waiting on it.
 - **P9** Write to the live system, narrowly and per target.
@@ -307,12 +307,12 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 **Object.** An organization's knowledge of its own software systems. **Subject.** The provenance and trustworthiness of that knowledge where the system's self-description is unreliable. **Aim.** A representation answering questions on demand, each answer carrying its provenance and confidence.
 **Criterion of resolution.** *What does this change affect* is answered together with what confirms the answer.
 
-- **P1** Code, configuration, version history, build and deployment records, runtime telemetry, `Testimony`.
+- **P1** Code, configuration, version history, build and deployment records, runtime telemetry, `Testimony`, **and the outcomes of landings that contradicted their own predictions**.
 - **P2** `EstateModel`; answers to queries, chief among them `AreaOfEffect`, the observational adequacy of a region, and which consumers lie beyond the reach of any change.
 - **P3** A statement enters with its provenance and confidence; where a derived statement and an asserted one conflict, **the derived one prevails**.
 - **P4** Never complete. Measured by freshness, not coverage.
 - **P5** Every statement carries provenance, confidence and validity. Nothing is served as fact without a source.
-- **P6** Serving a stale answer as current is the failure mode of this area.
+- **P6** Serving a stale answer as current is the failure mode of this area. Staleness is detectable from the source; **being wrong is not**, and is corrected only from outside: a landing whose effects fall beyond its predicted `AreaOfEffect` is evidence against the model and must be fed back as a correction, not merely handled as an incident. This is the only mechanism by which a false contract edge is ever removed.
 - **P7** For every answer, what confirms it.
 - **P8** Indexing and re-derivation, incremental rather than whole-estate.
 - **P9** Read across artifacts and telemetry. No write.
@@ -337,12 +337,12 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 **Object.** The consumption of resources by agent work. **Subject.** The mechanism bounding consumption against unbounded demand. **Aim.** Volume governed by declared limits rather than reported after the fact.
 **Criterion of resolution.** Exceeding a limit is prevented before the spend, not discovered after it.
 
-- **P1** `Budget`, `CostRecord`, pending units, the priority of the intents behind them. **P2** Admission decisions, allocations, stop signals.
+- **P1** `Budget`, `CostRecord`, pending units, the priority of the intents behind them, **and the capacity of the people escalations are served by**. **P2** Admission decisions, allocations, stop signals.
 - **P3** Work is admitted only against an existing allocation; exceeding a limit blocks before the spend.
 - **P4** Continuous; settled per accounting period.
 - **P5** No work runs without an allocation attributable to it.
 - **P6** Unattributable spend is a failure — an agent whose cost cannot be attributed must not run.
-- **P7** Cost per unit of verified change, by class.
+- **P7** Cost per unit of verified change, by class, **counting human time alongside machine resources** — the goal names attention as the scarce resource, so accounting that omits it measures the wrong constraint. An escalation that cannot be served within its window forces an explicit, recorded choice between stopping the work and proceeding at a stated lower assurance; it never defaults.
 - **P8** The accounting must be negligible against what it governs.
 - **P9** Refuse and stop work. No ability to alter budgets. **P10** Exhaustion against work classified as mandatory.
 
@@ -402,11 +402,41 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 ---
 
-# 7. The loop
+# 7. Contracts between the areas
+
+P1 and P2 state what each area consumes and produces. Stated instead as boundaries, because a boundary is what fails.
+
+| Object | Produced by | Consumed by | Crosses when |
+|---|---|---|---|
+| `Intent` | outside the system | 1 | A person states it, with an authority named |
+| `Specification` | 1 | 2 | Complete, or ambiguity declared irreducible |
+| `ChangePlan`, `WorkUnit` | 2 | 3 | The units cover the specification |
+| `AdmissionDecision`, `Grant` | 3 | 4 | Conflict, allowance and permission all settled |
+| `ContextBundle` | 7 | 4 | On admission, against a stated estate version |
+| `Candidate`, `Trace` | 4 | 5, 8 | A terminal state is reached, of either kind |
+| `Verdict`, `Evidence` | 5 | 6, 8, 13 | A verdict exists for every criterion, settled or deferred |
+| `LandingPlan`, landed change | 6 | 7, 13 | Evidence is valid at the moment of entry |
+| Query answers, `AreaOfEffect` | 7 | 1, 2, 3, 5, 6 | On request, with provenance and confidence |
+| `Testimony` | 10 | 7 | A falsifier is present |
+| `Escalation` | any | 11 | A ground is stated |
+| `CostRecord` | 4, 5, 6 | 9, 13 | On completion of the work it accounts for |
+| `Metric` | 13 | 1, 9, 11 | Per period, per class, against a baseline |
+
+Five rules hold at every boundary.
+
+1. **Only objects cross.** Nothing passes as prose, conversation or a rendered view. This is §3.3 stated as a rule rather than a test.
+2. **A consumer never reaches back to ask.** If it needs something the crossing did not carry, the producer's output was incomplete — a failure of the producer's completion criterion, not a request for clarification.
+3. **A consumer may refuse.** Refusal returns the object to the producer as that producer's failure, and is recorded as such. It is not a negotiation.
+4. **Every crossing is recorded**, binding producer, object, consumer and moment. A crossing that was not recorded did not happen, per area 8.
+5. **There are no backward edges.** Everything that returns does so through the loop of §8 — asynchronously, as an object with its own validity, never as a synchronous call into an earlier area. An area that can be called back into cannot be reasoned about while work is in flight.
+
+---
+
+# 8. The loop
 
 Areas 1–6 describe the path of one change. They do not describe the system, because the path feeds back into the foundations, and the behaviour of the whole over time is a property of that feedback rather than of the path.
 
-**What returns.** Verdicts and traces become testimony, which enters the estate representation and thereafter shapes work formation and the context supplied to execution. Outcomes of escalations revise the escalation rules themselves, which is what allows the human boundary to contract. Cost records govern admission. Landed changes invalidate statements about the estate and evidence resting on them.
+**What returns.** Verdicts and traces become testimony, which enters the estate representation and thereafter shapes work formation and the context supplied to execution. Outcomes of escalations revise the escalation rules themselves, which is what allows the human boundary to contract. Cost records govern admission. Landed changes invalidate statements about the estate and evidence resting on them. **And landings that surprise refute it**: an effect outside the predicted area of effect is the system learning that its own model was wrong rather than merely old.
 
 **Delays.** Every return has a lag. A system ignoring them acts on a picture stale by exactly the length of its own feedback.
 
@@ -416,7 +446,7 @@ Areas 1–6 describe the path of one change. They do not describe the system, be
 
 ---
 
-# 8. Validation
+# 9. Validation
 
 Two changes were carried end to end through the whole structure. Their purpose was falsification, and the eleven findings below are already applied above; they are recorded because each marks a place where the obvious design was wrong.
 
@@ -445,11 +475,37 @@ Outcome: three human touchpoints, but the shape of the work is entirely differen
 - **G5** Conflict detection inherits the confidence of the contract edges it rests on.
 - **G6** Assurance needs read access to production; no C4 criterion is decidable in an isolated environment.
 
-**Untested.** A conflict ordering cannot resolve. A reversal that fails midway. Two intents competing for the same scarce person. An estate region whose representation is wrong rather than stale. Agent executors disagreeing on the same unit.
+## Run 3 — the failure cases
+
+Not changes so much as ways the structure breaks. Each was carried through until it broke something.
+
+**A conflict that ordering cannot resolve.** Two intents require mutually exclusive states of the same interface; neither can go first. Area 3 holds both and escalates at an age limit — but to whom? The requesters of two competing intents are peers, and neither can decide against the other.
+
+- **U1** An `Intent` carries **the authority that may decide it against a competing intent.** Where two conflicting intents share no such authority, that is a fact about the organization, and it is detectable at admission rather than at the moment of deadlock.
+- **U2** A cycle among held units is **detected structurally and immediately.** Age-based expiry is the right instrument for contention and the wrong one for a defect; waiting out a cycle turns a detectable error into a silent stall.
+
+**A reversal that fails midway.** Half of a change is withdrawn and the system stands in a state no plan ever declared valid.
+
+- **U3** **A reversal is a change.** It carries its own criteria, evidence and plan. Treated as a privileged instant operation it is an unverified change to production, which contradicts the hypothesis directly.
+- **U4** An unplanned state **halts every further entry within its area of effect**, as the first consequence of the failure rather than as a decision someone makes afterwards.
+
+**Two intents competing for the same person.** Area 9 allocated machine resources; nothing allocated people, though the goal names attention as the scarce one.
+
+- **U5** **Human time is accounted in area 9 with everything else**, or the accounting measures the wrong constraint. An escalation that cannot be served inside its window forces an explicit, recorded choice — stop the work, or proceed at a stated lower assurance. It never defaults.
+
+**An estate region that is wrong rather than stale.** Staleness is detectable from the source. A derivation that is simply wrong — a bad parse, a false contract edge — is not, and confidence expresses uncertainty rather than systematic error.
+
+- **U6** A landing whose effects fall outside its predicted `AreaOfEffect` **is evidence against the estate model** and feeds back as a correction, not merely as an incident. It is the only mechanism by which a false edge is ever removed.
+
+**Executors disagreeing on the same unit.** Two runs, two different candidates, both satisfying the criteria.
+
+- **U7** This is **not adjudicated in execution.** It is evidence that the criteria under-determine the result, and it returns to area 1. Resolving it by running three executors and taking the majority would pick a plausible answer while establishing nothing — precisely what the hypothesis forbids. Inverted, it is useful: running a unit twice on purpose is a cheap probe of whether criteria are complete.
+
+**Still untested.** An intent withdrawn while its plan is mid-flight. An executor that satisfies the criteria by changing what the criteria measure. A baseline that shifts under a deferred verdict.
 
 ---
 
-# 9. Ordering, and what to build
+# 10. Ordering, and what to build
 
 **Within the research.** Areas 1, 5 and 11 are defined through one another — criteria, conformance and the human boundary cannot be formulated separately — and are the natural starting point. Area 7 attempted before them degenerates into building a larger index without a statement of what it is for. Area 13 must be in place before any claim of improvement is made, and therefore before implementation rather than after it.
 
