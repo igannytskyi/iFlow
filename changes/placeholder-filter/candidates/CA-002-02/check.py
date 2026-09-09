@@ -23,8 +23,7 @@ VOCAB = {
     "subject": {"candidate", "transformation"},
     "kind": {"test-run", "static-analysis", "runtime-observation",
              "human-affirmation", "transformation-proof"},
-    "independence": {"independent-by-executor", "independent-by-precommitment",
-                     "not-independent"},
+    "independence": {"independent", "not-independent"},
     "outcome": {"met", "failed", "undecided"},
     "state": {"settled", "deferred"},
     "admission": {"admitted", "held", "refused", "awaiting-authority"},
@@ -163,26 +162,6 @@ class Check:
             self.fail("R1", f"specification changed after admission "
                             f"(recorded {recorded}, now {actual})")
 
-    def scope_paths(self):
-        out = set()
-        for headers, rows in tables(self.text.get("01-specification", "")):
-            if "Included" in headers:
-                out |= {v for v in col(real(rows), "Included")}
-        return out
-
-    def candidates_stored(self):
-        """R2: a candidate exists apart from the live tree."""
-        if "04-execution" not in self.text:
-            return
-        for headers, rows in tables(self.text["04-execution"]):
-            if "Stored at" in headers:
-                for r in real(rows):
-                    where = r.get("Stored at", "")
-                    if not where:
-                        self.fail("R2", f"{r.get('Id')} names no store")
-                    elif not (self.folder / where).exists():
-                        self.fail("R2", f"{r.get('Id')} is not stored at {where}")
-
     def scope_arbiter_disjoint(self):
         if "01-specification" not in self.text:
             return
@@ -206,18 +185,11 @@ class Check:
             if "Independence" in headers:
                 for r in real(rows):
                     ev[r.get("Id", "")] = r
-        scope = self.scope_paths()
         for eid, r in ev.items():
-            ind = r.get("Independence", "")
-            if not ind:
+            if not r.get("Independence"):
                 self.fail("R3", f"{eid} does not state independence")
-            elif ind.startswith("independent") and not r.get("How established"):
+            elif r["Independence"] == "independent" and not r.get("How established"):
                 self.fail("R3", f"{eid} claims independence without saying how")
-            producer = r.get("Producer", "")
-            inside = [pth for pth in scope if pth and pth in producer]
-            if inside and ind != "not-independent":
-                self.fail("R3b", f"{eid} is produced from inside the scope ({inside[0]}) "
-                                 f"and cannot be {ind}")
         for headers, rows in tables(self.text["05-assurance"]):
             if "Outcome" in headers and "Evidence" in headers:
                 for r in real(rows):
@@ -261,9 +233,8 @@ class Check:
         for headers, rows in tables(self.text.get("05-assurance", "")):
             if "Unit" in headers and "State" in headers:
                 for r in real(rows):
-                    outcome = r.get("Outcome")
-                    if outcome in ("failed", "undecided"):
-                        states.setdefault(r["Unit"], set()).add(outcome)
+                    if r.get("Outcome") == "failed":
+                        states.setdefault(r["Unit"], set()).add("failed")
                     else:
                         states.setdefault(r["Unit"], set()).add(r.get("State", ""))
         for headers, rows in tables(self.text["06-landing"]):
@@ -276,9 +247,6 @@ class Check:
                         self.fail("A6", f"{u} entered with no verdict")
                     elif "failed" in states[u]:
                         self.fail("A6", f"{u} entered on a failed verdict")
-                    elif "undecided" in states[u]:
-                        self.fail("R10", f"{u} entered with an undecided criterion — "
-                                         f"acceptance was not established")
                     elif r.get("Evidence still valid") == "no":
                         self.fail("A6", f"{u} entered on evidence no longer valid")
 
@@ -299,7 +267,6 @@ class Check:
 
     def run(self):
         for m in (self.stage_order, self.vocabulary, self.spec_immutable,
-                  self.candidates_stored,
                   self.scope_arbiter_disjoint, self.evidence_independence,
                   self.deferred_complete, self.verdict_coverage,
                   self.landing_backed, self.record_complete):

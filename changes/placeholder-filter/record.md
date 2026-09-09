@@ -17,3 +17,8 @@ Append-only. Each crossing of a stage boundary is one line.
 | 11 | 2026-09-09 | landing | WU-002-01 | | entered |
 | 12 | 2026-09-09 | landing | WU-002-02 | | entered with an open escalation |
 | 13 | 2026-09-09 | landing | VE-002-03 | | escalation 4 raised: entry on an undecided verdict is unforbidden |
+| 14 | 2026-09-09 | admission | CR-002-03 | | prior gate recovered from v1.6.0 and captured to baseline/ |
+| 15 | 2026-09-09 | execution | CA-002-01 | | placed in the candidate store |
+| 16 | 2026-09-09 | execution | CA-002-02 | | placed in the candidate store |
+| 17 | 2026-09-09 | assurance | VE-002-03 | | undecided superseded: met on independent-by-precommitment evidence |
+| 18 | 2026-09-09 | landing | WU-002-02 | | escalations 1-4 closed; applied to the document as Y1-Y4 |

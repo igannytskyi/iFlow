@@ -19,6 +19,14 @@ WU-002-02 is admitted behind WU-002-01, which it depends on. No other work is in
 |---|---|---|---|
 | WU-002-01, WU-002-02 | none; the reproduction is in the arbiter, the repair is in the scope | none | ordering |
 
+## Prior state captured
+
+| Criterion | Artefact | Captured to |
+|---|---|---|
+| CR-002-03 | tools/check.py as it stood before the repair | baseline/gate-row-filter.txt |
+
+Captured after the fact, and recoverable only because version control had preserved the prior state. Y1 exists because that recovery is not generally available: for anything not under version control there is nothing left to compare against once execution has run.
+
 ## Grants
 
 | Id | Unit | Permitted operations | Targets | Expires |

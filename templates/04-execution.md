@@ -10,6 +10,8 @@ Where the class admits a deterministic transformation, using an agent is a defec
 
 ## Candidates
 
-| Id | Unit | Artefacts | Produced at |
-|---|---|---|---|
-| CA-<nnn>-01 | WU-<nnn>-01 | <what changed, never applied here> | |
+| Id | Unit | Stored at | Artefacts | Produced at |
+|---|---|---|---|---|
+| CA-<nnn>-01 | WU-<nnn>-01 | candidates/CA-<nnn>-01/ | <what is proposed, never applied here> | |
+
+A candidate is written under `candidates/<id>/` and nowhere else. Execution that writes into the live tree leaves invariant 2 with nothing to enforce it.

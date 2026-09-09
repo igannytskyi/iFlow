@@ -1,7 +1,7 @@
 # iFlow
 
 **Status:** research, provisional
-**Version:** 1.5 — 2026-09-09
+**Version:** 1.6 — 2026-09-09
 
 A single document. It supersedes the eight it was assembled from; the git history holds those.
 
@@ -121,7 +121,7 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 
 | Object | What it is | Schema | Validity |
 |---|---|---|---|
-| **`Candidate`** | A proposed change; never applied by what produced it | unit; artifact set; executor identity and version; produced-at | Until its supporting evidence expires |
+| **`Candidate`** | A proposed change; never applied by what produced it, and **held apart from the live system until landing** — an execution that writes in place leaves invariant 2 with nothing to enforce it | unit; artifact set, stored apart; executor identity and version; produced-at | Until its supporting evidence expires |
 | **`Trace`** | The record of one run | run id; steps; tool calls; input and output digests; executor version; timestamps | Retained for the lifetime of the decisions it supports. Append-only; not writable by its subject |
 | **`Evidence`** | An artifact supporting one claim about a candidate **or about a transformation** | claim; **subject (candidate or transformation)**; kind (test run, static analysis, runtime observation, human affirmation, proof of a transformation's property); producer; **independence from the executor, and how established**; obtained-at | **Has a shelf life**, bound to the estate version and executor version it was obtained against |
 | **`Verdict`** | The acceptance decision on a candidate | candidate; per-criterion outcome (met, failed, **undecided**); evidence refs; overall; decided-by; **state (settled or deferred)**; observation window and baseline where deferred | Until invalidated by a landing touching its area of effect. A verdict that never closes is a failure, not a permanent state |
@@ -141,7 +141,7 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 
 1. **A `Specification` is immutable after admission.** Otherwise criteria are shaped by what execution turned out to produce, and the hypothesis fails at its first condition.
 2. **A `Candidate` is never applied by the area that produced it.** Execution proposes; landing disposes.
-3. **`Evidence` records its independence from the executor and how that is established.** Evidence that cannot state this does not count toward a verdict.
+3. **`Evidence` states how its independence is established, and independence has exactly two grounds.** Either it was produced by something other than the executor that produced the candidate, or it was fixed — and its own acceptance recorded — before that candidate existed, so that it could not have been shaped to fit. Pre-commitment is the stronger ground, since a second executor may share the first's blind spots while a thing written before the work cannot have been bent around it. Evidence that can state neither ground does not count toward a verdict.
 4. **A `Trace` is not writable by its subject.** A record an agent can edit is not a record.
 5. **Evidence about a transformation is amortized across its applications.** Establishing a property of a transformation once, rather than of each candidate, is what stops assurance cost scaling with volume. Any edit to the transformation invalidates every verdict resting on it.
 6. **A deferred `Verdict` lives inside a reversibility horizon.** Reversibility is not a property a change has or lacks; it shortens as other work builds on the change. A deferred verdict is admissible only while its observation window fits inside that horizon. Where the horizon expires first, a person decides at that moment — never quietly abandoned, never extended past the point of no return.
@@ -250,7 +250,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 - **P1** Pending `WorkUnit`s with their `AreaOfEffect`s, `EstateModel` including work in flight, `Budget`, policy.
 - **P2** `AdmissionDecision`, `Grant`, `Conflict`.
-- **P3** A unit is admitted when its area of effect does not intersect an unfinished unit's such that either's evidence would be invalidated, an allocation exists, and a grant no wider than its `Scope` can be issued. Failing any of the three it is held, not started. **A cycle among held units is detected structurally and immediately, not discovered by timeout**: age-based expiry is for contention, a cycle is a defect.
+- **P3** A unit is admitted when its area of effect does not intersect an unfinished unit's such that either's evidence would be invalidated, an allocation exists, and a grant no wider than its `Scope` can be issued. Failing any of the three it is held, not started. **Where a criterion could only ever be evidenced by the artefact being changed, the prior state of that artefact is captured here** — after execution there is nothing left to compare against, and the evidence becomes circular. **A cycle among held units is detected structurally and immediately, not discovered by timeout**: age-based expiry is for contention, a cycle is a defect.
 - **P4** Every pending unit admitted, held with a stated reason, refused, or **awaiting another authority** — a distinct state, because holding presumes eventual admission while this presumes an external event no gate here controls. Its cost accrues while no work happens, which area 9 must attribute to the intent rather than to a unit.
 - **P5** No resources are committed to a unit that could not have been accepted had it succeeded.
 - **P6** Admitting a unit later found to be in conflict is a failure of this area, not of landing. Holding one that could have run is a lesser failure, and must be visible as queueing rather than as silence.
@@ -284,7 +284,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 - **P2** `Verdict`, with the `Evidence` supporting it.
 - **P3** Accept only when every criterion is supported by evidence produced independently of the executor; otherwise reject or leave undecided. Which evidence suffices is fixed per `ChangeClass` in advance, not chosen per candidate.
 - **P4** A verdict exists for every criterion. A verdict on an effect that does not exist before exposure is **deferred rather than absent**: opened here with its observation window and baseline, closed by area 13 after landing.
-- **P5** Evidence is not produced by the agent that produced the candidate.
+- **P5** Evidence is independent on one of the two grounds of invariant 3: produced by something other than the executor, or fixed and accepted before the candidate existed.
 - **P6** Inability to obtain evidence is an **undecided** verdict, not a rejection; the two must not be conflated. **A criterion that is met and was the wrong criterion is invisible here by construction** — conformance is what this area establishes. Such an error surfaces only through area 13's lag to discovery, an incident, or a person, and it returns to area 1, never to this one.
 - **P7** The evidence itself, and how each item was obtained.
 - **P8** Verification runs; stop when the cost of assurance exceeds the value of the change — a decision that is itself recorded.
@@ -300,9 +300,9 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 - **P1** Accepted `Candidate`s with their `Verdict`s and `Evidence`, `EstateModel`.
 - **P2** `LandingPlan`, and the landed change. **A reversal is a change**: it carries its own criteria, evidence and plan, and is not a privileged instant operation exempt from them.
-- **P3** A candidate enters only while its supporting evidence is valid; where an earlier entry invalidated it, the evidence is re-established before entry rather than the candidate dropped.
+- **P3** A candidate enters only while its supporting evidence is valid; where an earlier entry invalidated it, the evidence is re-established before entry rather than the candidate dropped. **A candidate whose verdict leaves any criterion undecided does not enter at all**: undecided means acceptance was not established, and entry presumes it was. A deferred verdict is not undecided — it is a decision awaiting its window.
 - **P4** Every accepted candidate has entered, awaits re-establishment, or has been reversed.
-- **P5** Nothing takes effect on expired or invalidated evidence. A candidate carrying a deferred verdict enters only while it remains reversible, and remains reversible until that verdict closes.
+- **P5** Nothing takes effect on expired or invalidated evidence, and nothing takes effect on an undecided criterion. A candidate carrying a deferred verdict enters only while it remains reversible, and remains reversible until that verdict closes.
 - **P6** Joint incorrectness in production is a failure of this area. Conflict that should have prevented the work from starting is a failure of area 3. **A partial failure leaves the system in a state no plan declared valid**; that state halts every further entry within its area of effect until it is resolved, and the halt is the failure's first consequence rather than a decision someone makes later.
 - **P7** What each entry invalidated, and what was re-established before the next.
 - **P8** Re-verification after invalidation, and work waiting on it.
@@ -554,7 +554,20 @@ Three cases, and unlike the earlier runs these do not yield repairs so much as b
 
 **What these three have in common.** Two of them independently produce the same conclusion: the human boundary contracts but never reaches zero. Not because some area is unfinished, but for two structural reasons — the correctness of intent cannot be established from inside, and a system cannot arbitrate itself. Area 11's aim is the right one; its limit is now known.
 
-**Still untested.** Nothing from the original list remains. What would test the framework next is not another case but a first implementation, since every run from here would exercise reasoning that has already been exercised.
+## Run 6 — the first real change
+
+Not a scenario. A defect in the gate built to enforce this document, carried through the path under the skill: rows whose prose contained angle brackets were discarded as unfilled templates, so an acceptance criterion stating a two-sided bound vanished, no verdict was demanded for it, and the gate reported that it passed. A check that silently did not run, inside the thing built to prevent exactly that.
+
+The repair was routine. What the run produced was four defects in this document, found by using it rather than by reasoning about it.
+
+- **Y1** A criterion whose only possible evidence is produced by the artefact under change cannot be decided after the fact. **The prior state must be captured at admission**, before anything is committed — afterwards there is nothing left to compare against.
+- **Y2** Invariant 3 was too narrow. One agent produced both the arbiter and the candidate, yet the arbiter was written and its failure recorded before the candidate existed. **Independence has two grounds, not one**, and pre-commitment is the stronger: a second executor may share the first's blind spots, while a thing fixed before the work cannot have been bent around it.
+- **Y3** Execution wrote into the live tree, because the increment had no candidate store. Invariant 2 was therefore unenforced while being stated — **a guarantee that exists only in prose is worse than an acknowledged gap**, because it is relied upon.
+- **Y4** A unit landed carrying an undecided criterion and nothing forbade it. Undecided means acceptance was not established, which is precisely what entry presumes. **Nothing enters on an undecided criterion**; a deferred verdict is not undecided, it is a decision awaiting its window.
+
+Three of the four are of one kind: the document stated a property with nothing able to enforce it. That is the characteristic failure of a specification, and no further reasoning would have surfaced it — only running the thing did.
+
+**Still untested.** Nothing from the original list remains, and the framework has now been used once against itself. What tests it next is use, not another scenario.
 
 ---
 

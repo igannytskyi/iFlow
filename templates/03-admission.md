@@ -18,6 +18,14 @@
 
 A cycle among held units is a defect and is reported immediately, not waited out.
 
+## Prior state captured
+
+Where a criterion could only ever be evidenced by the artefact being changed, its prior state is captured here — after execution there is nothing left to compare against.
+
+| Criterion | Artefact | Captured to |
+|---|---|---|
+| CR-<nnn>-01 | | baseline/<name> |
+
 ## Grants
 
 | Id | Unit | Permitted operations | Targets | Expires |

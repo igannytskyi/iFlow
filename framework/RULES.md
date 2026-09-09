@@ -7,8 +7,10 @@ The nine invariants of [../docs/iflow.md](../docs/iflow.md) §4, restated so tha
 | # | Rule | Check | How |
 |---|---|---|---|
 | **R1** | A specification is immutable after admission | `M` | Its digest is recorded at admission and recomputed on every later run |
-| **R2** | A candidate is never applied by what produced it | `M` | Execution writes only under `candidates/`; landing is the only stage that records an entry |
-| **R3** | Evidence records its independence from the executor, and how | `M` | Every evidence row carries `independence` and a non-empty basis; `not-independent` cannot support a `met` outcome |
+| **R2** | A candidate is never applied by what produced it | `M` | Every candidate named in execution exists under `changes/<slug>/candidates/<id>/`; landing is the only stage that records an entry |
+| **R3** | Evidence states one of the two grounds of independence, and how | `M` | Every evidence row carries a defined `independence` value and a non-empty basis; `not-independent` cannot support a `met` outcome |
+| **R3b** | The artefact under change cannot attest to its own behaviour | `M` | Evidence whose producer names a path inside the scope must be `not-independent` |
+| **R10** | Nothing enters on an undecided criterion | `M` | A unit with any `undecided` verdict has no entry in landing; `deferred` is not `undecided` |
 | **R4** | A trace is not writable by its subject | `M` | The record is append-only: prior lines must match their previous digest |
 | **R5** | Evidence about a transformation is amortized, and invalidated by any edit to it | `M` | Transformation evidence carries the transformation's digest; a changed digest invalidates every verdict citing it |
 | **R6** | A deferred verdict lives inside a reversibility horizon | `H` | The window and the horizon are both recorded; whether the horizon is real cannot be derived from artifacts |
