@@ -1,7 +1,7 @@
 # iFlow
 
 **Status:** research, provisional
-**Version:** 1.7 — 2026-09-09
+**Version:** 1.8 — 2026-09-09
 
 A single document. It supersedes the eight it was assembled from; the git history holds those.
 
@@ -282,7 +282,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 - **P1** `Candidate`, `Specification`, `EstateModel`, `Trace`.
 - **P2** `Verdict`, with the `Evidence` supporting it.
-- **P3** Accept only when every criterion is supported by evidence produced independently of the executor; otherwise reject or leave undecided. Which evidence suffices is fixed per `ChangeClass` in advance, not chosen per candidate.
+- **P3** Accept only when every criterion is supported by evidence produced independently of the executor; otherwise reject or leave undecided. Which evidence suffices is fixed per `ChangeClass` in advance, not chosen per candidate. **An arbiter is accepted only once it has been shown to fail for the stated reason and not incidentally** — the requirement the C2 reproduction already carried, which belongs to every arbiter.
 - **P4** A verdict exists for every criterion. A verdict on an effect that does not exist before exposure is **deferred rather than absent**: opened here with its observation window and baseline, closed by area 13 after landing.
 - **P5** Evidence is independent on one of the two grounds of invariant 3: produced by something other than the executor, or fixed and accepted before the candidate existed.
 - **P6** Inability to obtain evidence is an **undecided** verdict, not a rejection; the two must not be conflated. **A criterion that is met and was the wrong criterion is invisible here by construction** — conformance is what this area establishes. Such an error surfaces only through area 13's lag to discovery, an incident, or a person, and it returns to area 1, never to this one.
@@ -572,6 +572,7 @@ Four rules declared themselves mechanically enforced and no check emitted any of
 - **Y5** Invariant 7 was about paths, and paths are not influence. The arbiter for this change read a file inside the change's own scope, so the criterion could have been satisfied by deleting the claims rather than honouring them. **Disjointness extends to everything the arbiter reads**, and where subject and input coincide the mitigations become obligatory: a separate unit, the prior state captured at admission, and the criterion judged against that state.
 - **Y6** A check bound to the name of a column vanishes silently when the column is renamed — the same silent-corruption class as the defect of run 6, now in the gate's own binding. **A gate states which columns its checks depend on, and fails when one is absent**, rather than passing because it looked at nothing.
 - **Y7** A specification is immutable after admission, so an obligation introduced later cannot be applied to work already admitted. The gate must therefore distinguish **violating a rule from predating it**, and report the second as a note rather than a failure. Immutability and evolving rules are both wanted; this is the price of having both.
+- **Y8** Twice in a row the arbiter had to be corrected before it could be accepted, both times because it compared more than its criterion named — absolute paths once, a folder set the other time — and so failed for a reason that had nothing to do with the subject. The document already required this of a C2 reproduction: it must fail on the unmodified system *for the stated reason rather than incidentally*. **That requirement belongs to every arbiter, not only to reproductions.** An arbiter is an implementation of a criterion, and an arbiter that tests more than its criterion says produces false failures exactly as one that tests less produces false passes. Both are defects of the arbiter, and neither is visible unless the arbiter's own acceptance is demonstrated before it is relied upon. It follows that **every criterion must be arbitrated by something named**: a criterion no arbiter claims is not being tested at all, and nothing says so.
 
 Three of the four are of one kind: the document stated a property with nothing able to enforce it. That is the characteristic failure of a specification, and no further reasoning would have surfaced it — only running the thing did.
 

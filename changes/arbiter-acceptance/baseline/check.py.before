@@ -160,47 +160,6 @@ class Check:
                 self.fail("R7b", f"{inp} is read by the arbiter and inside the scope, "
                                  f"with no prior state captured at admission")
 
-    def every_criterion_arbitrated(self):
-        """R11: a criterion nothing claims to arbitrate is not being tested."""
-        if "01-specification" not in self.text:
-            return
-        criteria, claimed = set(), ""
-        for headers, rows in tables(self.text["01-specification"]):
-            if "Criterion" in headers and "Procedure" in headers:
-                criteria |= {r["Id"] for r in real(rows) if r.get("Id")}
-            if "Path" in headers and "What it arbitrates" in headers:
-                claimed += " ".join(col(real(rows), "What it arbitrates"))
-        for c in sorted(criteria):
-            if c not in claimed:
-                self.fail("R11", f"{c} is claimed by no arbiter, so nothing tests it")
-
-    def arbiter_acceptance(self):
-        """R12: a unit that builds an arbiter records how it failed before acceptance."""
-        if "04-execution" not in self.text:
-            return
-        recorded, has_section = "", False
-        for headers, rows in tables(self.text["04-execution"]):
-            if "Before repair" in headers:
-                has_section = True
-                recorded += " ".join(v for r in real(rows) for v in r.values() if v)
-        if not has_section:
-            self.notes.append("R12: this change records no arbiter acceptance — "
-                              "it predates the obligation rather than violating it")
-            return
-        arbiter = set()
-        for headers, rows in tables(self.text.get("01-specification", "")):
-            if "Path" in headers and "What it arbitrates" in headers:
-                arbiter |= {v for v in col(real(rows), "Path")}
-        for headers, rows in tables(self.text.get("02-plan", "")):
-            if "Preparatory for" in headers and "Scope" in headers:
-                for r in real(rows):
-                    if not r.get("Preparatory for"):
-                        continue
-                    if any(a and a in r.get("Scope", "") for a in arbiter):
-                        if r.get("Id", "") not in recorded:
-                            self.fail("R12", f"{r.get('Id')} builds an arbiter and does not "
-                                             f"record how it failed before acceptance")
-
     def stage_order(self):
         present = [s for s in STAGES if s in self.text]
         if not present:
@@ -435,7 +394,6 @@ class Check:
 
     def run(self):
         for m in (self.stage_order, self.headers_present, self.arbiter_inputs,
-                  self.every_criterion_arbitrated, self.arbiter_acceptance,
                   self.vocabulary, self.spec_immutable,
                   self.candidates_stored,
                   self.scope_arbiter_disjoint, self.evidence_independence,
