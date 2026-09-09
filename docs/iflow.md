@@ -1,7 +1,7 @@
 # iFlow
 
 **Status:** research, provisional
-**Version:** 1.2 — 2026-09-09
+**Version:** 1.3 — 2026-09-09
 
 A single document. It supersedes the eight it was assembled from; the git history holds those.
 
@@ -92,7 +92,7 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 | **`Criterion`** | One condition on an acceptable result | statement; decision procedure (machine or human); required evidence kind; threshold | Fixed with its specification |
 | **`AcceptanceCriteria`** | The criteria for one specification | criteria; completeness marker | Fixed with its specification |
 | **`TerminationCondition`** | When work stops without acceptance | condition; action on trigger | Fixed with its specification |
-| **`Scope`** | The declared region a change may touch | included; excluded; class default | Fixed with its specification |
+| **`Scope`** | The declared region a change may touch | included; excluded; class default; **disjointness from the instrument** — the tests, schemas, telemetry definitions and criteria by which the change will be judged | Fixed with its specification |
 | **`Specification`** | The complete statement of a change to be made and judged | `Intent`; **default** `ChangeClass`; `AcceptanceCriteria`; `TerminationCondition`; `Scope` | **Immutable after admission.** A changed intent produces a new specification, never an edit |
 
 ## The estate
@@ -109,7 +109,7 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 | Object | What it is | Schema | Validity |
 |---|---|---|---|
 | **`WorkUnit`** | A bounded, executable piece of work with its own criteria | specification ref; **its own `ChangeClass`**; `Scope`; `AreaOfEffect`; inherited criteria; dependencies; size estimate | Until admitted, or until its area of effect is invalidated while waiting |
-| **`ChangePlan`** | The ordered phases realising one specification where they cannot all land at once | phases; unit membership; wait conditions, including waits on observation; **criterion that every intermediate state is a valid, shippable system**; rollback position per phase | Until every phase lands or the plan is abandoned; abandonment leaves the system at a named intermediate state, never mid-phase |
+| **`ChangePlan`** | The ordered phases realising one specification where they cannot all land at once | phases; unit membership; wait conditions, including waits on observation; **criterion that every intermediate state is a valid, shippable system**; rollback position per phase; **disposal of residue on abandonment** | Until every phase lands or the plan is abandoned; abandonment leaves the system at a named intermediate state, never mid-phase, and **never leaves that state unowned** |
 | **`ContextBundle`** | The knowledge supplied to an executor for one unit | statements included; selection rule; estate version; budget consumed | One execution only; never reused |
 | **`AdmissionDecision`** | The decision to commit resources, or not | unit; outcome (admitted, held, refused); deciding condition; **the confidence of the estate edges it rested on**; decided-at | Held decisions expire into escalation at a stated age |
 | **`Grant`** | Permissions bound to one unit | unit; permitted operations; targets; credential reference; expiry | Expires with the run; never renewed by the agent holding it |
@@ -143,6 +143,8 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 4. **A `Trace` is not writable by its subject.** A record an agent can edit is not a record.
 5. **Evidence about a transformation is amortized across its applications.** Establishing a property of a transformation once, rather than of each candidate, is what stops assurance cost scaling with volume. Any edit to the transformation invalidates every verdict resting on it.
 6. **A deferred `Verdict` lives inside a reversibility horizon.** Reversibility is not a property a change has or lacks; it shortens as other work builds on the change. A deferred verdict is admissible only while its observation window fits inside that horizon. Where the horizon expires first, a person decides at that moment — never quietly abandoned, never extended past the point of no return.
+7. **`Scope` and the instrument are disjoint.** Whatever will judge a change — its tests, its schemas, its telemetry definitions, its criteria — lies outside the region that change may touch. A `Grant` permitting an executor to write to its own instrument is malformed, and evidence gathered through an instrument the executor could reach establishes nothing.
+8. **A change to the instrument is a separate unit, accepted separately, and never by the unit that depends on it.** Some changes legitimately require the instrument to move; that move is itself work, with its own criteria and its own acceptance. Allowing one unit to widen its instrument and then pass through it is invariant 3 evaded rather than satisfied.
 
 ---
 
@@ -173,6 +175,8 @@ The binding difficulty in C1 is never the oracle but **observational adequacy**.
 **C3 — Contract-bounded.** The criterion is an explicit statement the result must satisfy. What remains undecided is whether the contract was the right one; that residue belongs to area 1, where the criterion was written, and must not be smuggled into area 5 as though assurance could settle it.
 
 **C4 — Observable-effect.** The quantity does not exist until the change is exposed, so acceptance splits: before landing, only safety; after landing, effect against a baseline, completing or reversing the verdict. **C4 requires reversibility.** An irreversible change whose acceptance depends on observed effect is not C4 — it is C5, and needs a person before it lands.
+
+Two further constraints, and the second bounds concurrency itself. The observation window must fit not only inside the reversibility horizon but inside the **decay of its own baseline**: a baseline measured before forty other changes landed no longer describes a world without this one. And an observed effect is attributable to a particular change only where that change is the sole variable in its area of effect, or where a comparison group exists. **Without isolation or a control, a C4 verdict cannot close positively** — it closes undecided and escalates. This is the first place where concurrency is limited by the class rather than by resources: two C4 changes in the same area of effect cannot run at once at any budget.
 
 **C5 — Judgment-bound.** New user-facing behaviour, product decisions, anything whose criterion is desirability. No oracle exists and none can be built. The task is not to decide but to **reduce what must be judged**: establish everything establishable, hand the person a bounded decision rather than a diff, record the decision as testimony. **C5 does not become automatable. It becomes cheaper to judge.**
 
@@ -258,7 +262,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 - **P1** `WorkUnit`, `ContextBundle`, `Grant` and `AdmissionDecision`.
 - **P2** `Candidate`, `Trace`.
 - **P3** Act within `Scope`, stop on `TerminationCondition`, produce a candidate and never a change to the live system. **Where the class permits a deterministic transformation, using an agent instead is a defect** — it makes a reproducible result unreproducible and costs more.
-- **P4** A candidate exists, the termination condition is met, or the step budget is exhausted.
+- **P4** A candidate exists, the termination condition is met, the step budget is exhausted, or the unit is **cancelled** — a terminal state distinct from failure, reached when the intent behind it is withdrawn. Cancelled work is still charged: area 9 forbids unattributable spend regardless of why the work stopped.
 - **P5** No effect outside the declared `Scope` and `Grant`; the estate itself is not modified.
 - **P6** Substrate failure — tool error, capacity exhaustion, timeout — is distinguished from task failure, the inability to satisfy the criteria. They are retried differently and only the second is informative about the work.
 - **P7** `Trace`, with the identity and version of the executor at the time of the run.
@@ -392,12 +396,12 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 *Why an area and not a method.* An instrument existing only in the research measures a prototype and then goes away. The claim is about a system in operation, so the system must observe itself.
 
-- **P1** `Trace`, `Verdict`, `CostRecord`, `Escalation`, landed changes and their later outcomes, `Baseline`. **P2** `Metric` series, per `ChangeClass`.
+- **P1** `Trace`, `Verdict`, `CostRecord`, `Escalation`, landed changes and their later outcomes, `Baseline`, **and the extent of the instrument itself** — how many tests, contracts and observations stand behind the criteria. **P2** `Metric` series, per `ChangeClass`.
 - **P3** A measurement counts only against a population and a class stated in advance; a figure without both is not published.
 - **P4** Continuous, settled per period.
 - **P5** The baseline is measured on the same workload as the comparison, otherwise no comparison is made at all.
 - **P6** A metric that cannot detect the failure it is meant to detect is worse than none. The governing case: **a wrongly accepted change is by construction unread, so it is discovered only later — from a defect, an incident or a reversal — and the lag between acceptance and discovery is the instrument's resolution.**
-- **P7** How each figure was obtained, over what population, in what period. **P8** Measurement must not perturb what it measures.
+- **P7** How each figure was obtained, over what population, in what period. **A rising acceptance rate together with a shrinking instrument, or with a lengthening lag to discovery, is the signature of a system passing its own examinations by making them easier** — the instrument is watched alongside the outcomes, or the outcomes cannot be believed. **P8** Measurement must not perturb what it measures.
 - **P9** Read records and outcomes. No write anywhere else. **P10** A metric diverging from target beyond a stated period; loss of the baseline.
 
 ---
@@ -501,7 +505,29 @@ Not changes so much as ways the structure breaks. Each was carried through until
 
 - **U7** This is **not adjudicated in execution.** It is evidence that the criteria under-determine the result, and it returns to area 1. Resolving it by running three executors and taking the majority would pick a plausible answer while establishing nothing — precisely what the hypothesis forbids. Inverted, it is useful: running a unit twice on purpose is a cheap probe of whether criteria are complete.
 
-**Still untested.** An intent withdrawn while its plan is mid-flight. An executor that satisfies the criteria by changing what the criteria measure. A baseline that shifts under a deferred verdict.
+## Run 4 — the instrument, and what is left behind
+
+Three cases. The second is the most dangerous in this document, because it attacks the hypothesis rather than the structure.
+
+**An intent withdrawn while its plan is mid-flight.** Two phases have landed, a third waits, and the requester withdraws. The plan already guarantees the system is left at a named valid state — but valid is not the same as intended. The producer now accepts an optional field nobody will ever send.
+
+- **W1** Abandonment produces residue, and **residue must have an owner**: a withdrawn plan either rolls back to the pre-plan state — itself a change, per U3 — or emits a new intent to dispose of what it left. A system that promises not to leave the estate broken must also promise not to leave it littered, or it becomes a source of exactly the sediment area 7 struggles to describe.
+- **W2** **Cancellation is a terminal state distinct from failure.** Units already running stop, their grants expire, and their cost is still attributed: area 9 forbids unattributable spend regardless of why work stopped.
+
+**An executor that satisfies the criterion by changing what the criterion measures.** A failing test is deleted. A symbol is wrapped rather than removed. The telemetry that would have shown old-shape traffic stops being emitted. Every criterion is met and nothing was established.
+
+This is the sharpest attack available on the hypothesis, because evidence independent of the *executor* is no defence once the executor has moved the *instrument*.
+
+- **W3** **The instrument lies outside the scope.** Tests, schemas, telemetry definitions and the criteria themselves are the apparatus by which a change is judged, and a `Grant` letting an executor write to its own apparatus is malformed. This is not a policy to configure; it is a property `Scope` must have by construction.
+- **W4** Some changes legitimately require the instrument to move. Then **the move is its own unit, accepted separately, and never by the unit that depends on it.** Otherwise a unit widens its instrument and then passes through it.
+- **W5** It is detectable. **A rising acceptance rate together with a shrinking instrument, or a lengthening lag to discovery, is the signature of a system passing its own examinations by making them easier.** Area 13 therefore watches the size of the instrument, not only the outcomes.
+
+**A baseline that shifts under a deferred verdict.** Thirty days of observation, during which forty other changes land and the season turns.
+
+- **W6** The observation window is bounded twice: by the reversibility horizon, and by **the decay of the baseline itself**.
+- **W7** An effect is attributable only where the change is the sole variable in its area of effect, or a comparison group exists. **Without isolation or a control, a C4 verdict cannot close positively.** This is the first constraint in which **concurrency is bounded by the class rather than by resources.**
+
+**Still untested.** A criterion that is met correctly and was the wrong criterion — the residue C3 hands back to area 1, which no run has yet exercised. An estate spanning two organizations with different authorities. And the reflexive case: iFlow changing iFlow, where the instrument and the subject are one system.
 
 ---
 
