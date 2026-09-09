@@ -1,7 +1,7 @@
 # iFlow
 
 **Status:** research, provisional
-**Version:** 1.3.2 — 2026-09-09
+**Version:** 1.4 — 2026-09-09
 
 A single document. It supersedes the eight it was assembled from; the git history holds those.
 
@@ -28,6 +28,8 @@ Restated in clauses, cited throughout as the ground of every derivation:
 **Subject of study.** The conditions and mechanisms under which that process can be carried out by autonomous agents while intent, criteria and the possibility of verification remain with a person.
 
 **Hypothesis.** A change can be accepted without a person who understands the system **if and only if** the criteria of acceptability are stated before execution and conformance to them is established by evidence produced independently of the executor. Each condition is load-bearing: criteria stated after the fact describe a result rather than judge it, and evidence produced by an executor about its own work establishes nothing.
+
+**What the hypothesis does not claim.** Acceptance establishes **conformance, not correctness of intent**. The system can establish that a change does what its criteria say; it cannot establish that the criteria were the right ones. That residue is irreducible and is one of two structural reasons the human boundary never reaches zero — the other being self-reference, §4 invariant 9.
 
 **Methods.** Derivation of requirements from the goal; comparative analysis of existing systems and of the practice of large-scale automated change; testing the derived structure against documented industry failure modes; end-to-end runs of a single change through the whole structure, whose purpose is to break it.
 
@@ -145,6 +147,7 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 6. **A deferred `Verdict` lives inside a reversibility horizon.** Reversibility is not a property a change has or lacks; it shortens as other work builds on the change. A deferred verdict is admissible only while its observation window fits inside that horizon. Where the horizon expires first, a person decides at that moment — never quietly abandoned, never extended past the point of no return.
 7. **`Scope` and the arbiter are disjoint.** Whatever will judge a change — its tests, its schemas, its telemetry definitions, its criteria — lies outside the region that change may touch. A `Grant` permitting an executor to write to what will judge it is malformed, and evidence gathered through an arbiter the executor could reach establishes nothing.
 8. **A change to the arbiter is a separate unit, accepted separately, and never by the unit that depends on it.** Some changes legitimately require the arbiter to move; that move is itself work, with its own criteria and its own acceptance. Allowing one unit to weaken what judges it and then pass is invariant 3 evaded rather than satisfied.
+9. **The framework is not its own arbiter.** Invariant 7 at the level of the whole system: a change to the acceptance machinery — criteria, assurance, the record — cannot be judged by the machinery being changed, because disjointness is impossible when the subject and what judges it are one system. Such changes are arbitrated from outside: by a frozen prior version, a separate deployment, or people. A measuring device is calibrated against an external standard for the same reason. It follows that the framework always retains a small, separately governed core that it does not administer itself.
 
 ---
 
@@ -188,6 +191,8 @@ These cut across the classes and must not be turned into any.
 
 **Reachability** — whether every consumer of a changed contract can be changed at all. Shipped applications, third parties, anything already in someone else's hands. **A contract change with an unreachable consumer cannot complete without a human decision, and that is knowable at area 1, before any work is done.**
 
+**Authority boundary** — whether the change crosses into a system governed by someone else. Across such a boundary nothing can be derived, only attested: every statement about the other side degrades to `Testimony`, and with it the decidability of the class. **The same change is a lower class on the far side of an organizational line** — typically observed rather than verified, which is to say C4 where it would have been C3 at home.
+
 **Blast radius** — how far effects travel before anything detects them. Governs admission, not acceptance.
 
 **Reversibility** — whether a change can be withdrawn cheaply, and **for how long**; the horizon shortens as other work builds on it.
@@ -211,7 +216,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 - **P1** `Intent`, `EstateModel`, the catalogue of `ChangeClass`.
 - **P2** `Specification`, containing a default `ChangeClass`, `AcceptanceCriteria`, `TerminationCondition`, `Scope`.
-- **P3** A specification is complete when every criterion is either decidable by machine or explicitly marked as requiring a person. What is decidable is a property of the class, not of the individual intent.
+- **P3** A specification is complete when every criterion is either decidable by machine or explicitly marked as requiring a person. What is decidable is a property of the class, not of the individual intent. **A criterion is stated in the vocabulary of the intent rather than of the implementation**: one that names a code artifact can be satisfied by editing that artifact, while one that names an observable fact of the domain cannot. This is invariant 7 applied a level up.
 - **P4** Completeness reached, or ambiguity declared irreducible.
 - **P5** Criteria are fixed before execution and are not altered by it.
 - **P6** An intent that cannot be expressed as criteria is a failure of this area, not a poor specification passed downstream. Criteria that admit two materially different acceptable results are incomplete, and the discovery of that fact anywhere downstream returns here.
@@ -246,7 +251,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 - **P1** Pending `WorkUnit`s with their `AreaOfEffect`s, `EstateModel` including work in flight, `Budget`, policy.
 - **P2** `AdmissionDecision`, `Grant`, `Conflict`.
 - **P3** A unit is admitted when its area of effect does not intersect an unfinished unit's such that either's evidence would be invalidated, an allocation exists, and a grant no wider than its `Scope` can be issued. Failing any of the three it is held, not started. **A cycle among held units is detected structurally and immediately, not discovered by timeout**: age-based expiry is for contention, a cycle is a defect.
-- **P4** Every pending unit admitted, held with a stated reason, or refused.
+- **P4** Every pending unit admitted, held with a stated reason, refused, or **awaiting another authority** — a distinct state, because holding presumes eventual admission while this presumes an external event no gate here controls. Its cost accrues while no work happens, which area 9 must attribute to the intent rather than to a unit.
 - **P5** No resources are committed to a unit that could not have been accepted had it succeeded.
 - **P6** Admitting a unit later found to be in conflict is a failure of this area, not of landing. Holding one that could have run is a lesser failure, and must be visible as queueing rather than as silence.
 - **P7** Which of the three conditions decided it, against what, and **at what confidence** — a conflict found through a matched contract edge is only as certain as that edge.
@@ -280,7 +285,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 - **P3** Accept only when every criterion is supported by evidence produced independently of the executor; otherwise reject or leave undecided. Which evidence suffices is fixed per `ChangeClass` in advance, not chosen per candidate.
 - **P4** A verdict exists for every criterion. A verdict on an effect that does not exist before exposure is **deferred rather than absent**: opened here with its observation window and baseline, closed by area 13 after landing.
 - **P5** Evidence is not produced by the agent that produced the candidate.
-- **P6** Inability to obtain evidence is an **undecided** verdict, not a rejection; the two must not be conflated.
+- **P6** Inability to obtain evidence is an **undecided** verdict, not a rejection; the two must not be conflated. **A criterion that is met and was the wrong criterion is invisible here by construction** — conformance is what this area establishes. Such an error surfaces only through area 13's lag to discovery, an incident, or a person, and it returns to area 1, never to this one.
 - **P7** The evidence itself, and how each item was obtained.
 - **P8** Verification runs; stop when the cost of assurance exceeds the value of the change — a decision that is itself recorded.
 - **P9** Tests and analyses in isolated environments, and **read production observations**, without which no C4 criterion is decidable. No write anywhere.
@@ -365,7 +370,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 ### 11. Human Boundary — *from (c) and (d)*
 
-**Object.** Human participation in agent work. **Subject.** The rule determining when it is necessary. **Aim.** Participation only where required, with that region contracting as evidence accumulates.
+**Object.** Human participation in agent work. **Subject.** The rule determining when it is necessary. **Aim.** Participation only where required, with that region contracting as evidence accumulates — **toward a floor, not toward zero**: the correctness of an intent cannot be established from inside the system (§2), and a system cannot arbitrate itself (§4, invariant 9).
 **Criterion of resolution.** Participation per unit of change is measured and declining, and cases where it was required but did not occur are detectable.
 
 - **P1** `Escalation` from any area; historical verdicts and their outcomes. **P2** Routing to a person, and revision of the escalation rules themselves.
@@ -527,7 +532,29 @@ This is the sharpest attack available on the hypothesis, because evidence indepe
 - **W6** The observation window is bounded twice: by the reversibility horizon, and by **the decay of the baseline itself**.
 - **W7** An effect is attributable only where the change is the sole variable in its area of effect, or a comparison group exists. **Without isolation or a control, a C4 verdict cannot close positively.** This is the first constraint in which **concurrency is bounded by the class rather than by resources.**
 
-**Still untested.** A criterion that is met correctly and was the wrong criterion — the residue C3 hands back to area 1, which no run has yet exercised. An estate spanning two organizations with different authorities. And the reflexive case: iFlow changing iFlow, where the arbiter and the subject are one system.
+## Run 5 — the limits
+
+Three cases, and unlike the earlier runs these do not yield repairs so much as boundaries. Each marks something the framework cannot do, and saying so is more useful than engineering around it.
+
+**A criterion met correctly that was the wrong criterion.** The schema requires `currency`, the criterion is satisfied, and every order carries the merchant's default rather than what the customer paid in. Nothing failed.
+
+- **X1** Assurance **cannot see this by construction.** It establishes conformance, and conformance holds. The error surfaces only from outside the acceptance path — through the lag to discovery in area 13, an incident, or a person — and it returns to area 1, which wrote the criterion, never to area 5, which applied it correctly.
+- **X2** Therefore, stated plainly: **acceptance is conformance, not correctness of intent.** The framework can guarantee that a change does what its criteria say. It cannot guarantee the criteria were right. This is not a gap to be closed later; it is the shape of what was promised, and it belongs in the research framework beside the hypothesis.
+- **X3** It can be reduced, though never removed. **A criterion stated in the vocabulary of the intent is harder to satisfy vacuously than one stated in the vocabulary of the implementation** — a criterion naming a code artifact can be met by editing that artifact, one naming an observable fact of the domain cannot. This is invariant 7 a level up: the same disjointness between what is changed and what judges it.
+
+**An estate spanning two organizations.** A shared integration, a counterparty with its own authority, cadence and process.
+
+- **X4** A dependency on another authority is **not a hold.** Holding presumes eventual admission by a gate that controls the outcome; this presumes an external event no gate controls. It is a distinct state, and its cost accrues while no work happens — attributed to the intent rather than to a unit, since no unit is running.
+- **X5** **Across an authority boundary nothing can be derived, only attested.** You cannot read a system you have no access to, so every statement about the far side is `Testimony` and carries its confidence. Decidability falls with it: the same change is a lower class on the far side of an organizational line, observed rather than verified — C4 where it would have been C3 at home.
+
+**iFlow changing iFlow.** The reflexive case, where the subject and what judges it are one system.
+
+- **X6** **The framework cannot accept changes to itself under its own rules.** Invariant 7 requires scope and arbiter to be disjoint, and disjointness is impossible in principle when they are the same system. Changes to criteria, assurance or the record are arbitrated from outside — a frozen prior version, a separate deployment, or people — for the same reason a measuring device is calibrated against an external standard.
+- **X7** It follows that **the framework permanently retains a small, separately governed core** that it does not administer itself: its record store not writable by it, its own acceptance not decided by it.
+
+**What these three have in common.** Two of them independently produce the same conclusion: the human boundary contracts but never reaches zero. Not because some area is unfinished, but for two structural reasons — the correctness of intent cannot be established from inside, and a system cannot arbitrate itself. Area 11's aim is the right one; its limit is now known.
+
+**Still untested.** Nothing from the original list remains. What would test the framework next is not another case but a first implementation, since every run from here would exercise reasoning that has already been exercised.
 
 ---
 
