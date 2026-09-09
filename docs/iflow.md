@@ -1,7 +1,7 @@
 # iFlow
 
 **Status:** research, provisional
-**Version:** 1.3.1 — 2026-09-09
+**Version:** 1.3.2 — 2026-09-09
 
 A single document. It supersedes the eight it was assembled from; the git history holds those.
 
@@ -92,7 +92,7 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 | **`Criterion`** | One condition on an acceptable result | statement; decision procedure (machine or human); required evidence kind; threshold | Fixed with its specification |
 | **`AcceptanceCriteria`** | The criteria for one specification | criteria; completeness marker | Fixed with its specification |
 | **`TerminationCondition`** | When work stops without acceptance | condition; action on trigger | Fixed with its specification |
-| **`Scope`** | The declared region a change may touch | included; excluded; class default; **disjointness from the oracle** — the tests, schemas, telemetry definitions and criteria by which the change will be judged | Fixed with its specification |
+| **`Scope`** | The declared region a change may touch | included; excluded; class default; **disjointness from the arbiter** — the tests, schemas, telemetry definitions and criteria by which the change will be judged | Fixed with its specification |
 | **`Specification`** | The complete statement of a change to be made and judged | `Intent`; **default** `ChangeClass`; `AcceptanceCriteria`; `TerminationCondition`; `Scope` | **Immutable after admission.** A changed intent produces a new specification, never an edit |
 
 ## The estate
@@ -143,8 +143,8 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 4. **A `Trace` is not writable by its subject.** A record an agent can edit is not a record.
 5. **Evidence about a transformation is amortized across its applications.** Establishing a property of a transformation once, rather than of each candidate, is what stops assurance cost scaling with volume. Any edit to the transformation invalidates every verdict resting on it.
 6. **A deferred `Verdict` lives inside a reversibility horizon.** Reversibility is not a property a change has or lacks; it shortens as other work builds on the change. A deferred verdict is admissible only while its observation window fits inside that horizon. Where the horizon expires first, a person decides at that moment — never quietly abandoned, never extended past the point of no return.
-7. **`Scope` and the oracle are disjoint.** Whatever will judge a change — its tests, its schemas, its telemetry definitions, its criteria — lies outside the region that change may touch. A `Grant` permitting an executor to write to what will judge it is malformed, and evidence gathered through an oracle the executor could reach establishes nothing.
-8. **A change to the oracle is a separate unit, accepted separately, and never by the unit that depends on it.** Some changes legitimately require the oracle to move; that move is itself work, with its own criteria and its own acceptance. Allowing one unit to weaken what judges it and then pass is invariant 3 evaded rather than satisfied.
+7. **`Scope` and the arbiter are disjoint.** Whatever will judge a change — its tests, its schemas, its telemetry definitions, its criteria — lies outside the region that change may touch. A `Grant` permitting an executor to write to what will judge it is malformed, and evidence gathered through an arbiter the executor could reach establishes nothing.
+8. **A change to the arbiter is a separate unit, accepted separately, and never by the unit that depends on it.** Some changes legitimately require the arbiter to move; that move is itself work, with its own criteria and its own acceptance. Allowing one unit to weaken what judges it and then pass is invariant 3 evaded rather than satisfied.
 
 ---
 
@@ -154,21 +154,21 @@ A class is defined by **how the acceptance of a change is decided** — not by w
 
 A class is assigned **per `WorkUnit`**; the `Specification` carries only a default. One intent legitimately spans several: a contract change is C1 for the producer's existing callers, C3 per consumer, C4 while old-shape traffic drains, and C5 at the residue.
 
-Acceptance requires an **oracle** — something that can pronounce on a result independently of what produced it. Classes are ordered by which oracle decides them.
+Acceptance requires an **arbiter** — something that settles whether a result conforms, independently of whatever produced it. Classes are ordered by which arbiter settles them, from the most independent and immediate to none at all.
 
-| | Class | The claim | Oracle | Decidability |
+| | Class | The claim | Arbiter | Decidability |
 |---|---|---|---|---|
 | **C1** | Behaviour-preserving | Nothing observable changed | The prior system itself | Full, given observational adequacy |
-| **C2** | Defect repair | This wrong behaviour is now right, and nothing else changed | A reproduction, plus C1's oracle for the rest | Full, given a reproduction exists |
+| **C2** | Defect repair | This wrong behaviour is now right, and nothing else changed | A reproduction, plus C1's arbiter for the rest | Full, given a reproduction exists |
 | **C3** | Contract-bounded | The system now satisfies this stated contract | The contract — types, schema, interface, property, policy | Full within the contract |
 | **C4** | Observable-effect | The deployed system behaves better against a measured quantity | Production observation against a baseline | Partial, and **delayed** |
 | **C5** | Judgment-bound | This is what was wanted | A person | None, by construction |
 
 **C1 — Behaviour-preserving.** Dependency and version upgrades, framework migrations, mechanical refactoring, dead-code removal, moves and renames. Two sub-modes: **proved**, where the transformation is behaviour-preserving by construction and acceptance costs nothing because nothing need be run; and **tested**, where behaviour is compared before and after.
 
-The proof rests on an equivalence claim, and **that claim must be recorded with its provenance.** Where it is derived — the compiler establishes it, the transformation is total over the semantic tree — the class holds. Where it comes from documentation or a person it is `Testimony`, and **an equivalence claim resting on testimony demotes the change to C1 tested.** Otherwise the strongest guarantee in the catalogue rests on an unexamined assertion that no downstream oracle can catch, because the proof is what replaced the oracle.
+The proof rests on an equivalence claim, and **that claim must be recorded with its provenance.** Where it is derived — the compiler establishes it, the transformation is total over the semantic tree — the class holds. Where it comes from documentation or a person it is `Testimony`, and **an equivalence claim resting on testimony demotes the change to C1 tested.** Otherwise the strongest guarantee in the catalogue rests on an unexamined assertion that no downstream arbiter can catch, because the proof is what replaced the arbiter.
 
-The binding difficulty in C1 is never the oracle but **observational adequacy**. A second limit is inherent: where a language permits reflection or string-formed invocation, the set of call sites is not statically decidable. Criteria are written to what is decidable, with the residue stated, never to what merely sounds complete.
+The binding difficulty in C1 is never the arbiter but **observational adequacy**. A second limit is inherent: where a language permits reflection or string-formed invocation, the set of call sites is not statically decidable. Criteria are written to what is decidable, with the residue stated, never to what merely sounds complete.
 
 **C2 — Defect repair.** Two halves, both needing evidence: the reported behaviour is corrected, and nothing else moved — the second half is C1. Decidability is conditional on a reproduction, whose own acceptance is decidable: the test must fail on the unmodified system, and fail for the stated reason rather than incidentally. **A defect without a reproduction is not a C2 change; it is a request for a reproduction, followed by one.**
 
@@ -178,7 +178,7 @@ The binding difficulty in C1 is never the oracle but **observational adequacy**.
 
 Two further constraints, and the second bounds concurrency itself. The observation window must fit not only inside the reversibility horizon but inside the **decay of its own baseline**: a baseline measured before forty other changes landed no longer describes a world without this one. And an observed effect is attributable to a particular change only where that change is the sole variable in its area of effect, or where a comparison group exists. **Without isolation or a control, a C4 verdict cannot close positively** — it closes undecided and escalates. This is the first place where concurrency is limited by the class rather than by resources: two C4 changes in the same area of effect cannot run at once at any budget.
 
-**C5 — Judgment-bound.** New user-facing behaviour, product decisions, anything whose criterion is desirability. No oracle exists and none can be built. The task is not to decide but to **reduce what must be judged**: establish everything establishable, hand the person a bounded decision rather than a diff, record the decision as testimony. **C5 does not become automatable. It becomes cheaper to judge.**
+**C5 — Judgment-bound.** New user-facing behaviour, product decisions, anything whose criterion is desirability. No arbiter exists and none can be built. The task is not to decide but to **reduce what must be judged**: establish everything establishable, hand the person a bounded decision rather than a diff, record the decision as testimony. **C5 does not become automatable. It becomes cheaper to judge.**
 
 ## Modifiers
 
@@ -194,7 +194,7 @@ These cut across the classes and must not be turned into any.
 
 ## Order of capability
 
-**C1 proved → C1 tested → C2 → C3 → C4 → C5.** Each oracle is weaker than the last. The first is where the strongest guarantees and the existing industrial practice are. The last never arrives and should not be aimed at.
+**C1 proved → C1 tested → C2 → C3 → C4 → C5.** Each arbiter is weaker than the last. The first is where the strongest guarantees and the existing industrial practice are. The last never arrives and should not be aimed at.
 
 ---
 
@@ -207,7 +207,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 ### 1. Intent and Criteria — *from (b)*
 
 **Object.** The act of stating what is to be changed and what result would be acceptable. **Subject.** The form and completeness of that statement, sufficient for execution and judgement without further participation by its author. **Aim.** A representation of intent and criteria fit for machine execution and machine judgement.
-**Criterion of resolution.** An executor raises no questions against the specification, and a judge decides without consulting its author.
+**Criterion of resolution.** An executor raises no questions against the specification, and acceptance is decided without consulting its author.
 
 - **P1** `Intent`, `EstateModel`, the catalogue of `ChangeClass`.
 - **P2** `Specification`, containing a default `ChangeClass`, `AcceptanceCriteria`, `TerminationCondition`, `Scope`.
@@ -396,12 +396,12 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 *Why an area and not a method.* An instrument existing only in the research measures a prototype and then goes away. The claim is about a system in operation, so the system must observe itself.
 
-- **P1** `Trace`, `Verdict`, `CostRecord`, `Escalation`, landed changes and their later outcomes, `Baseline`, **and the strength of the oracle itself** — how many tests, contracts and observations stand behind the criteria. **P2** `Metric` series, per `ChangeClass`.
+- **P1** `Trace`, `Verdict`, `CostRecord`, `Escalation`, landed changes and their later outcomes, `Baseline`, **and the strength of the arbiter itself** — how many tests, contracts and observations stand behind the criteria. **P2** `Metric` series, per `ChangeClass`.
 - **P3** A measurement counts only against a population and a class stated in advance; a figure without both is not published.
 - **P4** Continuous, settled per period.
 - **P5** The baseline is measured on the same workload as the comparison, otherwise no comparison is made at all.
 - **P6** A metric that cannot detect the failure it is meant to detect is worse than none. The governing case: **a wrongly accepted change is by construction unread, so it is discovered only later — from a defect, an incident or a reversal — and the lag between acceptance and discovery is the instrument's resolution.**
-- **P7** How each figure was obtained, over what population, in what period. **A rising acceptance rate together with a weakening oracle, or with a lengthening lag to discovery, is the signature of a system passing its own examinations by making them easier** — the oracle is watched alongside the outcomes, or the outcomes cannot be believed. **P8** Measurement must not perturb what it measures.
+- **P7** How each figure was obtained, over what population, in what period. **A rising acceptance rate together with a weakening arbiter, or with a lengthening lag to discovery, is the signature of a system passing its own examinations by making them easier** — the arbiter is watched alongside the outcomes, or the outcomes cannot be believed. **P8** Measurement must not perturb what it measures.
 - **P9** Read records and outcomes. No write anywhere else. **P10** A metric diverging from target beyond a stated period; loss of the baseline.
 
 ---
@@ -505,7 +505,7 @@ Not changes so much as ways the structure breaks. Each was carried through until
 
 - **U7** This is **not adjudicated in execution.** It is evidence that the criteria under-determine the result, and it returns to area 1. Resolving it by running three executors and taking the majority would pick a plausible answer while establishing nothing — precisely what the hypothesis forbids. Inverted, it is useful: running a unit twice on purpose is a cheap probe of whether criteria are complete.
 
-## Run 4 — the oracle, and what is left behind
+## Run 4 — the arbiter, and what is left behind
 
 Three cases. The second is the most dangerous in this document, because it attacks the hypothesis rather than the structure.
 
@@ -516,18 +516,18 @@ Three cases. The second is the most dangerous in this document, because it attac
 
 **An executor that satisfies the criterion by changing what the criterion measures.** A failing test is deleted. A symbol is wrapped rather than removed. The telemetry that would have shown old-shape traffic stops being emitted. Every criterion is met and nothing was established.
 
-This is the sharpest attack available on the hypothesis, because evidence independent of the *executor* is no defence once the executor has moved the *oracle*.
+This is the sharpest attack available on the hypothesis, because evidence independent of the *executor* is no defence once the executor has moved the *arbiter*.
 
-- **W3** **The oracle lies outside the scope.** Tests, schemas, telemetry definitions and the criteria themselves are what pronounces on a change, and a `Grant` letting an executor write to what will judge it is malformed. This is not a policy to configure; it is a property `Scope` must have by construction. §5 already named the oracle per class — this is where it acquires a boundary.
-- **W4** Some changes legitimately require the oracle to move. Then **the move is its own unit, accepted separately, and never by the unit that depends on it.** Otherwise a unit weakens what judges it and then passes.
-- **W5** It is detectable. **A rising acceptance rate together with a weakening oracle, or a lengthening lag to discovery, is the signature of a system passing its own examinations by making them easier.** Area 13 therefore watches the strength of the oracle, not only the outcomes.
+- **W3** **The arbiter lies outside the scope.** Tests, schemas, telemetry definitions and the criteria themselves are what settles whether a change conforms, and a `Grant` letting an executor write to what will judge it is malformed. This is not a policy to configure; it is a property `Scope` must have by construction. §5 already named the arbiter per class — this is where it acquires a boundary.
+- **W4** Some changes legitimately require the arbiter to move. Then **the move is its own unit, accepted separately, and never by the unit that depends on it.** Otherwise a unit weakens what judges it and then passes.
+- **W5** It is detectable. **A rising acceptance rate together with a weakening arbiter, or a lengthening lag to discovery, is the signature of a system passing its own examinations by making them easier.** Area 13 therefore watches the strength of the arbiter, not only the outcomes.
 
 **A baseline that shifts under a deferred verdict.** Thirty days of observation, during which forty other changes land and the season turns.
 
 - **W6** The observation window is bounded twice: by the reversibility horizon, and by **the decay of the baseline itself**.
 - **W7** An effect is attributable only where the change is the sole variable in its area of effect, or a comparison group exists. **Without isolation or a control, a C4 verdict cannot close positively.** This is the first constraint in which **concurrency is bounded by the class rather than by resources.**
 
-**Still untested.** A criterion that is met correctly and was the wrong criterion — the residue C3 hands back to area 1, which no run has yet exercised. An estate spanning two organizations with different authorities. And the reflexive case: iFlow changing iFlow, where the oracle and the subject are one system.
+**Still untested.** A criterion that is met correctly and was the wrong criterion — the residue C3 hands back to area 1, which no run has yet exercised. An estate spanning two organizations with different authorities. And the reflexive case: iFlow changing iFlow, where the arbiter and the subject are one system.
 
 ---
 
@@ -569,4 +569,4 @@ Two things follow.
 - Authority must be enforced outside the agent, not requested politely of it (area 12, P5).
 - A memory store must permit expiry and refutation, or accumulation becomes the second decaying corpus that area 10 exists to prevent.
 
-**The first increment.** Not the estate model and not an orchestrator, but a thin vertical through the whole structure on **C1 proved**, where acceptance is decidable and the oracle is free — then widen by class. The framework's reach grows by its ability to generate the preparatory work that converts an undecidable situation into a decidable one.
+**The first increment.** Not the estate model and not an orchestrator, but a thin vertical through the whole structure on **C1 proved**, where acceptance is decidable and the arbiter is free — then widen by class. The framework's reach grows by its ability to generate the preparatory work that converts an undecidable situation into a decidable one.
