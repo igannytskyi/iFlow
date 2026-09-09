@@ -1,7 +1,7 @@
 # iFlow
 
 **Status:** research, provisional
-**Version:** 1.1 — 2026-09-02
+**Version:** 1.2 — 2026-09-09
 
 A single document. It supersedes the eight it was assembled from; the git history holds those.
 
@@ -509,6 +509,38 @@ Not changes so much as ways the structure breaks. Each was carried through until
 
 **Within the research.** Areas 1, 5 and 11 are defined through one another — criteria, conformance and the human boundary cannot be formulated separately — and are the natural starting point. Area 7 attempted before them degenerates into building a larger index without a statement of what it is for. Area 13 must be in place before any claim of improvement is made, and therefore before implementation rather than after it.
 
-**Against the market.** Platform vendors are commoditizing execution, context transport, memory, isolation and access control — areas 4, 8, 10, 12 and part of 7. They are not building areas 1, 2, 3, 5, 6, 11 and 13, and will not: those are specific to how an organization defines *correct* and *done*, and do not sell as a platform. **Consume the first set. Build the second.**
+**Against the market — the decision, area by area.**
+
+An area is **consumed** when it is not specific to how this organization defines *correct* and *done*, a commodity implementation exists with the properties the area requires, and the area's invariants can be enforced from outside it. Otherwise it is **built**. Several areas split: the substrate is commodity and the rule is not.
+
+| Area | Verdict | What is taken | What is built |
+|---|---|---|---|
+| 1 Intent and Criteria | **Build** | — | Nothing represents criteria as machine-checkable artifacts fixed before execution. The prevailing convention — a hand-maintained context file — is the opposite of this |
+| 2 Work Formation | **Build** | — | Plans with phases, class assignment per unit, preparatory-unit generation. The nearest analogue, recipe campaigns in large-scale refactoring, covers C1 only |
+| 3 Admission | **Split** | Queue, scheduling, worktree isolation | The three-condition gate, and conflict by intersection of areas of effect, which depends on your own estate model |
+| 4 Execution | **Consume** | Agent runtimes for the general case; deterministic transformation engines wherever the class admits one, per F4 | Integration only |
+| 5 Assurance | **Build** | Test and analysis runners | The verdict itself: conformance to pre-stated criteria on executor-independent evidence, with provenance, shelf life and an undecided outcome. Continuous integration runs tests; it does not render this |
+| 6 Landing | **Split** | Merge, deploy, progressive delivery, rollback | Evidence-validity at entry, quarantine on an unplanned state, reversal treated as a change |
+| 7 Estate Representation | **Split** | Per-repository code indexing; the deployment layer, which already exists in your CI and artifact registries and should be read rather than rebuilt; runtime topology from tracing | The cross-repository contract join, confidence and provenance on every statement, staleness detection, observational adequacy, reachability, and the representation of work in flight |
+| 8 Record | **Consume** | Append-only event storage, trace collection, immutable object storage | The schema of what is recorded, and the binding of a verdict to its evidence |
+| 9 Economy | **Split** | Metering and gateway-level budget enforcement, now a mature category | Allocation across intents by class, stopping rules, human time as an accounted resource, cost per unit of verified change |
+| 10 Accumulation | **Split** | A memory store | Capture only as a byproduct, the falsifier requirement, expiry, and subordination to derived statements. The store is commodity; the discipline is not |
+| 11 Human Boundary | **Build** | — | Nothing exists. The goal turns on this area and no vendor is building it |
+| 12 Authority | **Consume** | Sandboxes, network tunnels, managed-agent governance, existing identity and secret management | Binding a grant to a work unit, and the narrowest-sufficient rule |
+| 13 Measurement | **Build** | Agent observability, for agent behaviour only | Human touchpoints per unit of change, and the lag between acceptance and the discovery that an acceptance was wrong. No product measures either |
+
+Two things follow.
+
+**The build set is coherent, not residual.** Areas 1, 5, 11 and 13 — criteria, assurance, the human boundary, and the instrument that measures them — are the same mutually-defining node identified at the start of this section. What is left to build is a subsystem, not a list of leftovers.
+
+**Everything built is about deciding; everything consumed is about doing.** That line, and not a judgement about vendors, is what the table records.
+
+**Requirements on anything consumed.** A commodity component that cannot meet these breaks the area it was taken for, and the failure will not be visible until something has already been accepted wrongly.
+
+- An executor must report its own identity and version with every result, or evidence has no shelf life (§4, `Evidence`).
+- An executor must distinguish substrate failure from task failure, or area 4's P6 cannot hold and retries become noise.
+- A record store must not be writable by the agent it describes (§4, invariant 4).
+- Authority must be enforced outside the agent, not requested politely of it (area 12, P5).
+- A memory store must permit expiry and refutation, or accumulation becomes the second decaying corpus that area 10 exists to prevent.
 
 **The first increment.** Not the estate model and not an orchestrator, but a thin vertical through the whole structure on **C1 proved**, where acceptance is decidable and the oracle is free — then widen by class. The framework's reach grows by its ability to generate the preparatory work that converts an undecidable situation into a decidable one.
