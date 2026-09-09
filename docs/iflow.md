@@ -1,7 +1,7 @@
 # iFlow
 
 **Status:** research, provisional
-**Version:** 1.4 — 2026-09-09
+**Version:** 1.5 — 2026-09-09
 
 A single document. It supersedes the eight it was assembled from; the git history holds those.
 
@@ -558,7 +558,57 @@ Three cases, and unlike the earlier runs these do not yield repairs so much as b
 
 ---
 
-# 10. Ordering, and what to build
+# 10. Measurement in practice
+
+Area 13 states what must be measured. This section states how, because until it exists the hypothesis is rhetoric: there is no way to confirm or refute it, and every criterion of resolution in this document reads as an aspiration.
+
+## 10.1 The baseline
+
+The baseline is the present way of working, measured on the same workload the comparison will run on. Without it no figure below means anything, because there is nothing for it to be better than.
+
+It is reconstructed rather than observed, since the present way of working does not record what we now want to count. From version history, the issue tracker and review records: how many changes were delivered, of what classes, how many distinct occasions a person had to act on each, how long each took, and what it cost. Some of that is derivable and some is estimated — and a baseline figure carries its provenance and confidence like any other statement, per §3.1.
+
+It is re-established when the workload changes materially. A baseline that quietly ages turns every subsequent comparison into a comparison with a world that no longer exists.
+
+## 10.2 The instruments
+
+| Instrument | Definition | Population | What failure it detects |
+|---|---|---|---|
+| **Human touchpoints per intent** | Distinct occasions on which a person had to act: stating the intent, resolving an escalation, deciding a residue | Per class, per period | The primary claim. If this does not fall, nothing else matters |
+| **Cost per unit of verified change** | Machine cost plus human time at a stated rate, over changes that were accepted | Per class, per period | Whether the arrangement is worth running at all |
+| **Share of undecided verdicts** | Verdicts closing neither met nor failed | Per class | Criteria that cannot be decided in practice, as against in principle |
+| **Wrongly-accepted rate** | Changes accepted without human reading that later proved wrong — from a defect, an incident, a reversal, or a contradicting measurement | Per class, by acceptance cohort | The failure the whole framework exists to prevent |
+| **Lag to discovery** | Time from acceptance to the discovery that an acceptance was wrong | Per class | The resolution of the instrument above; see §10.3 |
+| **Arbiter strength** | Tests, contracts and observations standing behind the criteria, per region | Per region | A system passing its own examinations by making them easier (W5) |
+| **Class mix** | Share of delivered work by class | Per period | The framework's reach, and the interpretation of every other figure |
+
+## 10.3 Reading the numbers
+
+**The wrongly-accepted rate is always a lagging, censored estimate.** A change accepted yesterday has not yet had time to be discovered wrong. Any figure covers only cohorts old enough to have been exposed for longer than the typical lag, and a report of *no wrong acceptances* over a period shorter than that lag says nothing at all. This is not a caveat to footnote; it is the reason lag is measured as an instrument in its own right.
+
+**Never publish a blended figure.** Touchpoints per intent falls on its own if the class mix shifts toward C1, with nothing having improved. Every number is reported per class, with the mix beside it.
+
+**The denominator is the intent, not the work unit.** Units can be split arbitrarily, so any per-unit figure can be improved by decomposing more finely. Intents cannot be split without a person noticing.
+
+**Measurement must not perturb what it measures**, which in practice means it reads records that were being written anyway (area 8) and asks nothing of anyone.
+
+## 10.4 What would refute the hypothesis
+
+Stated in advance, so that the answer is not chosen after the data arrives:
+
+> **If human touchpoints per intent fall while the wrongly-accepted rate rises or holds, at constant class mix and constant arbiter strength, the hypothesis is refuted.** Pre-stated criteria and executor-independent evidence would then have failed to substitute for a person who understands the system, which is precisely what was claimed.
+
+Three conditions guard that statement. At a shifting class mix the comparison is between different work. At a weakening arbiter the rate is measured by a smaller net. And below the discovery lag there is no rate to speak of yet.
+
+The converse is weaker and should be claimed as such: touchpoints falling while the wrongly-accepted rate falls too is consistent with the hypothesis, not proof of it.
+
+## 10.5 Who governs the instruments
+
+By invariant 9 the framework cannot arbitrate itself, and these instruments are exactly what would judge it. **Their definitions, and the record they read, live in the separately governed core** — not editable by the system they measure, and changed only through the same external arbitration as any other change to the acceptance machinery. A framework that can redefine its own success measure has none.
+
+---
+
+# 11. Ordering, and what to build
 
 **Within the research.** Areas 1, 5 and 11 are defined through one another — criteria, conformance and the human boundary cannot be formulated separately — and are the natural starting point. Area 7 attempted before them degenerates into building a larger index without a statement of what it is for. Area 13 must be in place before any claim of improvement is made, and therefore before implementation rather than after it.
 
