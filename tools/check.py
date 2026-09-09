@@ -60,16 +60,31 @@ def tables(text):
     return out
 
 
+PLACEHOLDER = re.compile(r"<[^<>]*>")
+
+
+def _choice_list(cell):
+    """A cell offering the template's alternatives, e.g. 'machine · human'."""
+    return "·" in cell and all(part.strip() for part in cell.split("·"))
+
+
 def real(rows):
-    """Rows that are data rather than template placeholders."""
+    """Rows that are data rather than template placeholders.
+
+    A row is a placeholder when a cell carries a <...> slot, or when every
+    cell it has is an unchosen list of alternatives. Punctuation inside prose
+    a person wrote — a two-sided bound, an arrow — is not a placeholder, and
+    dropping such a row would remove a criterion from the gate's view while
+    the gate went on reporting that it passed.
+    """
     keep = []
     for r in rows:
-        joined = " ".join(v for v in r.values() if v)
-        if not joined.strip():
+        cells = [v.strip() for v in r.values() if v and v.strip()]
+        if not cells:
             continue
-        if "<" in joined and ">" in joined:
+        if any(PLACEHOLDER.search(c) for c in cells):
             continue
-        if "·" in joined:            # an unfilled choice list
+        if all(_choice_list(c) for c in cells):
             continue
         keep.append(r)
     return keep
