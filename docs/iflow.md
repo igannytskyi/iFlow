@@ -1,7 +1,7 @@
 # iFlow
 
 **Status:** research, provisional
-**Version:** 1.3 — 2026-09-09
+**Version:** 1.3.1 — 2026-09-09
 
 A single document. It supersedes the eight it was assembled from; the git history holds those.
 
@@ -92,7 +92,7 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 | **`Criterion`** | One condition on an acceptable result | statement; decision procedure (machine or human); required evidence kind; threshold | Fixed with its specification |
 | **`AcceptanceCriteria`** | The criteria for one specification | criteria; completeness marker | Fixed with its specification |
 | **`TerminationCondition`** | When work stops without acceptance | condition; action on trigger | Fixed with its specification |
-| **`Scope`** | The declared region a change may touch | included; excluded; class default; **disjointness from the instrument** — the tests, schemas, telemetry definitions and criteria by which the change will be judged | Fixed with its specification |
+| **`Scope`** | The declared region a change may touch | included; excluded; class default; **disjointness from the oracle** — the tests, schemas, telemetry definitions and criteria by which the change will be judged | Fixed with its specification |
 | **`Specification`** | The complete statement of a change to be made and judged | `Intent`; **default** `ChangeClass`; `AcceptanceCriteria`; `TerminationCondition`; `Scope` | **Immutable after admission.** A changed intent produces a new specification, never an edit |
 
 ## The estate
@@ -143,8 +143,8 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 4. **A `Trace` is not writable by its subject.** A record an agent can edit is not a record.
 5. **Evidence about a transformation is amortized across its applications.** Establishing a property of a transformation once, rather than of each candidate, is what stops assurance cost scaling with volume. Any edit to the transformation invalidates every verdict resting on it.
 6. **A deferred `Verdict` lives inside a reversibility horizon.** Reversibility is not a property a change has or lacks; it shortens as other work builds on the change. A deferred verdict is admissible only while its observation window fits inside that horizon. Where the horizon expires first, a person decides at that moment — never quietly abandoned, never extended past the point of no return.
-7. **`Scope` and the instrument are disjoint.** Whatever will judge a change — its tests, its schemas, its telemetry definitions, its criteria — lies outside the region that change may touch. A `Grant` permitting an executor to write to its own instrument is malformed, and evidence gathered through an instrument the executor could reach establishes nothing.
-8. **A change to the instrument is a separate unit, accepted separately, and never by the unit that depends on it.** Some changes legitimately require the instrument to move; that move is itself work, with its own criteria and its own acceptance. Allowing one unit to widen its instrument and then pass through it is invariant 3 evaded rather than satisfied.
+7. **`Scope` and the oracle are disjoint.** Whatever will judge a change — its tests, its schemas, its telemetry definitions, its criteria — lies outside the region that change may touch. A `Grant` permitting an executor to write to what will judge it is malformed, and evidence gathered through an oracle the executor could reach establishes nothing.
+8. **A change to the oracle is a separate unit, accepted separately, and never by the unit that depends on it.** Some changes legitimately require the oracle to move; that move is itself work, with its own criteria and its own acceptance. Allowing one unit to weaken what judges it and then pass is invariant 3 evaded rather than satisfied.
 
 ---
 
@@ -396,12 +396,12 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 *Why an area and not a method.* An instrument existing only in the research measures a prototype and then goes away. The claim is about a system in operation, so the system must observe itself.
 
-- **P1** `Trace`, `Verdict`, `CostRecord`, `Escalation`, landed changes and their later outcomes, `Baseline`, **and the extent of the instrument itself** — how many tests, contracts and observations stand behind the criteria. **P2** `Metric` series, per `ChangeClass`.
+- **P1** `Trace`, `Verdict`, `CostRecord`, `Escalation`, landed changes and their later outcomes, `Baseline`, **and the strength of the oracle itself** — how many tests, contracts and observations stand behind the criteria. **P2** `Metric` series, per `ChangeClass`.
 - **P3** A measurement counts only against a population and a class stated in advance; a figure without both is not published.
 - **P4** Continuous, settled per period.
 - **P5** The baseline is measured on the same workload as the comparison, otherwise no comparison is made at all.
 - **P6** A metric that cannot detect the failure it is meant to detect is worse than none. The governing case: **a wrongly accepted change is by construction unread, so it is discovered only later — from a defect, an incident or a reversal — and the lag between acceptance and discovery is the instrument's resolution.**
-- **P7** How each figure was obtained, over what population, in what period. **A rising acceptance rate together with a shrinking instrument, or with a lengthening lag to discovery, is the signature of a system passing its own examinations by making them easier** — the instrument is watched alongside the outcomes, or the outcomes cannot be believed. **P8** Measurement must not perturb what it measures.
+- **P7** How each figure was obtained, over what population, in what period. **A rising acceptance rate together with a weakening oracle, or with a lengthening lag to discovery, is the signature of a system passing its own examinations by making them easier** — the oracle is watched alongside the outcomes, or the outcomes cannot be believed. **P8** Measurement must not perturb what it measures.
 - **P9** Read records and outcomes. No write anywhere else. **P10** A metric diverging from target beyond a stated period; loss of the baseline.
 
 ---
@@ -505,7 +505,7 @@ Not changes so much as ways the structure breaks. Each was carried through until
 
 - **U7** This is **not adjudicated in execution.** It is evidence that the criteria under-determine the result, and it returns to area 1. Resolving it by running three executors and taking the majority would pick a plausible answer while establishing nothing — precisely what the hypothesis forbids. Inverted, it is useful: running a unit twice on purpose is a cheap probe of whether criteria are complete.
 
-## Run 4 — the instrument, and what is left behind
+## Run 4 — the oracle, and what is left behind
 
 Three cases. The second is the most dangerous in this document, because it attacks the hypothesis rather than the structure.
 
@@ -516,18 +516,18 @@ Three cases. The second is the most dangerous in this document, because it attac
 
 **An executor that satisfies the criterion by changing what the criterion measures.** A failing test is deleted. A symbol is wrapped rather than removed. The telemetry that would have shown old-shape traffic stops being emitted. Every criterion is met and nothing was established.
 
-This is the sharpest attack available on the hypothesis, because evidence independent of the *executor* is no defence once the executor has moved the *instrument*.
+This is the sharpest attack available on the hypothesis, because evidence independent of the *executor* is no defence once the executor has moved the *oracle*.
 
-- **W3** **The instrument lies outside the scope.** Tests, schemas, telemetry definitions and the criteria themselves are the apparatus by which a change is judged, and a `Grant` letting an executor write to its own apparatus is malformed. This is not a policy to configure; it is a property `Scope` must have by construction.
-- **W4** Some changes legitimately require the instrument to move. Then **the move is its own unit, accepted separately, and never by the unit that depends on it.** Otherwise a unit widens its instrument and then passes through it.
-- **W5** It is detectable. **A rising acceptance rate together with a shrinking instrument, or a lengthening lag to discovery, is the signature of a system passing its own examinations by making them easier.** Area 13 therefore watches the size of the instrument, not only the outcomes.
+- **W3** **The oracle lies outside the scope.** Tests, schemas, telemetry definitions and the criteria themselves are what pronounces on a change, and a `Grant` letting an executor write to what will judge it is malformed. This is not a policy to configure; it is a property `Scope` must have by construction. §5 already named the oracle per class — this is where it acquires a boundary.
+- **W4** Some changes legitimately require the oracle to move. Then **the move is its own unit, accepted separately, and never by the unit that depends on it.** Otherwise a unit weakens what judges it and then passes.
+- **W5** It is detectable. **A rising acceptance rate together with a weakening oracle, or a lengthening lag to discovery, is the signature of a system passing its own examinations by making them easier.** Area 13 therefore watches the strength of the oracle, not only the outcomes.
 
 **A baseline that shifts under a deferred verdict.** Thirty days of observation, during which forty other changes land and the season turns.
 
 - **W6** The observation window is bounded twice: by the reversibility horizon, and by **the decay of the baseline itself**.
 - **W7** An effect is attributable only where the change is the sole variable in its area of effect, or a comparison group exists. **Without isolation or a control, a C4 verdict cannot close positively.** This is the first constraint in which **concurrency is bounded by the class rather than by resources.**
 
-**Still untested.** A criterion that is met correctly and was the wrong criterion — the residue C3 hands back to area 1, which no run has yet exercised. An estate spanning two organizations with different authorities. And the reflexive case: iFlow changing iFlow, where the instrument and the subject are one system.
+**Still untested.** A criterion that is met correctly and was the wrong criterion — the residue C3 hands back to area 1, which no run has yet exercised. An estate spanning two organizations with different authorities. And the reflexive case: iFlow changing iFlow, where the oracle and the subject are one system.
 
 ---
 
