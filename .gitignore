@@ -8,3 +8,6 @@
 _bmad/
 _bmad-output/
 .DS_Store
+
+__pycache__/
+*.pyc
