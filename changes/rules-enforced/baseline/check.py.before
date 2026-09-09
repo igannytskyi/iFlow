@@ -282,54 +282,6 @@ class Check:
                     elif r.get("Evidence still valid") == "no":
                         self.fail("A6", f"{u} entered on evidence no longer valid")
 
-    def record_append_only(self):
-        """R4: ordinals form 1..N, in order, with no gap and no repeat.
-
-        A line removed or reordered is detected. A line removed from the tail is
-        not: that needs a digest chain the record does not yet carry, and
-        RULES.md says so rather than implying otherwise.
-        """
-        p = self.folder / "record.md"
-        if not p.exists():
-            return
-        seen = []
-        for headers, rows in tables(p.read_text()):
-            if "#" in headers and "Stage" in headers:
-                for r in real(rows):
-                    n = r.get("#", "")
-                    if n.isdigit():
-                        seen.append(int(n))
-        if not seen:
-            return
-        expected = list(range(1, len(seen) + 1))
-        if seen != expected:
-            self.fail("R4", f"the record is not append-only: ordinals {seen} "
-                            f"are not {expected[0]}..{expected[-1]} in order")
-
-    def arbiter_changes_separate(self):
-        """R8: only a unit that is preparatory for another may touch the arbiter."""
-        if "04-execution" not in self.text or "01-specification" not in self.text:
-            return
-        arbiter = set()
-        for headers, rows in tables(self.text["01-specification"]):
-            if "Path" in headers and "What it arbitrates" in headers:
-                arbiter |= {v for v in col(real(rows), "Path")}
-        if not arbiter:
-            return
-        preparatory = set()
-        for headers, rows in tables(self.text.get("02-plan", "")):
-            if "Preparatory for" in headers:
-                for r in real(rows):
-                    if r.get("Preparatory for"):
-                        preparatory.add(r.get("Id", ""))
-        for headers, rows in tables(self.text["04-execution"]):
-            if "Artefacts" in headers and "Unit" in headers:
-                for r in real(rows):
-                    touched = [a for a in arbiter if a and a in r.get("Artefacts", "")]
-                    if touched and r.get("Unit") not in preparatory:
-                        self.fail("R8", f"{r.get('Unit')} touches the arbiter ({touched[0]}) "
-                                        f"and is nobody's preparatory work")
-
     def record_complete(self):
         p = self.folder / "record.md"
         if not p.exists():
@@ -350,8 +302,7 @@ class Check:
                   self.candidates_stored,
                   self.scope_arbiter_disjoint, self.evidence_independence,
                   self.deferred_complete, self.verdict_coverage,
-                  self.landing_backed, self.record_append_only,
-                  self.arbiter_changes_separate, self.record_complete):
+                  self.landing_backed, self.record_complete):
             m()
         return self.problems, self.notes
 
