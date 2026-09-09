@@ -8,9 +8,24 @@ A framework for software development and maintenance carried out at scale by aut
 
 ## The document
 
-Everything is in one document: [`docs/iflow.md`](docs/iflow.md).
+The research is one document: [`docs/iflow.md`](docs/iflow.md) — goal, research framework, the descriptive schema, the objects, the change classes, the thirteen areas, the feedback loop, five validation runs, how the claim is measured, and what to build first.
 
-Goal, research framework, the descriptive schema, the objects, the change classes, the thirteen areas, the feedback loop, two end-to-end validation runs, and what to build first.
+## The first increment
+
+The working part: conventions, artifact formats, rules and a mechanical gate, for one change travelling the path from intent to landing.
+
+| | |
+|---|---|
+| [`framework/CONVENTIONS.md`](framework/CONVENTIONS.md) | Every code, defined once. Tools validate against exactly these values |
+| [`framework/RULES.md`](framework/RULES.md) | The nine invariants, each naming the check that proves it — and what is deliberately not enforced |
+| [`templates/`](templates/) | The seven artifacts of the path, plus the append-only record |
+| [`tools/check.py`](tools/check.py) | The gate. Pure Python, no dependencies |
+| [`changes/clock-instant/`](changes/clock-instant/) | A complete worked example — read this first |
+| [`.claude/skills/iflow/`](.claude/skills/iflow/) | The verbs: intent, plan, admit, run, verify, land, status, check |
+
+```bash
+python3 tools/check.py changes/clock-instant
+```
 
 ## Versioning
 
