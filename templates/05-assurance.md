@@ -2,11 +2,11 @@
 
 ## Evidence
 
-| Id | Subject | Kind | Producer | Independence | How established | Obtained at | Valid until |
-|---|---|---|---|---|---|---|---|
-| EV-<nnn>-01-01 | candidate · transformation | | | independent · not-independent | | | |
+| Id | Subject | Kind | Producer | Independence | How established | Repeatable | Obtained at | Valid until |
+|---|---|---|---|---|---|---|---|---|
+| EV-<nnn>-01-01 | candidate · transformation | | | independent-by-executor · independent-by-precommitment · not-independent | | yes · no · unknown | | |
 
-Evidence about a `transformation` carries that transformation's digest and is amortized across every application. `not-independent` evidence cannot support a `met` outcome.
+Evidence about a `transformation` carries that transformation's digest and is amortized across every application. `not-independent` evidence cannot support a `met` outcome, and neither can evidence whose run cannot be produced again.
 
 ## Verdicts
 

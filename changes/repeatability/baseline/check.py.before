@@ -25,7 +25,6 @@ VOCAB = {
              "human-affirmation", "transformation-proof"},
     "independence": {"independent-by-executor", "independent-by-precommitment",
                      "not-independent"},
-    "repeatable": {"yes", "no", "unknown"},
     "outcome": {"met", "failed", "undecided"},
     "state": {"settled", "deferred"},
     "admission": {"admitted", "held", "refused", "awaiting-authority"},
@@ -319,37 +318,6 @@ class Check:
                         elif src.get("Independence") == "not-independent":
                             self.fail("R3", f"{r.get('Id')} is met on non-independent {cited}")
 
-    def repeatability(self):
-        """R13 and R14: a record of a run says whether the run can be produced
-        again, and a result does not rest on one that cannot alone."""
-        if "05-assurance" not in self.text:
-            return
-        ev, has_column = {}, False
-        for headers, rows in tables(self.text["05-assurance"]):
-            if "Repeatable" in headers:
-                has_column = True
-                for r in real(rows):
-                    ev[r.get("Id", "")] = r.get("Repeatable", "")
-        if not has_column:
-            self.notes.append("R13: this change's evidence does not state repeatability — "
-                              "it predates the obligation rather than violating it")
-            return
-        for eid, value in ev.items():
-            if not value:
-                self.fail("R13", f"{eid} does not say whether the run behind it repeats")
-            elif value not in VOCAB["repeatable"]:
-                self.fail("R13", f"{eid}: Repeatable = {value!r} is not a defined value")
-        for headers, rows in tables(self.text["05-assurance"]):
-            if "Outcome" in headers and "Evidence" in headers:
-                for r in real(rows):
-                    if r.get("Outcome") != "met":
-                        continue
-                    cited = ID_RE.findall(r.get("Evidence", ""))
-                    known = [c for c in cited if c in ev]
-                    if known and all(ev[c] in ("no", "unknown") for c in known):
-                        self.fail("R14", f"{r.get('Id')} is met only on runs that cannot be "
-                                         f"produced again ({', '.join(known)})")
-
     def deferred_complete(self):
         if "05-assurance" not in self.text:
             return
@@ -471,7 +439,7 @@ class Check:
                   self.vocabulary, self.spec_immutable,
                   self.candidates_stored,
                   self.scope_arbiter_disjoint, self.evidence_independence,
-                  self.repeatability, self.deferred_complete, self.verdict_coverage,
+                  self.deferred_complete, self.verdict_coverage,
                   self.landing_backed, self.record_append_only,
                   self.arbiter_changes_separate, self.record_complete):
             m()

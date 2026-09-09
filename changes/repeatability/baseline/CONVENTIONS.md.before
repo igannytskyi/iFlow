@@ -66,13 +66,10 @@ A specification is complete when every criterion is `machine`, or is `human` and
 | Subject | `candidate` · `transformation` |
 | Kind | `test-run` · `static-analysis` · `runtime-observation` · `human-affirmation` · `transformation-proof` |
 | Independence | `independent-by-executor` · `independent-by-precommitment` · `not-independent` — and how it is established |
-| Repeatable | `yes` · `no` · `unknown` — whether the run behind it can be produced again to the same result |
 
 Independence has exactly two grounds. `independent-by-executor` — produced by something other than the executor that produced the candidate. `independent-by-precommitment` — fixed, and its own acceptance recorded, before that candidate existed, so that it could not have been shaped to fit. The second is the stronger: a second executor may share the first's blind spots, while a thing written before the work cannot have been bent around it.
 
 Evidence whose producer lies **inside the scope of the change** is `not-independent` whatever else is claimed, because the artefact under change cannot attest to its own behaviour.
-
-A record of a past run is `derived` only where that run can be produced again to the same result: a deterministic transformation on fixed inputs qualifies, an agent's run does not. Where it cannot be repeated the record is `attested` — testimony about something that happened once — and `unknown` is an honest answer that is treated as `no`. **A verdict is not `met` on unrepeatable evidence alone.**
 
 Evidence about a `transformation` is amortized across every application of it, and any edit to that transformation invalidates every verdict resting on it.
 
