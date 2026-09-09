@@ -1,7 +1,7 @@
 # iFlow
 
 **Status:** research, provisional
-**Version:** 1.6 — 2026-09-09
+**Version:** 1.7 — 2026-09-09
 
 A single document. It supersedes the eight it was assembled from; the git history holds those.
 
@@ -145,7 +145,7 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 4. **A `Trace` is not writable by its subject.** A record an agent can edit is not a record.
 5. **Evidence about a transformation is amortized across its applications.** Establishing a property of a transformation once, rather than of each candidate, is what stops assurance cost scaling with volume. Any edit to the transformation invalidates every verdict resting on it.
 6. **A deferred `Verdict` lives inside a reversibility horizon.** Reversibility is not a property a change has or lacks; it shortens as other work builds on the change. A deferred verdict is admissible only while its observation window fits inside that horizon. Where the horizon expires first, a person decides at that moment — never quietly abandoned, never extended past the point of no return.
-7. **`Scope` and the arbiter are disjoint.** Whatever will judge a change — its tests, its schemas, its telemetry definitions, its criteria — lies outside the region that change may touch. A `Grant` permitting an executor to write to what will judge it is malformed, and evidence gathered through an arbiter the executor could reach establishes nothing.
+7. **`Scope` is disjoint from the arbiter and from everything the arbiter reads.** Whatever will judge a change — its tests, its schemas, its telemetry definitions, its criteria — lies outside the region that change may touch, and so does every input those consult. Path disjointness is not influence disjointness: a file an executor may edit determines what the arbiter concludes, whether or not the arbiter itself is writable. Where the two cannot be separated, because the subject of the change is exactly what the arbiter reads, three things become obligatory rather than discretionary — the change to that input is its own unit under invariant 8, its prior state is captured at admission, and the criterion is judged against that captured state rather than against the arbiter alone.
 8. **A change to the arbiter is a separate unit, accepted separately, and never by the unit that depends on it.** Some changes legitimately require the arbiter to move; that move is itself work, with its own criteria and its own acceptance. Allowing one unit to weaken what judges it and then pass is invariant 3 evaded rather than satisfied.
 9. **The framework is not its own arbiter.** Invariant 7 at the level of the whole system: a change to the acceptance machinery — criteria, assurance, the record — cannot be judged by the machinery being changed, because disjointness is impossible when the subject and what judges it are one system. Such changes are arbitrated from outside: by a frozen prior version, a separate deployment, or people. A measuring device is calibrated against an external standard for the same reason. It follows that the framework always retains a small, separately governed core that it does not administer itself.
 
@@ -564,6 +564,14 @@ The repair was routine. What the run produced was four defects in this document,
 - **Y2** Invariant 3 was too narrow. One agent produced both the arbiter and the candidate, yet the arbiter was written and its failure recorded before the candidate existed. **Independence has two grounds, not one**, and pre-commitment is the stronger: a second executor may share the first's blind spots, while a thing fixed before the work cannot have been bent around it.
 - **Y3** Execution wrote into the live tree, because the increment had no candidate store. Invariant 2 was therefore unenforced while being stated — **a guarantee that exists only in prose is worse than an acknowledged gap**, because it is relied upon.
 - **Y4** A unit landed carrying an undecided criterion and nothing forbade it. Undecided means acceptance was not established, which is precisely what entry presumes. **Nothing enters on an undecided criterion**; a deferred verdict is not undecided, it is a decision awaiting its window.
+
+## Run 7 — the rules that enforced nothing
+
+Four rules declared themselves mechanically enforced and no check emitted any of them; a fifth was declared human while the gate did enforce it. Y3 had named this failure one run earlier, in the same document.
+
+- **Y5** Invariant 7 was about paths, and paths are not influence. The arbiter for this change read a file inside the change's own scope, so the criterion could have been satisfied by deleting the claims rather than honouring them. **Disjointness extends to everything the arbiter reads**, and where subject and input coincide the mitigations become obligatory: a separate unit, the prior state captured at admission, and the criterion judged against that state.
+- **Y6** A check bound to the name of a column vanishes silently when the column is renamed — the same silent-corruption class as the defect of run 6, now in the gate's own binding. **A gate states which columns its checks depend on, and fails when one is absent**, rather than passing because it looked at nothing.
+- **Y7** A specification is immutable after admission, so an obligation introduced later cannot be applied to work already admitted. The gate must therefore distinguish **violating a rule from predating it**, and report the second as a note rather than a failure. Immutability and evolving rules are both wanted; this is the price of having both.
 
 Three of the four are of one kind: the document stated a property with nothing able to enforce it. That is the characteristic failure of a specification, and no further reasoning would have surfaced it — only running the thing did.
 

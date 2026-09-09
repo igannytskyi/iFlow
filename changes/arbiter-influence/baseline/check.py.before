@@ -32,17 +32,6 @@ VOCAB = {
                  "failed-substrate", "failed-task", "cancelled"},
 }
 
-# Columns the checks below bind to. A check whose column is absent cannot run,
-# and a check that cannot run must say so rather than pass by looking at nothing.
-REQUIRED_HEADERS = {
-    "01-specification": [("Criterion", "Procedure"), ("Included",), ("Path", "What it arbitrates")],
-    "02-plan": [("Class",), ("Preparatory for",)],
-    "03-admission": [("Outcome",), ("Field", "Value")],
-    "04-execution": [("Terminal state",), ("Stored at", "Artefacts")],
-    "05-assurance": [("Independence",), ("Outcome", "State")],
-    "06-landing": [("Entered at",)],
-}
-
 ID_RE = re.compile(r"\b(?:INT|SPEC|CR|WU|GR|CA|EV|VE)-\d{3}(?:-\d{2}){0,2}\b")
 
 
@@ -124,42 +113,6 @@ class Check:
         self.problems.append(f"{rule}: {msg}")
 
     # ---- checks -----------------------------------------------------
-    def headers_present(self):
-        """B1: every column a check binds to is there, or the gate says which is not."""
-        for stage, groups in REQUIRED_HEADERS.items():
-            if stage not in self.text:
-                continue
-            seen = set()
-            for headers, _ in tables(self.text[stage]):
-                seen |= set(headers)
-            for group in groups:
-                if not set(group) <= seen:
-                    missing = ", ".join(sorted(set(group) - seen))
-                    self.fail("B1", f"{stage}: column {missing} is absent, so the check "
-                                    f"binding to it would not run")
-
-    def arbiter_inputs(self):
-        """R7b: an arbiter input inside the scope needs its prior state captured."""
-        if "01-specification" not in self.text:
-            return
-        reads = {}
-        for headers, rows in tables(self.text["01-specification"]):
-            if "Input" in headers and "In scope?" in headers:
-                for r in real(rows):
-                    reads[r.get("Input", "")] = r.get("In scope?", "")
-        if not reads:
-            self.notes.append("R7b: this specification declares no arbiter inputs — "
-                              "it predates the obligation rather than violating it")
-            return
-        captured = ""
-        for headers, rows in tables(self.text.get("03-admission", "")):
-            if "Artefact" in headers and "Captured to" in headers:
-                captured += " ".join(v for r in real(rows) for v in r.values() if v)
-        for inp, in_scope in reads.items():
-            if in_scope.startswith("yes") and inp not in captured:
-                self.fail("R7b", f"{inp} is read by the arbiter and inside the scope, "
-                                 f"with no prior state captured at admission")
-
     def stage_order(self):
         present = [s for s in STAGES if s in self.text]
         if not present:
@@ -393,8 +346,7 @@ class Check:
                 self.fail("B4", f"stage {name} present but not recorded")
 
     def run(self):
-        for m in (self.stage_order, self.headers_present, self.arbiter_inputs,
-                  self.vocabulary, self.spec_immutable,
+        for m in (self.stage_order, self.vocabulary, self.spec_immutable,
                   self.candidates_stored,
                   self.scope_arbiter_disjoint, self.evidence_independence,
                   self.deferred_complete, self.verdict_coverage,

@@ -1,4 +1,10 @@
-.claude/
+# Everything under .claude is local state, except the iflow skill, which is part
+# of the framework and must travel with it. BMAD's skills stay local.
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/iflow/
+
 _bmad/
 _bmad-output/
 .DS_Store

@@ -15,7 +15,6 @@ The nine invariants of [../docs/iflow.md](../docs/iflow.md) §4, restated so tha
 | **R5** | Evidence about a transformation is amortized, and invalidated by any edit to it | `H` | Evidence rows carry no digest of the transformation they attest to, so there is nothing to compare against. Enforceable once they do; claimed mechanical before it was true |
 | **R6** | A deferred verdict records its window and its baseline | `M` | Both fields must be present on a deferred verdict. Whether the horizon it names is real is not derivable from artifacts and is not claimed here |
 | **R7** | Scope and the arbiter are disjoint | `M` | The scope's paths are intersected with the arbiter's paths; any overlap is an error |
-| **R7b** | Scope is disjoint from what the arbiter reads, or the mitigations are in place | `M` | A specification declares its arbiter's inputs; an input inside the scope must have its prior state captured at admission. A specification declaring no inputs predates the obligation and is noted, not failed |
 | **R8** | A change to the arbiter is a separate unit, never accepted by the unit depending on it | `M` | A candidate whose artefacts name an arbiter path is allowed only where its unit is preparatory for another |
 | **R9** | The framework is not its own arbiter | `H` | Changes to `framework/`, `tools/` and the record are arbitrated outside iFlow |
 
@@ -25,7 +24,7 @@ From §7.
 
 | # | Rule | Check | How it is checked, or why it is not |
 |---|---|---|---|
-| **B1** | Only objects cross | `M` | Stage files must parse as tables, every coded value must be one CONVENTIONS defines, and every column a check binds to must be present — a renamed column disables a check silently otherwise |
+| **B1** | Only objects cross | `M` | Stage files must parse as tables and every coded value must be one CONVENTIONS defines |
 | **B2** | A consumer never reaches back to ask | `M` | A stage may only cite identifiers defined in an earlier stage |
 | **B3** | A consumer may refuse, and refusal is the producer's failure | `H` | Refusal is not yet an object: no artefact records one, so there is nothing to check. Claimed mechanical before it was true |
 | **B4** | Every crossing is recorded | `M` | A stage present without its line in the record is an error |
