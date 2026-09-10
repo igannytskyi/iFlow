@@ -4,6 +4,14 @@
 |---|---|
 | Specification digest | <recorded here; R1 compares against it forever after> |
 
+## Criteria review
+
+The cheapest minute in the path. Recording `no` is legitimate; saying nothing is not.
+
+| Reviewed before admission | By | At | Note |
+|---|---|---|---|
+| yes · no | | | |
+
 ## Decisions
 
 | Unit | Outcome | Deciding condition | Confidence of the edges relied on | Escalates at |

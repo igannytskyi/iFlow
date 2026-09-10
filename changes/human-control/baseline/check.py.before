@@ -28,8 +28,6 @@ VOCAB = {
                      "not-independent"},
     "repeatable": {"yes", "no", "unknown"},
     "plan": {"required", "not-required"},
-    "refused_by": {"person", "area"},
-    "reviewed": {"yes", "no"},
     "outcome": {"met", "failed", "undecided"},
     "state": {"settled", "deferred"},
     "admission": {"admitted", "held", "refused", "awaiting-authority"},
@@ -296,43 +294,9 @@ class Check:
             self.fail("R1", "no specification digest recorded at admission")
             return
         actual = digest(self.folder / "01-specification.md")
-        if recorded == actual:
-            return
-        # Immutability protects criteria from being shaped by what execution
-        # produced. Before a candidate exists there is nothing to be shaped by,
-        # so an edit then is a re-admission — free, but never silent.
-        if self.candidates():
-            self.fail("R1", f"specification changed after a candidate existed "
+        if recorded != actual:
+            self.fail("R1", f"specification changed after admission "
                             f"(recorded {recorded}, now {actual})")
-            return
-        if self.readmission_recorded():
-            self.notes.append("R1: the specification differs from the digest taken at "
-                              "admission and no candidate exists — a re-admission, recorded")
-        else:
-            self.fail("R1", f"specification changed with no candidate and no record of a "
-                            f"re-admission (recorded {recorded}, now {actual})")
-
-    def candidates(self):
-        out = set()
-        for headers, rows in tables(self.text.get("04-execution", "")):
-            if "Stored at" in headers:
-                out |= {r.get("Id", "") for r in real(rows) if r.get("Id")}
-        return out
-
-    def readmission_recorded(self):
-        p = self.folder / "record.md"
-        if not p.exists():
-            return False
-        seen_admission = False
-        for headers, rows in tables(p.read_text()):
-            if "Stage" in headers:
-                for r in real(rows):
-                    stage = r.get("Stage", "")
-                    if stage == "admission":
-                        seen_admission = True
-                    elif stage == "specification" and seen_admission:
-                        return True
-        return False
 
     def scope_paths(self):
         out = set()
@@ -400,68 +364,6 @@ class Check:
                             self.fail("B2", f"{r.get('Id')} cites undefined evidence {cited}")
                         elif src.get("Independence") == "not-independent":
                             self.fail("R3", f"{r.get('Id')} is met on non-independent {cited}")
-
-    def refusals(self):
-        """R17: a refusal names what it returns and why, and nothing downstream
-        of a refused object is accepted. A refusal is the producer's failure,
-        not a request to try again."""
-        refused = {}
-        for stage in STAGES:
-            for headers, rows in tables(self.text.get(stage, "")):
-                if "Refused by" in headers and "Ground" in headers:
-                    for r in real(rows):
-                        obj = r.get("Object", "")
-                        if not obj:
-                            self.fail("R17", f"{r.get('Id')} refuses nothing in particular")
-                            continue
-                        if not r.get("Ground"):
-                            self.fail("R17", f"{r.get('Id')} refuses {obj} without a ground")
-                        by = r.get("Refused by", "")
-                        if by and by not in VOCAB["refused_by"]:
-                            self.fail("CONVENTIONS",
-                                      f"Refused by = {by!r} is not a defined value")
-                        refused[obj] = r.get("Id", "")
-        if not refused:
-            return
-        for headers, rows in tables(self.text.get("05-assurance", "")):
-            if "Outcome" in headers and "Unit" in headers:
-                for r in real(rows):
-                    if r.get("Outcome") != "met":
-                        continue
-                    for obj, rid in refused.items():
-                        if obj in " ".join(v for v in r.values() if v):
-                            self.fail("R17", f"{r.get('Id')} accepts {obj}, which {rid} refused")
-        for headers, rows in tables(self.text.get("04-execution", "")):
-            if "Stored at" in headers:
-                for r in real(rows):
-                    if r.get("Id") in refused:
-                        unit = r.get("Unit", "")
-                        for h2, rows2 in tables(self.text.get("05-assurance", "")):
-                            if "Unit" in h2 and "Outcome" in h2:
-                                for v in real(rows2):
-                                    if v.get("Unit") == unit and v.get("Outcome") == "met":
-                                        self.fail("R17", f"{v.get('Id')} accepts work whose "
-                                                         f"candidate {r.get('Id')} was refused")
-
-    def criteria_review(self):
-        """R18: whether a person read the criteria before admission is recorded
-        either way. Recording *no* is legitimate; saying nothing is not."""
-        if "03-admission" not in self.text:
-            return
-        for headers, rows in tables(self.text["03-admission"]):
-            if "Reviewed before admission" in headers:
-                for r in real(rows):
-                    v = r.get("Reviewed before admission", "")
-                    if v not in VOCAB["reviewed"]:
-                        self.fail("R18", f"criteria review recorded as {v!r}, which is not "
-                                         f"a defined value")
-                    elif v == "yes" and not r.get("By"):
-                        self.fail("R18", "the criteria are recorded as reviewed and nobody "
-                                         "is named as having reviewed them")
-                return
-        self.notes.append("R18: this change does not say whether the criteria were reviewed "
-                          "before admission — it predates the obligation rather than "
-                          "violating it")
 
     def repeatability(self):
         """R13 and R14: a record of a run says whether the run can be produced
@@ -616,7 +518,6 @@ class Check:
                   self.vocabulary, self.spec_immutable,
                   self.candidates_stored,
                   self.scope_arbiter_disjoint, self.evidence_independence,
-                  self.refusals, self.criteria_review,
                   self.repeatability, self.deferred_complete, self.verdict_coverage,
                   self.landing_backed, self.record_append_only,
                   self.arbiter_changes_separate, self.record_complete):

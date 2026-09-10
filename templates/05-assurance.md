@@ -23,3 +23,11 @@ Only where this change settles a debt raised by another. An escalation is addres
 | Escalation | Resolved by | Note |
 |---|---|---|
 | <slug>#<n> | this change | |
+
+## Refusals
+
+Only where a person or an area returned an object to its producer. A refusal is the producer's failure, not a request to retry, and nothing it refused is accepted.
+
+| Id | Object | Boundary | Refused by | Ground | At |
+|---|---|---|---|---|---|
+| RF-<nnn>-01 | CA-<nnn>-01 | execution to assurance | person · area | <why> | |
