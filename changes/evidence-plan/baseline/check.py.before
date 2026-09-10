@@ -27,7 +27,6 @@ VOCAB = {
     "independence": {"independent-by-executor", "independent-by-precommitment",
                      "not-independent"},
     "repeatable": {"yes", "no", "unknown"},
-    "plan": {"required", "not-required"},
     "outcome": {"met", "failed", "undecided"},
     "state": {"settled", "deferred"},
     "admission": {"admitted", "held", "refused", "awaiting-authority"},
@@ -140,50 +139,6 @@ class Check:
                     missing = ", ".join(sorted(set(group) - seen))
                     self.fail("B1", f"{stage}: column {missing} is absent, so the check "
                                     f"binding to it would not run")
-
-    def evidence_plan(self):
-        """R16: a criterion that needs a plan has one, and the plan says what it
-        was derived from. A plan derived from the candidate rather than from the
-        estate is the failure this exists to prevent, so the derivation is the
-        one field that cannot be left empty."""
-        if "01-specification" not in self.text:
-            return
-        needs = set()
-        declares = False
-        for headers, rows in tables(self.text["01-specification"]):
-            if "Plan" in headers and "Criterion" in headers:
-                declares = True
-                for r in real(rows):
-                    v = r.get("Plan", "")
-                    if v and v not in VOCAB["plan"]:
-                        self.fail("CONVENTIONS",
-                                  f"01-specification: Plan = {v!r} is not a defined value")
-                    if v == "required":
-                        needs.add(r.get("Id", ""))
-        if not declares:
-            self.notes.append("R16: this specification does not say which criteria need an "
-                              "evidence plan — it predates the obligation rather than "
-                              "violating it")
-            return
-        planned = {}
-        for headers, rows in tables(self.text.get("03-admission", "")):
-            if "Observed" in headers and "Derived from" in headers:
-                for r in real(rows):
-                    planned[r.get("Criterion", "")] = r
-        for c in sorted(needs):
-            row = planned.get(c)
-            if row is None:
-                if "04-execution" in self.text:
-                    self.fail("R16", f"{c} needs an evidence plan and was executed against "
-                                     f"without one")
-                else:
-                    self.fail("R16", f"{c} needs an evidence plan and has none")
-                continue
-            for field in ("Observed", "Method", "Derived from"):
-                if not row.get(field):
-                    self.fail("R16", f"the plan for {c} leaves {field!r} empty; a plan that "
-                                     f"does not say what it was derived from was derived "
-                                     f"from the change")
 
     def arbiter_inputs(self):
         """R7b: an arbiter input inside the scope needs its prior state captured."""
@@ -512,8 +467,7 @@ class Check:
                 self.fail("B4", f"stage {name} present but not recorded")
 
     def run(self):
-        for m in (self.stage_order, self.headers_present, self.evidence_plan,
-                  self.arbiter_inputs,
+        for m in (self.stage_order, self.headers_present, self.arbiter_inputs,
                   self.every_criterion_arbitrated, self.arbiter_acceptance,
                   self.vocabulary, self.spec_immutable,
                   self.candidates_stored,

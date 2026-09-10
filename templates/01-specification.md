@@ -9,9 +9,9 @@
 
 ## Acceptance criteria
 
-| Id | Criterion | Procedure | Required evidence | Threshold |
-|---|---|---|---|---|
-| CR-<nnn>-01 | <stated in the vocabulary of the intent, not of the implementation> | machine · human | test-run · static-analysis · runtime-observation · human-affirmation · transformation-proof | |
+| Id | Criterion | When | Then | Plan | Procedure | Required evidence | Threshold |
+|---|---|---|---|---|---|---|---|
+| CR-<nnn>-01 | <one line, in the vocabulary of the intent, never of the implementation> | <conditions under which it is judged> | <what must be true> | required · not-required | machine · human | test-run · static-analysis · runtime-observation · human-affirmation · transformation-proof | |
 
 ## Termination
 

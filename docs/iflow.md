@@ -1,7 +1,7 @@
 # iFlow
 
 **Status:** research, provisional
-**Version:** 1.9 — 2026-09-09
+**Version:** 2.0 — 2026-09-10
 
 A single document. It supersedes the eight it was assembled from; the git history holds those.
 
@@ -33,7 +33,7 @@ Restated in clauses, cited throughout as the ground of every derivation:
 
 **Methods.** Derivation of requirements from the goal; comparative analysis of existing systems and of the practice of large-scale automated change; testing the derived structure against documented industry failure modes; end-to-end runs of a single change through the whole structure, whose purpose is to break it.
 
-**Claim to novelty.** Three positions, none of which is current practice. Acceptance without a reader is treated as the governing constraint rather than as a downstream quality concern. Knowledge of the system is divided by *derivability from artifacts* rather than by document type, and the non-derivable remainder is treated as harvestable only as a byproduct of decisions people are already making. The boundary of necessary human participation is treated as a computed and contracting quantity rather than as a fixed configuration.
+**Claim to novelty.** Three positions, none of which is current practice. A fourth is procedural and was confirmed by looking at the field: the comparable frameworks — spec-driven development tools and agent method kits alike — **specify their process and do not check it.** One of them says so outright, noting that its per-step checklists carry no guarantee an agent will respect them; another expresses its discipline entirely as instructions the agent is asked to obey. A rule stated in prose with nothing to enforce it is the failure this document's own runs found four times over, and mechanical enforcement of the method itself is what distinguishes this work from them. Acceptance without a reader is treated as the governing constraint rather than as a downstream quality concern. Knowledge of the system is divided by *derivability from artifacts* rather than by document type, and the non-derivable remainder is treated as harvestable only as a byproduct of decisions people are already making. The boundary of necessary human participation is treated as a computed and contracting quantity rather than as a fixed configuration.
 
 **Practical significance.** The framework separates the parts of the problem that platform vendors are commoditizing, and which should therefore be consumed rather than built, from the parts that remain specific to how an organization defines *correct* and *done*, and which must therefore be built.
 
@@ -91,7 +91,7 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 |---|---|---|---|
 | **`Intent`** | A person's statement of what is to be achieved. The only object originating outside the system | statement; requester; **the authority that may decide it against a competing intent**; priority; deadline | Until satisfied or withdrawn |
 | **`ChangeClass`** | A category of change defined by *how its acceptance is decided*, not by what it touches. See §5 | name; decidability; admissible evidence kinds; required evidence set; default scope shape; default budget profile | Long-lived; revised only by area 13 on measurement |
-| **`Criterion`** | One condition on an acceptable result | statement; decision procedure (machine or human); required evidence kind; threshold | Fixed with its specification |
+| **`Criterion`** | One condition on an acceptable result, stated as a scenario: **when** these conditions hold, **then** this must be true | when; then; decision procedure (machine or human); required evidence kind; threshold; whether it needs an evidence plan | Fixed with its specification |
 | **`AcceptanceCriteria`** | The criteria for one specification | criteria; completeness marker | Fixed with its specification |
 | **`TerminationCondition`** | When work stops without acceptance | condition; action on trigger | Fixed with its specification |
 | **`Scope`** | The declared region a change may touch | included; excluded; class default; **disjointness from the arbiter** — the tests, schemas, telemetry definitions and criteria by which the change will be judged | Fixed with its specification |
@@ -111,6 +111,7 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 | Object | What it is | Schema | Validity |
 |---|---|---|---|
 | **`WorkUnit`** | A bounded, executable piece of work with its own criteria | specification ref; **its own `ChangeClass`**; `Scope`; `AreaOfEffect`; inherited criteria; dependencies; size estimate | Until admitted, or until its area of effect is invalidated while waiting |
+| **`EvidencePlan`** | What will be observed to settle one criterion, and how. Written from the area of effect once that is known, never from the candidate | criterion; what is observed — which component, which interfaces; method — environment, load, repetitions, tolerated variance; what *unchanged* means and against what captured prior state; the area of effect it was derived from, with that area's confidence; fixed-at | **Immutable from the moment it is fixed**, which is later than the specification. Expires with the area of effect it was derived from |
 | **`ChangePlan`** | The ordered phases realising one specification where they cannot all land at once | phases; unit membership; wait conditions, including waits on observation; **criterion that every intermediate state is a valid, shippable system**; rollback position per phase; **disposal of residue on abandonment** | Until every phase lands or the plan is abandoned; abandonment leaves the system at a named intermediate state, never mid-phase, and **never leaves that state unowned** |
 | **`ContextBundle`** | The knowledge supplied to an executor for one unit | statements included; selection rule; estate version; budget consumed | One execution only; never reused |
 | **`AdmissionDecision`** | The decision to commit resources, or not | unit; outcome (admitted, held, refused); deciding condition; **the confidence of the estate edges it rested on**; decided-at | Held decisions expire into escalation at a stated age |
@@ -250,7 +251,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 - **P1** Pending `WorkUnit`s with their `AreaOfEffect`s, `EstateModel` including work in flight, `Budget`, policy.
 - **P2** `AdmissionDecision`, `Grant`, `Conflict`.
-- **P3** A unit is admitted when its area of effect does not intersect an unfinished unit's such that either's evidence would be invalidated, an allocation exists, and a grant no wider than its `Scope` can be issued. Failing any of the three it is held, not started. **Where a criterion could only ever be evidenced by the artefact being changed, the prior state of that artefact is captured here** — after execution there is nothing left to compare against, and the evidence becomes circular. **A cycle among held units is detected structurally and immediately, not discovered by timeout**: age-based expiry is for contention, a cycle is a defect.
+- **P3** A unit is admitted when its area of effect does not intersect an unfinished unit's such that either's evidence would be invalidated, an allocation exists, a grant no wider than its `Scope` can be issued, **and an `EvidencePlan` is fixed for every criterion it will be judged by that needs one**. Failing any of the three it is held, not started. **Where a criterion could only ever be evidenced by the artefact being changed, the prior state of that artefact is captured here** — after execution there is nothing left to compare against, and the evidence becomes circular. **A cycle among held units is detected structurally and immediately, not discovered by timeout**: age-based expiry is for contention, a cycle is a defect.
 - **P4** Every pending unit admitted, held with a stated reason, refused, or **awaiting another authority** — a distinct state, because holding presumes eventual admission while this presumes an external event no gate here controls. Its cost accrues while no work happens, which area 9 must attribute to the intent rather than to a unit.
 - **P5** No resources are committed to a unit that could not have been accepted had it succeeded.
 - **P6** Admitting a unit later found to be in conflict is a failure of this area, not of landing. Holding one that could have run is a lesser failure, and must be visible as queueing rather than as silence.
@@ -577,7 +578,25 @@ Four rules declared themselves mechanically enforced and no check emitted any of
 
 Three of the four are of one kind: the document stated a property with nothing able to enforce it. That is the characteristic failure of a specification, and no further reasoning would have surfaced it — only running the thing did.
 
-**Still untested.** Nothing from the original list remains, and the framework has now been used once against itself. What tests it next is use, not another scenario.
+## Run 8 — a defect whose cause is unknown
+
+An ETL job that used to finish inside its window now takes four hours. Nobody knows why. A ticket is opened saying so. The developer investigates, forms a hypothesis, writes a change — and the requirement in the ticket still says what it said on the first day.
+
+The instinct is to call this backwards and to allow the requirements to be revised once the fix is understood. That is the wrong repair, and the framework already forbids it: criteria revised after the work exists describe the work rather than judging it. But the framework as written did not cover the case either.
+
+- **Y10** **Criteria and the evidence that settles them are fixed at different moments, and only the criteria are fixed at intake.** A criterion says what must be true — *when the reference load runs in this environment, then completion is inside the window; and every interface in the area of effect behaves as before*. Both halves can be written on the first day, in the vocabulary of the symptom, and neither ever changes. What cannot be written on the first day is **which** interfaces, **what** load, **which** environment, how many runs, what variance is tolerated, and what *as before* is measured against — because all of that follows from a diagnosis that has not happened. That is an `EvidencePlan`, and it is fixed at its own moment, after the area of effect is known and before the repair is written.
+
+Three things make this different from simply revising the requirements later.
+
+**The plan is derived from the area of effect, not from the candidate.** The area of effect is computed from the estate model; the candidate does not exist yet. A plan shaped around a patch is the failure of run 4 in another costume, and this is what forecloses it.
+
+**The prior state is captured at the plan's moment, not at the specification's.** Y1 put the capture at admission because that was the last moment before resources were committed. For a defect whose blast radius is unknown, that moment moves: there is nothing to capture until the diagnosis says what to capture. *As before* has no referent until then.
+
+**A criterion in scenario form is testable without being implementation-flavoured.** *When the reference load runs, then p95 completion is under the window* names its own subject, conditions and threshold, and can still be written before anyone knows the cause. *When a null shipping address is submitted, then the order is rejected rather than 500* is the same shape for an ordinary bug. What it must never become is *the null check is added*, which is X3 and is where defect repair most often fails.
+
+A fourth consequence falls out of Y9. A performance criterion settled by one timing run rests on evidence that cannot be produced again, so R13 marks it and R14 forbids accepting on it alone. **Performance work is where repeatability stops being a theoretical concern**: the environment, the load and the repetition count are not diligence, they are what makes the criterion satisfiable at all.
+
+**Still untested.** Nothing from the original list remains, and the framework has now been used against itself repeatedly. What tests it next is use, not another scenario.
 
 ---
 
