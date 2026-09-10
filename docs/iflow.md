@@ -29,7 +29,7 @@ Restated in clauses, cited throughout as the ground of every derivation:
 
 **Hypothesis.** A change can be accepted without a person who understands the system **if and only if** the criteria of acceptability are stated before execution and conformance to them is established by evidence produced independently of the executor. Each condition is load-bearing: criteria stated after the fact describe a result rather than judge it, and evidence produced by an executor about its own work establishes nothing.
 
-**What the hypothesis does not claim.** Acceptance establishes **conformance, not correctness of intent**. The system can establish that a change does what its criteria say; it cannot establish that the criteria were the right ones. That residue is irreducible and is one of two structural reasons the human boundary never reaches zero — the other being self-reference, §4 invariant 9.
+**What the hypothesis does not claim.** Acceptance establishes **conformance, not correctness of intent**. The system can establish that a change does what its criteria say; it cannot establish that the criteria were the right ones. That residue is irreducible and is one of two structural reasons the human boundary never reaches zero — the other being that a system cannot arbitrate itself.
 
 **Methods.** Derivation of requirements from the goal; comparative analysis of existing systems and of the practice of large-scale automated change; testing the derived structure against documented industry failure modes; end-to-end runs of a single change through the whole structure, whose purpose is to break it.
 
@@ -122,7 +122,7 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 
 | Object | What it is | Schema | Validity |
 |---|---|---|---|
-| **`Candidate`** | A proposed change; never applied by what produced it, and **held apart from the live system until landing** — an execution that writes in place leaves invariant 2 with nothing to enforce it | unit; artifact set, stored apart; executor identity and version; produced-at | Until its supporting evidence expires |
+| **`Candidate`** | A proposed change; never applied by what produced it, and **held apart from the live system until landing** — an execution that writes in place leaves nothing to enforce the rule that a candidate is never applied by what produced it | unit; artifact set, stored apart; executor identity and version; produced-at | Until its supporting evidence expires |
 | **`Trace`** | The record of one run | run id; steps; tool calls; input and output digests; executor version; timestamps | Retained for the lifetime of the decisions it supports. Append-only; not writable by its subject |
 | **`Evidence`** | An artifact supporting one claim about a candidate **or about a transformation** | claim; **subject (candidate or transformation)**; kind (test run, static analysis, runtime observation, human affirmation, proof of a transformation's property); producer; **independence from the executor, and how established**; **repeatability — whether the run behind it can be repeated to the same result, and what fixes that**; obtained-at | **Has a shelf life**, bound to the estate version and executor version it was obtained against |
 | **`Verdict`** | The acceptance decision on a candidate | candidate; per-criterion outcome (met, failed, **undecided**); evidence refs; overall; decided-by; **state (settled or deferred)**; observation window and baseline where deferred | Until invalidated by a landing touching its area of effect. A verdict that never closes is a failure, not a permanent state |
@@ -146,9 +146,9 @@ Conversation, prose, dashboards and reports are therefore **not objects**. They 
 4. **A `Trace` is not writable by its subject.** A record an agent can edit is not a record.
 5. **Evidence about a transformation is amortized across its applications.** Establishing a property of a transformation once, rather than of each candidate, is what stops assurance cost scaling with volume. Any edit to the transformation invalidates every verdict resting on it.
 6. **A deferred `Verdict` lives inside a reversibility horizon.** Reversibility is not a property a change has or lacks; it shortens as other work builds on the change. A deferred verdict is admissible only while its observation window fits inside that horizon. Where the horizon expires first, a person decides at that moment — never quietly abandoned, never extended past the point of no return.
-7. **`Scope` is disjoint from the arbiter and from everything the arbiter reads.** Whatever will judge a change — its tests, its schemas, its telemetry definitions, its criteria — lies outside the region that change may touch, and so does every input those consult. Path disjointness is not influence disjointness: a file an executor may edit determines what the arbiter concludes, whether or not the arbiter itself is writable. Where the two cannot be separated, because the subject of the change is exactly what the arbiter reads, three things become obligatory rather than discretionary — the change to that input is its own unit under invariant 8, its prior state is captured at admission, and the criterion is judged against that captured state rather than against the arbiter alone.
-8. **A change to the arbiter is a separate unit, accepted separately, and never by the unit that depends on it.** Some changes legitimately require the arbiter to move; that move is itself work, with its own criteria and its own acceptance. Allowing one unit to weaken what judges it and then pass is invariant 3 evaded rather than satisfied.
-9. **The framework is not its own arbiter.** Invariant 7 at the level of the whole system: a change to the acceptance machinery — criteria, assurance, the record — cannot be judged by the machinery being changed, because disjointness is impossible when the subject and what judges it are one system. Such changes are arbitrated from outside: by a frozen prior version, a separate deployment, or people. A measuring device is calibrated against an external standard for the same reason. It follows that the framework always retains a small, separately governed core that it does not administer itself.
+7. **`Scope` is disjoint from the arbiter and from everything the arbiter reads.** Whatever will judge a change — its tests, its schemas, its telemetry definitions, its criteria — lies outside the region that change may touch, and so does every input those consult. Path disjointness is not influence disjointness: a file an executor may edit determines what the arbiter concludes, whether or not the arbiter itself is writable. Where the two cannot be separated, because the subject of the change is exactly what the arbiter reads, three things become obligatory rather than discretionary — the change to that input is its own unit, its prior state is captured at admission, and the criterion is judged against that captured state rather than against the arbiter alone.
+8. **A change to the arbiter is a separate unit, accepted separately, and never by the unit that depends on it.** Some changes legitimately require the arbiter to move; that move is itself work, with its own criteria and its own acceptance. Allowing one unit to weaken what judges it and then pass evades the requirement that evidence be independent, rather than satisfying it.
+9. **The framework is not its own arbiter.** The disjointness rule above, at the level of the whole system: a change to the acceptance machinery — criteria, assurance, the record — cannot be judged by the machinery being changed, because disjointness is impossible when the subject and what judges it are one system. Such changes are arbitrated from outside: by a frozen prior version, a separate deployment, or people. A measuring device is calibrated against an external standard for the same reason. It follows that the framework always retains a small, separately governed core that it does not administer itself.
 
 ---
 
@@ -217,7 +217,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 - **P1** `Intent`, `EstateModel`, the catalogue of `ChangeClass`.
 - **P2** `Specification`, containing a default `ChangeClass`, `AcceptanceCriteria`, `TerminationCondition`, `Scope`.
-- **P3** A specification is complete when every criterion is either decidable by machine or explicitly marked as requiring a person. What is decidable is a property of the class, not of the individual intent. **A criterion is stated in the vocabulary of the intent rather than of the implementation**: one that names a code artifact can be satisfied by editing that artifact, while one that names an observable fact of the domain cannot. This is invariant 7 applied a level up.
+- **P3** A specification is complete when every criterion is either decidable by machine or explicitly marked as requiring a person. What is decidable is a property of the class, not of the individual intent. **A criterion is stated in the vocabulary of the intent rather than of the implementation**: one that names a code artifact can be satisfied by editing that artifact, while one that names an observable fact of the domain cannot. It is the same separation between what is changed and what judges it, one level up.
 - **P4** Completeness reached, or ambiguity declared irreducible.
 - **P5** Criteria are fixed before execution and are not altered by it.
 - **P6** An intent that cannot be expressed as criteria is a failure of this area, not a poor specification passed downstream. Criteria that admit two materially different acceptable results are incomplete, and the discovery of that fact anywhere downstream returns here.
@@ -285,7 +285,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 - **P2** `Verdict`, with the `Evidence` supporting it.
 - **P3** Accept only when every criterion is supported by evidence produced independently of the executor; otherwise reject or leave undecided. Which evidence suffices is fixed per `ChangeClass` in advance, not chosen per candidate. **An arbiter is accepted only once it has been shown to fail for the stated reason and not incidentally** — the requirement the C2 reproduction already carried, which belongs to every arbiter.
 - **P4** A verdict exists for every criterion. A verdict on an effect that does not exist before exposure is **deferred rather than absent**: opened here with its observation window and baseline, closed by area 13 after landing.
-- **P5** Evidence is independent on one of the two grounds of invariant 3: produced by something other than the executor, or fixed and accepted before the candidate existed.
+- **P5** Evidence is independent on one of the two grounds: produced by something other than the executor, or fixed and accepted before the candidate existed.
 - **P6** Inability to obtain evidence is an **undecided** verdict, not a rejection; the two must not be conflated. **A criterion that is met and was the wrong criterion is invisible here by construction** — conformance is what this area establishes. Such an error surfaces only through area 13's lag to discovery, an incident, or a person, and it returns to area 1, never to this one.
 - **P7** The evidence itself, and how each item was obtained.
 - **P8** Verification runs; stop when the cost of assurance exceeds the value of the change — a decision that is itself recorded.
@@ -371,7 +371,7 @@ Thirteen. Areas 1–6 are sequential — the path a change travels. Areas 7–13
 
 ### 11. Human Boundary — *from (c) and (d)*
 
-**Object.** Human participation in agent work. **Subject.** The rule determining when it is necessary. **Aim.** Participation only where required, with that region contracting as evidence accumulates — **toward a floor, not toward zero**: the correctness of an intent cannot be established from inside the system (§2), and a system cannot arbitrate itself (§4, invariant 9).
+**Object.** Human participation in agent work. **Subject.** The rule determining when it is necessary. **Aim.** Participation only where required, with that region contracting as evidence accumulates — **toward a floor, not toward zero**: the correctness of an intent cannot be established from inside the system, and a system cannot arbitrate itself.
 **Criterion of resolution.** Participation per unit of change is measured and declining, and cases where it was required but did not occur are detectable.
 
 - **P1** `Escalation` from any area; historical verdicts and their outcomes. **P2** Routing to a person, and revision of the escalation rules themselves.
@@ -540,8 +540,8 @@ Three cases, and unlike the earlier runs these do not yield repairs so much as b
 **A criterion met correctly that was the wrong criterion.** The schema requires `currency`, the criterion is satisfied, and every order carries the merchant's default rather than what the customer paid in. Nothing failed.
 
 - **X1** Assurance **cannot see this by construction.** It establishes conformance, and conformance holds. The error surfaces only from outside the acceptance path — through the lag to discovery in area 13, an incident, or a person — and it returns to area 1, which wrote the criterion, never to area 5, which applied it correctly.
-- **X2** Therefore, stated plainly: **acceptance is conformance, not correctness of intent.** The framework can guarantee that a change does what its criteria say. It cannot guarantee the criteria were right. This is not a gap to be closed later; it is the shape of what was promised, and it belongs in the research framework beside the hypothesis.
-- **X3** It can be reduced, though never removed. **A criterion stated in the vocabulary of the intent is harder to satisfy vacuously than one stated in the vocabulary of the implementation** — a criterion naming a code artifact can be met by editing that artifact, one naming an observable fact of the domain cannot. This is invariant 7 a level up: the same disjointness between what is changed and what judges it.
+- **X2** Therefore, stated plainly: **acceptance is conformance, not correctness of intent.** The framework can guarantee that a change does what its criteria say. It cannot guarantee the criteria were right. This is not a gap to be closed later; it is the shape of what was promised, and it belongs beside the hypothesis.
+- **X3** It can be reduced, though never removed. **A criterion stated in the vocabulary of the intent is harder to satisfy vacuously than one stated in the vocabulary of the implementation** — a criterion naming a code artifact can be met by editing that artifact, one naming an observable fact of the domain cannot. It is the same separation between what is changed and what judges it, one level up.
 
 **An estate spanning two organizations.** A shared integration, a counterparty with its own authority, cadence and process.
 
@@ -568,12 +568,12 @@ The repair was routine. What the run produced was four defects in this document,
 
 ## Run 7 — the rules that enforced nothing
 
-Four rules declared themselves mechanically enforced and no check emitted any of them; a fifth was declared human while the gate did enforce it. Y3 had named this failure one run earlier, in the same document.
+Four rules declared themselves mechanically enforced and no check emitted any of them; a fifth was declared human while the gate did enforce it. The previous run had named this very failure — a guarantee stated only in prose is worse than an acknowledged gap — in this same document.
 
 - **Y5** Invariant 7 was about paths, and paths are not influence. The arbiter for this change read a file inside the change's own scope, so the criterion could have been satisfied by deleting the claims rather than honouring them. **Disjointness extends to everything the arbiter reads**, and where subject and input coincide the mitigations become obligatory: a separate unit, the prior state captured at admission, and the criterion judged against that state.
 - **Y6** A check bound to the name of a column vanishes silently when the column is renamed — the same silent-corruption class as the defect of run 6, now in the gate's own binding. **A gate states which columns its checks depend on, and fails when one is absent**, rather than passing because it looked at nothing.
 - **Y7** A specification is immutable after admission, so an obligation introduced later cannot be applied to work already admitted. The gate must therefore distinguish **violating a rule from predating it**, and report the second as a note rather than a failure. Immutability and evolving rules are both wanted; this is the price of having both.
-- **Y9** R12 requires that an arbiter's pre-acceptance behaviour be recorded, and can check only that a record exists — never that it is true, because the run that produced it is gone. That exposed a confusion running through the whole document. **A record of a past run is not automatically derived knowledge; what decides its status is whether the run can be repeated.** A deterministic transformation on fixed inputs can be re-run to the same result, so its record is `derived` and may carry high confidence. An agent's run cannot, so its record is `attested` — testimony about something that happened once, and no more than that however carefully it was written. This sharpens F4: the reason to prefer a deterministic executor is not only that it is cheaper and does not drift, but that **its record can be re-derived instead of believed**. It also explains the decay of a baseline in W6 as an epistemic fact rather than a statistical one — a baseline begins derivable and becomes testimony as the world it measured moves away.
+- **Y9** R12 requires that an arbiter's pre-acceptance behaviour be recorded, and can check only that a record exists — never that it is true, because the run that produced it is gone. That exposed a confusion running through the whole document. **A record of a past run is not automatically derived knowledge; what decides its status is whether the run can be repeated.** A deterministic transformation on fixed inputs can be re-run to the same result, so its record is `derived` and may carry high confidence. An agent's run cannot, so its record is `attested` — testimony about something that happened once, and no more than that however carefully it was written. This sharpens the preference for a deterministic executor: the reason to prefer one is not only that it is cheaper and does not drift, but that **its record can be re-derived instead of believed**. It also explains the decay of a baseline as an epistemic fact rather than a statistical one — a baseline begins derivable and becomes testimony as the world it measured moves away.
 - **Y8** Twice in a row the arbiter had to be corrected before it could be accepted, both times because it compared more than its criterion named — absolute paths once, a folder set the other time — and so failed for a reason that had nothing to do with the subject. The document already required this of a C2 reproduction: it must fail on the unmodified system *for the stated reason rather than incidentally*. **That requirement belongs to every arbiter, not only to reproductions.** An arbiter is an implementation of a criterion, and an arbiter that tests more than its criterion says produces false failures exactly as one that tests less produces false passes. Both are defects of the arbiter, and neither is visible unless the arbiter's own acceptance is demonstrated before it is relied upon. It follows that **every criterion must be arbitrated by something named**: a criterion no arbiter claims is not being tested at all, and nothing says so.
 
 Three of the four are of one kind: the document stated a property with nothing able to enforce it. That is the characteristic failure of a specification, and no further reasoning would have surfaced it — only running the thing did.
@@ -588,13 +588,13 @@ The instinct is to call this backwards and to allow the requirements to be revis
 
 Three things make this different from simply revising the requirements later.
 
-**The plan is derived from the area of effect, not from the candidate.** The area of effect is computed from the estate model; the candidate does not exist yet. A plan shaped around a patch is the failure of run 4 in another costume, and this is what forecloses it.
+**The plan is derived from the area of effect, not from the candidate.** The area of effect is computed from the estate model; the candidate does not exist yet. A plan shaped around a patch is the same failure as an executor that satisfies a criterion by changing what the criterion measures, in another costume, and this is what forecloses it.
 
-**The prior state is captured at the plan's moment, not at the specification's.** Y1 put the capture at admission because that was the last moment before resources were committed. For a defect whose blast radius is unknown, that moment moves: there is nothing to capture until the diagnosis says what to capture. *As before* has no referent until then.
+**The prior state is captured at the plan's moment, not at the specification's.** The capture was originally placed at admission because that is the last moment before resources are committed. For a defect whose blast radius is unknown, that moment moves: there is nothing to capture until the diagnosis says what to capture. *As before* has no referent until then.
 
-**A criterion in scenario form is testable without being implementation-flavoured.** *When the reference load runs, then p95 completion is under the window* names its own subject, conditions and threshold, and can still be written before anyone knows the cause. *When a null shipping address is submitted, then the order is rejected rather than 500* is the same shape for an ordinary bug. What it must never become is *the null check is added*, which is X3 and is where defect repair most often fails.
+**A criterion in scenario form is testable without being implementation-flavoured.** *When the reference load runs, then p95 completion is under the window* names its own subject, conditions and threshold, and can still be written before anyone knows the cause. *When a null shipping address is submitted, then the order is rejected rather than 500* is the same shape for an ordinary bug. What it must never become is *the null check is added* — a criterion in the vocabulary of the implementation, which is where defect repair most often fails.
 
-A fourth consequence falls out of Y9. A performance criterion settled by one timing run rests on evidence that cannot be produced again, so R13 marks it and R14 forbids accepting on it alone. **Performance work is where repeatability stops being a theoretical concern**: the environment, the load and the repetition count are not diligence, they are what makes the criterion satisfiable at all.
+A fourth consequence follows from repeatability. A performance criterion settled by one timing run rests on evidence that cannot be produced again, so the framework marks it as such and forbids accepting on it alone. **Performance work is where repeatability stops being a theoretical concern**: the environment, the load and the repetition count are not diligence, they are what makes the criterion satisfiable at all.
 
 **Still untested.** Nothing from the original list remains, and the framework has now been used against itself repeatedly. What tests it next is use, not another scenario.
 
@@ -621,7 +621,7 @@ It is re-established when the workload changes materially. A baseline that quiet
 | **Share of undecided verdicts** | Verdicts closing neither met nor failed | Per class | Criteria that cannot be decided in practice, as against in principle |
 | **Wrongly-accepted rate** | Changes accepted without human reading that later proved wrong — from a defect, an incident, a reversal, or a contradicting measurement | Per class, by acceptance cohort | The failure the whole framework exists to prevent |
 | **Lag to discovery** | Time from acceptance to the discovery that an acceptance was wrong | Per class | The resolution of the instrument above; see §10.3 |
-| **Arbiter strength** | Tests, contracts and observations standing behind the criteria, per region | Per region | A system passing its own examinations by making them easier (W5) |
+| **Arbiter strength** | Tests, contracts and observations standing behind the criteria, per region | Per region | A system passing its own examinations by making them easier |
 | **Class mix** | Share of delivered work by class | Per period | The framework's reach, and the interpretation of every other figure |
 
 ## 10.3 Reading the numbers
@@ -646,7 +646,7 @@ The converse is weaker and should be claimed as such: touchpoints falling while 
 
 ## 10.5 Who governs the instruments
 
-By invariant 9 the framework cannot arbitrate itself, and these instruments are exactly what would judge it. **Their definitions, and the record they read, live in the separately governed core** — not editable by the system they measure, and changed only through the same external arbitration as any other change to the acceptance machinery. A framework that can redefine its own success measure has none.
+The framework cannot arbitrate itself, and these instruments are exactly what would judge it. **Their definitions, and the record they read, live in the separately governed core** — not editable by the system they measure, and changed only through the same external arbitration as any other change to the acceptance machinery. A framework that can redefine its own success measure has none.
 
 ---
 
@@ -663,7 +663,7 @@ An area is **consumed** when it is not specific to how this organization defines
 | 1 Intent and Criteria | **Build** | — | Nothing represents criteria as machine-checkable artifacts fixed before execution. The prevailing convention — a hand-maintained context file — is the opposite of this |
 | 2 Work Formation | **Build** | — | Plans with phases, class assignment per unit, preparatory-unit generation. The nearest analogue, recipe campaigns in large-scale refactoring, covers C1 only |
 | 3 Admission | **Split** | Queue, scheduling, worktree isolation | The three-condition gate, and conflict by intersection of areas of effect, which depends on your own estate model |
-| 4 Execution | **Consume** | Agent runtimes for the general case; deterministic transformation engines wherever the class admits one, per F4 | Integration only |
+| 4 Execution | **Consume** | Agent runtimes for the general case; deterministic transformation engines wherever the class admits one | Integration only |
 | 5 Assurance | **Build** | Test and analysis runners | The verdict itself: conformance to pre-stated criteria on executor-independent evidence, with provenance, shelf life and an undecided outcome. Continuous integration runs tests; it does not render this |
 | 6 Landing | **Split** | Merge, deploy, progressive delivery, rollback | Evidence-validity at entry, quarantine on an unplanned state, reversal treated as a change |
 | 7 Estate Representation | **Split** | Per-repository code indexing; the deployment layer, which already exists in your CI and artifact registries and should be read rather than rebuilt; runtime topology from tracing | The cross-repository contract join, confidence and provenance on every statement, staleness detection, observational adequacy, reachability, and the representation of work in flight |
@@ -682,10 +682,27 @@ Two things follow.
 
 **Requirements on anything consumed.** A commodity component that cannot meet these breaks the area it was taken for, and the failure will not be visible until something has already been accepted wrongly.
 
-- An executor must report its own identity and version with every result, or evidence has no shelf life (§4, `Evidence`).
-- An executor must distinguish substrate failure from task failure, or area 4's P6 cannot hold and retries become noise.
-- A record store must not be writable by the agent it describes (§4, invariant 4).
-- Authority must be enforced outside the agent, not requested politely of it (area 12, P5).
-- A memory store must permit expiry and refutation, or accumulation becomes the second decaying corpus that area 10 exists to prevent.
+- An executor must report its own identity and version with every result, or evidence has no shelf life.
+- An executor must distinguish substrate failure from task failure, or retries become noise.
+- A record store must not be writable by the agent it describes.
+- Authority must be enforced outside the agent, not requested politely of it.
+- A memory store must permit expiry and refutation, or accumulated knowledge becomes the second decaying corpus the framework exists to prevent.
 
 **The first increment.** Not the estate model and not an orchestrator, but a thin vertical through the whole structure on **C1 proved**, where acceptance is decidable and the arbiter is free — then widen by class. The framework's reach grows by its ability to generate the preparatory work that converts an undecidable situation into a decidable one.
+
+---
+
+# 12. Index of findings
+
+The runs are labelled so that a claim can be traced to the run that produced it. Nothing in the text above depends on knowing these; they are here for anyone who wants the provenance.
+
+| Run | Labels | What it exercised |
+|---|---|---|
+| 1 | F1–F5 | The easiest class of change, end to end |
+| 2 | G1–G6 | A change crossing a contract between repositories |
+| 3 | U1–U7 | Deadlock, failed reversal, competing intents, a wrong estate model, disagreeing executors |
+| 4 | W1–W7 | Withdrawal, an executor that moves what measures it, a decaying baseline |
+| 5 | X1–X7 | The right answer to the wrong question, two organizations, self-reference |
+| 6 | Y1–Y4 | The first real change, carried through the path |
+| 7 | Y5–Y9 | Rules that enforced nothing, and what a record of a past run is worth |
+| 8 | Y10 | A defect whose cause is unknown at the time the requirement is written |
