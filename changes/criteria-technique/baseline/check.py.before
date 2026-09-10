@@ -143,24 +143,6 @@ class Check:
                     self.fail("B1", f"{stage}: column {missing} is absent, so the check "
                                     f"binding to it would not run")
 
-    def criteria_vocabulary(self):
-        """R19: a criterion naming something the change may touch can be met by
-        editing that thing. The probe is crude — a path appearing in the text —
-        and crude is enough, because the mistake it catches is not subtle."""
-        if "01-specification" not in self.text:
-            return
-        scope = {p for p in self.scope_paths() if p and "/" in p or (p and "." in p)}
-        if not scope:
-            return
-        for headers, rows in tables(self.text["01-specification"]):
-            if "Criterion" in headers and "Procedure" in headers:
-                for r in real(rows):
-                    said = " ".join(r.get(k, "") for k in ("Criterion", "When", "Then"))
-                    named = [p for p in scope if p in said]
-                    if named:
-                        self.fail("R19", f"{r.get('Id')} names {named[0]}, which the change "
-                                         f"may touch: it can be met by editing what it names")
-
     def evidence_plan(self):
         """R16: a criterion that needs a plan has one, and the plan says what it
         was derived from. A plan derived from the candidate rather than from the
@@ -628,8 +610,7 @@ class Check:
                 self.fail("B4", f"stage {name} present but not recorded")
 
     def run(self):
-        for m in (self.stage_order, self.headers_present,
-                  self.criteria_vocabulary, self.evidence_plan,
+        for m in (self.stage_order, self.headers_present, self.evidence_plan,
                   self.arbiter_inputs,
                   self.every_criterion_arbitrated, self.arbiter_acceptance,
                   self.vocabulary, self.spec_immutable,

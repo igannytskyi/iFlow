@@ -41,7 +41,7 @@ python3 framework/check.py --escalations      # what the method still owes itsel
 
 **Criteria are fixed before execution and never after.** Correcting them is free while no candidate exists — that is a re-admission, and it is recorded. Once a candidate exists they are frozen, and a correction is a new specification under the same intent.
 
-**A criterion is written in the vocabulary of the intent, never of the implementation.** *When these conditions hold, then this observable fact holds* — not *this line was added*. One that names a code artefact can be satisfied by editing that artefact.
+**A criterion is written in the vocabulary of the intent, never of the implementation.** *When these conditions hold, then this observable fact holds* — not *this line was added*. One that names a code artefact can be satisfied by editing that artefact. `framework/criteria.md` has seven probes for telling a good criterion from a bad one before any work exists; use them when writing criteria and when reviewing them.
 
 **Never weaken a criterion, a test or a schema to make something pass.** Whatever judges a change lies outside what the change may touch. If the judging apparatus genuinely must move, that is its own unit, judged on its own, never by the unit that benefits from it.
 

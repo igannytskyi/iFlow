@@ -9,7 +9,6 @@ What we have agreed to do and not yet done. Not a plan and not a roadmap — a l
 | 1 | The one limit shared by R12, R13, R15, R16 and R18: the gate checks that something was recorded, never that the record is honest. Five rules, one defect | 2026-09-10 | open as `human-control#1` |
 | 2 | Verification in an isolated tree is not enough — an arbiter can pass there and fail where the change lands | 2026-09-10 | open as `human-control#2` |
 | 3 | Nothing requires an arbiter to say that it tests a proxy for its criterion rather than the criterion itself. That proxy has now broken three times | 2026-09-10 | open as `human-control#3` |
-| 4 | **No method for arriving at good criteria** — the framework checks that they are decidable and in the right vocabulary, and offers nothing for writing them. X1 says the wrong-criterion residue is irreducible, so anything lowering its rate is worth having. BMAD's elicitation techniques are exactly this | 2026-09-10 | from the comparison |
 | 5 | **No cross-change view** — the ledger shows escalations and nothing shows what is in flight, held, awaiting an authority or blocked. Invisible at one change, mandatory at fifty | 2026-09-10 | from the comparison |
 | 6 | **Nothing reviews the escalations as a set** — five turned out to be one defect, noticed only by looking | 2026-09-10 | from the comparison |
 | 7 | Delta specifications and an archive, after OpenSpec — changes stay immutable, a living specification accumulates | 2026-09-10 | considered, not decided |
@@ -20,6 +19,7 @@ What we have agreed to do and not yet done. Not a plan and not a roadmap — a l
 
 | Item | Landed |
 |---|---|
+| Seven probes for arriving at a criterion, one of them mechanical | v2.5.0 |
 | `Refusal` as an object; immutability from a candidate; the criteria review point | v2.2.0 |
 | Diagrams of the phases, artefacts and human touchpoints | v2.1.0 |
 | `EvidencePlan`, the B′ gate, scenario-form criteria | v2.0.0 |

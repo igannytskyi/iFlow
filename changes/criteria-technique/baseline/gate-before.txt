@@ -1,0 +1,47 @@
+# Gate verdict before the repair
+
+changes/clock-instant  stages: 00-intent, 01-specification, 02-plan, 03-admission, 04-execution, 05-assurance, 06-landing
+  note    R16: this specification does not say which criteria need an evidence plan — it predates the obligation rather than violating it
+  note    R7b: this specification declares no arbiter inputs — it predates the obligation rather than violating it
+  note    R12: this change records no arbiter acceptance — it predates the obligation rather than violating it
+  note    R18: this change does not say whether the criteria were reviewed before admission — it predates the obligation rather than violating it
+  note    R13: this change's evidence does not state repeatability — it predates the obligation rather than violating it
+  passed
+changes/placeholder-filter  stages: 00-intent, 01-specification, 02-plan, 03-admission, 04-execution, 05-assurance, 06-landing
+  note    R16: this specification does not say which criteria need an evidence plan — it predates the obligation rather than violating it
+  note    R7b: this specification declares no arbiter inputs — it predates the obligation rather than violating it
+  note    R12: this change records no arbiter acceptance — it predates the obligation rather than violating it
+  note    R18: this change does not say whether the criteria were reviewed before admission — it predates the obligation rather than violating it
+  note    R13: this change's evidence does not state repeatability — it predates the obligation rather than violating it
+  passed
+changes/rules-enforced  stages: 00-intent, 01-specification, 02-plan, 03-admission, 04-execution, 05-assurance, 06-landing
+  note    R16: this specification does not say which criteria need an evidence plan — it predates the obligation rather than violating it
+  note    R7b: this specification declares no arbiter inputs — it predates the obligation rather than violating it
+  note    R12: this change records no arbiter acceptance — it predates the obligation rather than violating it
+  note    R18: this change does not say whether the criteria were reviewed before admission — it predates the obligation rather than violating it
+  note    R13: this change's evidence does not state repeatability — it predates the obligation rather than violating it
+  passed
+changes/arbiter-influence  stages: 00-intent, 01-specification, 02-plan, 03-admission, 04-execution, 05-assurance, 06-landing
+  note    R16: this specification does not say which criteria need an evidence plan — it predates the obligation rather than violating it
+  note    R12: this change records no arbiter acceptance — it predates the obligation rather than violating it
+  note    R18: this change does not say whether the criteria were reviewed before admission — it predates the obligation rather than violating it
+  note    R13: this change's evidence does not state repeatability — it predates the obligation rather than violating it
+  passed
+changes/arbiter-acceptance  stages: 00-intent, 01-specification, 02-plan, 03-admission, 04-execution, 05-assurance, 06-landing
+  note    R16: this specification does not say which criteria need an evidence plan — it predates the obligation rather than violating it
+  note    R18: this change does not say whether the criteria were reviewed before admission — it predates the obligation rather than violating it
+  note    R13: this change's evidence does not state repeatability — it predates the obligation rather than violating it
+  passed
+changes/repeatability  stages: 00-intent, 01-specification, 02-plan, 03-admission, 04-execution, 05-assurance, 06-landing
+  note    R16: this specification does not say which criteria need an evidence plan — it predates the obligation rather than violating it
+  note    R18: this change does not say whether the criteria were reviewed before admission — it predates the obligation rather than violating it
+  passed
+changes/escalation-ledger  stages: 00-intent, 01-specification, 02-plan, 03-admission, 04-execution, 05-assurance, 06-landing
+  note    R16: this specification does not say which criteria need an evidence plan — it predates the obligation rather than violating it
+  note    R18: this change does not say whether the criteria were reviewed before admission — it predates the obligation rather than violating it
+  passed
+changes/evidence-plan  stages: 00-intent, 01-specification, 02-plan, 03-admission, 04-execution, 05-assurance, 06-landing
+  note    R18: this change does not say whether the criteria were reviewed before admission — it predates the obligation rather than violating it
+  passed
+changes/human-control  stages: 00-intent, 01-specification, 02-plan, 03-admission, 04-execution, 05-assurance, 06-landing
+  passed
