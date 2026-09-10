@@ -15,3 +15,11 @@ Evidence about a `transformation` carries that transformation's digest and is am
 | VE-<nnn>-01 | WU-<nnn>-01 | CR-<nnn>-01 | met · failed · undecided | EV-<nnn>-01-01 | settled · deferred | | |
 
 `undecided` is not `failed`. A deferred verdict names its observation window and its baseline, and holds its candidate reversible until it closes.
+
+## Escalations closed
+
+Only where this change settles a debt raised by another. An escalation is addressed as `<slug>#<n>`.
+
+| Escalation | Resolved by | Note |
+|---|---|---|
+| <slug>#<n> | this change | |

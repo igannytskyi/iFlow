@@ -5,7 +5,6 @@ Checks what artifacts can decide. What they cannot decide is listed in
 framework/RULES.md under the rules marked H, and is not attempted here.
 
 Usage: python3 tools/check.py changes/<slug>
-       python3 tools/check.py --escalations
 Exit status is 0 when nothing failed.
 """
 import hashlib
@@ -479,54 +478,7 @@ class Check:
         return self.problems, self.notes
 
 
-def ledger(root):
-    """The framework's debt to itself: every escalation raised, minus those a
-    later change has settled. An escalation is addressed as <slug>#<n>, because
-    its number is an ordinal local to the change that raised it."""
-    raised, closed, problems = {}, {}, []
-    for folder in sorted((root / "changes").iterdir()):
-        if not folder.is_dir():
-            continue
-        p = folder / "05-assurance.md"
-        if not p.exists():
-            continue
-        text = p.read_text()
-        for headers, rows in tables(text):
-            if "Standing" in headers and "Ground" in headers:
-                for r in real(rows):
-                    n = r.get("#", "")
-                    if n.isdigit():
-                        raised[f"{folder.name}#{n}"] = (r.get("Standing", ""),
-                                                        r.get("Ground", ""))
-            if "Escalation" in headers and "Resolved by" in headers:
-                for r in real(rows):
-                    ref = r.get("Escalation", "")
-                    if not ref:
-                        continue
-                    if ref in closed:
-                        problems.append(f"R15: {ref} is settled twice — in "
-                                        f"{closed[ref]} and in {folder.name}")
-                    closed[ref] = folder.name
-    for ref, where in closed.items():
-        if ref not in raised:
-            problems.append(f"R15: {where} settles {ref}, which was never owed")
-    owed = [(k, v[1]) for k, v in sorted(raised.items())
-            if v[0] == "open" and k not in closed]
-    return owed, closed, problems
-
-
 def main(argv):
-    if len(argv) == 2 and argv[1] == "--escalations":
-        root = pathlib.Path(".").resolve()
-        owed, closed, problems = ledger(root)
-        for p in problems:
-            print(f"  FAIL    {p}")
-        for ref, where in sorted(closed.items()):
-            print(f"  settled {ref}  by {where}")
-        print(f"  still owed: {len(owed)}")
-        for ref, ground in owed:
-            print(f"    {ref}  {ground[:100]}")
-        return 1 if problems else 0
     if len(argv) != 2:
         print(__doc__.strip())
         return 2
