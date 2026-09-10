@@ -66,16 +66,16 @@ The boundary contracts as evidence accumulates, but **toward a floor rather than
 
 ## 3. A defect whose cause is unknown
 
-The case where criteria and their evidence must be fixed at different moments.
+The case where a criterion and the evidence that settles it cannot be fixed at the same moment.
 
 ```mermaid
 flowchart TD
-    TK["Ticket: 'the ETL takes four hours'"] --> INT["<b>Intent</b>"]
-    INT --> CR["<b>Criteria</b>, fixed now, never again<br/><i>WHEN the reference load runs<br/>THEN completion is inside the window</i><br/><i>AND every interface in the area of effect<br/>behaves as before</i>"]
-    CR --> D["<b>Diagnosis</b> — a unit of its own<br/>acceptance: a reproduction that fails<br/>on the unmodified system,<br/>for the stated reason"]
-    D --> AOE["area of effect<br/><i>computed, not guessed</i>"]
-    AOE --> EP["<b>EvidencePlan</b>, fixed now<br/>which interfaces · what load · what environment<br/>how many runs · what variance<br/>what <i>as before</i> is measured against"]
-    EP --> CAP["prior state captured<br/><i>the moment moves here:<br/>before diagnosis there was<br/>nothing to capture</i>"]
+    TK["A symptom is reported.<br/>Nobody knows the cause"] --> INT["<b>Intent</b>"]
+    INT --> CR["<b>Criteria</b>, fixed now, never again<br/><i>in the vocabulary of the symptom:</i><br/><i>WHEN these conditions hold</i><br/><i>THEN the symptom does not occur</i><br/><i>AND everything in the area of effect</i><br/><i>behaves as before</i>"]
+    CR --> D["<b>Diagnosis</b> — a unit of its own<br/>its acceptance is decidable:<br/>a reproduction that fails on the<br/>unmodified system, for the stated reason"]
+    D --> AOE["<b>Area of effect</b><br/><i>computed from the estate,<br/>not guessed from the fix</i>"]
+    AOE --> EP["<b>EvidencePlan</b>, fixed now<br/>what is observed · by what method<br/>what <i>as before</i> is measured against"]
+    EP --> CAP["<b>Prior state captured</b><br/><i>the moment moves here: before<br/>the diagnosis there was nothing<br/>to capture, and <b>as before</b><br/>had no referent</i>"]
     CAP --> REP["<b>Repair</b>"]
     REP --> ASS["<b>Assurance</b> against the criteria,<br/>using the planned evidence"]
 
@@ -83,11 +83,11 @@ flowchart TD
     style EP fill:#1f6f43,color:#fff
 ```
 
-The plan is derived from the **area of effect**, not from the candidate — the candidate does not exist yet. That, and not discipline, is what stops the evidence being shaped around the fix.
+**What the criteria can say on the first day, and what they cannot.** They can say that the symptom must stop and that nothing else may move — both in the vocabulary of the symptom, both decidable once evidence exists, and neither ever revised. They cannot say **which** parts must be shown unchanged, **what** conditions are representative, **which** environment, how many observations, or what tolerance applies. All of that follows from a diagnosis that has not happened.
 
-A performance criterion settled by one timing run rests on evidence that cannot be produced again: the environment, the load and the repetition count are not diligence, they are what makes the criterion satisfiable at all.
+**Why this is not simply revising the requirement later.** The plan is derived from the area of effect, which is computed from the estate; the change does not exist yet, so the plan cannot be shaped around it. Revising a criterion after the work exists makes it describe the work rather than judge it, and that is the one thing the method forbids outright.
 
----
+**Where this bites hardest.** A criterion about a measured quantity, settled by a single observation, rests on evidence that cannot be produced again. The conditions, the environment and the number of observations are not diligence — they are what makes such a criterion satisfiable at all.
 
 ## 4. What to do when something is wrong
 
