@@ -40,6 +40,10 @@ From §7.
 | **B3** | A consumer may refuse, and refusal is the producer's failure | `M` | Enforced as R17 |
 | **B4** | Every crossing is recorded | `M` | A stage present without its line in the record is an error |
 
+## What is deliberately not checked, but is reported
+
+`check.py --unused` lists every template column the gate does not read and every code the conventions define that nothing validates. It does **not** say those fields are ceremony: most are there for a person, and the gate cannot read a sentence written for a reader. What it does is make the question askable — before it, nobody could list them. Judging which are ceremony is a human act, and removing one is a change like any other.
+
 ## What is deliberately not enforced
 
 - **Six of the seven probes for arriving at a criterion.** `criteria.md` names one mechanical check and six questions. The questions are answerable only by whoever writes or reviews the criteria, and are recorded here so that their absence from the gate is not mistaken for their absence from the method.

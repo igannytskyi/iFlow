@@ -9,6 +9,7 @@ Usage: python3 framework/check.py changes/<slug>     one change
        python3 framework/check.py --arbiters          run every arbiter
        python3 framework/check.py --mutate            break each rule, see who notices
        python3 framework/check.py --repeat <slug>     run what claims to repeat, twice
+       python3 framework/check.py --unused            fields nobody reads, codes nobody checks
        python3 framework/check.py --escalations       what the method owes itself
 Exit status is 0 when nothing failed.
 """
@@ -716,6 +717,39 @@ def arbiters(root):
     return results, problems
 
 
+def unused(root):
+    """Ceremony: a column no check reads, a code no check validates.
+
+    A field people are asked to fill and nothing consults is a record kept for
+    its own sake, which is the thing this method exists to remove rather than
+    to accumulate.
+    """
+    source = (root / "framework" / "check.py").read_text()
+    read = set(re.findall(r'["\'](.*?)["\'] in headers', source))
+    read |= set(re.findall(r'\.get\(["\'](.*?)["\']', source))
+    read |= set(re.findall(r'col\(real\(rows\), ["\'](.*?)["\']', source))
+    # the vocabulary check names its columns in a list of tuples, not in a test
+    read |= set(re.findall(r'\("[\w-]+", "([^"]+)", "[\w-]+"\)', source))
+    read |= set(re.findall(r'r\.get\("([^"]+)", ""\)', source))
+    columns = {}
+    for t in sorted((root / "framework" / "templates").glob("*.md")):
+        for block in re.findall(r"(?:^\|.*\|$\n)+", t.read_text(), re.M):
+            for c in (x.strip() for x in block.splitlines()[0].strip("|").split("|")):
+                if c and c not in ("#",):
+                    columns.setdefault(c, set()).add(t.name)
+    dead_columns = {c: sorted(v) for c, v in columns.items() if c not in read}
+    checked = set()
+    for group in re.findall(r"VOCAB = \{(.*?)\n\}", source, re.S):
+        checked |= set(re.findall(r'"([a-z0-9-]+)"', group))
+    declared = set()
+    for line in (root / "framework" / "conventions.md").read_text().splitlines():
+        if line.strip().startswith("|"):
+            declared |= set(re.findall(r"`([A-Za-z0-9-]+)`", line))
+    dead_codes = sorted(c for c in declared - checked
+                        if c.islower() and "-" in c or c in ("yes", "no", "unknown"))
+    return dead_columns, dead_codes
+
+
 def mutate(root):
     """Break each rule in turn and see whether any arbiter notices.
 
@@ -814,6 +848,15 @@ def main(argv):
                 bad += 1
         print(f"  {'passed' if not bad else str(bad) + ' problem(s)'}")
         return 1 if bad else 0
+    if len(argv) == 2 and argv[1] == "--unused":
+        dead_columns, dead_codes = unused(root)
+        for c, where in sorted(dead_columns.items()):
+            print(f"  column   {c!r} — filled in {', '.join(where)}, read by nothing")
+        for c in dead_codes:
+            print(f"  code     {c!r} — defined in conventions, validated by nothing")
+        total = len(dead_columns) + len(dead_codes)
+        print(f"  {total} field(s) nobody reads" if total else "  nothing is filled in for its own sake")
+        return 0
     if len(argv) == 2 and argv[1] == "--mutate":
         labels, unnoticed = mutate(root)
         for label in labels:
@@ -844,8 +887,17 @@ def main(argv):
         for ref, where in sorted(closed.items()):
             print(f"  settled {ref}  by {where}")
         print(f"  still owed: {len(owed)}")
+        by_rule = {}
+        for ref, ground in owed:
+            for rule in sorted(set(re.findall(r"\b(R\d+b?|B\d)\b", ground))):
+                by_rule.setdefault(rule, []).append(ref)
         for ref, ground in owed:
             print(f"    {ref}  {ground[:100]}")
+        shared = {r: refs for r, refs in by_rule.items() if len(refs) > 1}
+        if shared:
+            print("  named by more than one, which is how one defect looks like several:")
+            for rule, refs in sorted(shared.items()):
+                print(f"    {rule}  {', '.join(refs)}")
         return 1 if problems else 0
     if len(argv) != 2:
         print(__doc__.strip())

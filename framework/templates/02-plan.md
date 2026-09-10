@@ -17,7 +17,6 @@ A preparatory unit — a reproduction, a characterization of behaviour in an ina
 
 ## Coverage
 
-| Question | Answer |
-|---|---|
-| Do the units together cover the specification? | |
-| Was the estate query that produced the scope complete? | yes · no — if no, the residue is stated on the specification |
+Two questions, answered in a sentence rather than a table because nothing reads them and a table made them look like data.
+
+Do the units together cover the specification? And was the estate query that produced the scope complete — because where it was not, the residue belongs on the specification rather than being assumed away.

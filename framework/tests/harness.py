@@ -101,10 +101,7 @@ STAGES = {
 
 ## Coverage
 
-| Question | Answer |
-|---|---|
-| Do the units together cover the specification? | yes |
-| Was the estate query that produced the scope complete? | yes |
+The units cover the specification, and the estate query behind the scope was complete.
 """,
     "03-admission": """# Admission — fixture
 
@@ -120,9 +117,9 @@ STAGES = {
 
 ## Decisions
 
-| Unit | Outcome | Deciding condition | Confidence of the edges relied on | Escalates at |
-|---|---|---|---|---|
-| WU-001-01 | admitted | permission | high | |
+| Unit | Outcome | Deciding condition | Confidence of the edges relied on |
+|---|---|---|---|
+| WU-001-01 | admitted | permission | high |
 
 ## Conflicts
 
@@ -206,11 +203,11 @@ def build_change(where, only=None):
         (d / "candidates" / "CA-001-01").mkdir(parents=True, exist_ok=True)
         (d / "candidates" / "CA-001-01" / "README.md").write_text("the proposed change\n")
     rows = "\n".join(
-        f"| {i} | 2026-09-10 | {s} | fixture | | |"
+        f"| {i} | 2026-09-10 | {s} | fixture | |"
         for i, s in enumerate(RECORD_STAGES[:len(stages)], start=1))
     (d / "record.md").write_text(
-        "# Record — fixture\n\n| # | At | Stage | Object | Digest | Note |\n"
-        "|---|---|---|---|---|---|\n" + rows + "\n")
+        "# Record — fixture\n\n| # | At | Stage | Object | Note |\n"
+        "|---|---|---|---|---|\n" + rows + "\n")
     return d
 
 

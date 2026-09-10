@@ -14,9 +14,9 @@ The cheapest minute in the path. Recording `no` is legitimate; saying nothing is
 
 ## Decisions
 
-| Unit | Outcome | Deciding condition | Confidence of the edges relied on | Escalates at |
-|---|---|---|---|---|
-| WU-<nnn>-01 | admitted · held · refused · awaiting-authority | conflict · allowance · permission | high · medium · low | |
+| Unit | Outcome | Deciding condition | Confidence of the edges relied on |
+|---|---|---|---|
+| WU-<nnn>-01 | admitted · held · refused · awaiting-authority | conflict · allowance · permission | high · medium · low |
 
 ## Conflicts
 
