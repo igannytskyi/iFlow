@@ -20,3 +20,9 @@ changes/
 # The author's own notes, which are not documentation of the framework and do
 # not belong under a share-alike licence.
 docs/links.md
+
+# How we intend to develop the framework is our working state, not the
+# framework. Nobody adopting it needs our intentions, and a list of them in
+# the repository is a second copy of what the escalation ledger already
+# computes from the changes in flight.
+BACKLOG.md
