@@ -13,9 +13,9 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-RULES = ROOT / "framework" / "RULES.md"
-GATE = ROOT / "tools" / "check.py"
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+RULES = ROOT / "framework" / "rules.md"
+GATE = ROOT / "framework" / "check.py"
 
 ROW = re.compile(r"^\|\s*\*\*(?P<id>[A-Z]\d+b?)\*\*\s*\|(?P<rest>.*)\|\s*$")
 

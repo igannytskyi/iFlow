@@ -4,8 +4,8 @@
 Checks what artifacts can decide. What they cannot decide is listed in
 framework/RULES.md under the rules marked H, and is not attempted here.
 
-Usage: python3 tools/check.py changes/<slug>
-       python3 tools/check.py --escalations
+Usage: python3 framework/check.py changes/<slug>
+       python3 framework/check.py --escalations
 Exit status is 0 when nothing failed.
 """
 import hashlib

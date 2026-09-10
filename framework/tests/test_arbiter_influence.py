@@ -12,8 +12,8 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-GATE = ROOT / "tools" / "check.py"
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+GATE = ROOT / "framework" / "check.py"
 
 
 def gate(folder):

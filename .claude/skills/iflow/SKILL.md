@@ -5,9 +5,9 @@ description: Carry a change through iFlow — intent, specification, plan, admis
 
 # iFlow
 
-One change lives in `changes/<slug>/` as seven files, written in order. Read `framework/CONVENTIONS.md` before writing any of them; every code is defined there and a value not listed there is an error, not a variation. Read `framework/RULES.md` for what will be checked and what deliberately will not.
+One change lives in `changes/<slug>/` as seven files, written in order. Read `framework/conventions.md` before writing any of them; every code is defined there and a value not listed there is an error, not a variation. Read `framework/rules.md` for what will be checked and what deliberately will not.
 
-Copy the matching file from `templates/` and fill it. Never invent a column.
+Copy the matching file from `framework/templates/` and fill it. Never invent a column.
 
 ## Verbs
 
@@ -20,7 +20,7 @@ Copy the matching file from `templates/` and fill it. Never invent a column.
 | `verify` | `05-assurance.md` | Gathers evidence and renders a verdict per criterion |
 | `land` | `06-landing.md` | Enters accepted candidates while their evidence still holds |
 | `status` | — | Reads the folder and reports where the change stands and what blocks it |
-| `check` | — | Runs `python3 tools/check.py changes/<slug>` and reports it verbatim |
+| `check` | — | Runs `python3 framework/check.py changes/<slug>` and reports it verbatim |
 
 Every verb appends its crossing to `record.md`. A stage present without its line fails the check.
 

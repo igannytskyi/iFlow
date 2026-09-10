@@ -2,7 +2,7 @@
 
 The nine invariants of [../docs/iflow.md](../docs/iflow.md) §4, restated so that each names the check that proves it. A rule with no check is an aspiration, and is marked as such.
 
-`M` = checked mechanically by `tools/check.py`, and the gate emits that rule's name when it fails. `H` = not checked mechanically, and the third column says why not rather than leaving the exemption bare.
+`M` = checked mechanically by `framework/check.py`, and the gate emits that rule's name when it fails. `H` = not checked mechanically, and the third column says why not rather than leaving the exemption bare.
 
 | # | Rule | Check | How |
 |---|---|---|---|

@@ -2,11 +2,11 @@
 
 This repository holds the iFlow research document and the first working increment: the conventions, artifact formats, rules and checks by which a change travels from an intent to a landing.
 
-Read [docs/iflow.md](docs/iflow.md) for why any of this is shaped the way it is. Read [framework/CONVENTIONS.md](framework/CONVENTIONS.md) before writing any artifact — every code is defined there and nowhere else.
+Read [docs/iflow.md](docs/iflow.md) for why any of this is shaped the way it is. Read [framework/conventions.md](framework/conventions.md) before writing any artifact — every code is defined there and nowhere else.
 
 ## How to behave
 
-**One change per folder.** `changes/<slug>/` holds the six stage files. Never write a stage file before the one before it exists and passes `tools/check.py`.
+**One change per folder.** `changes/<slug>/` holds the six stage files. Never write a stage file before the one before it exists and passes `framework/check.py`.
 
 **Never invent a code.** If a value is not in CONVENTIONS.md, stop and say so. Adding a value is a change to the framework, arbitrated outside iFlow (R9), not a decision to take mid-task.
 
@@ -24,4 +24,4 @@ The skill in `.claude/skills/iflow/` defines: `intent`, `plan`, `admit`, `run`, 
 
 ## Before presenting anything
 
-Run `python3 tools/check.py changes/<slug>` and report what it says. Do not present a verdict, a landing, or a status without it.
+Run `python3 framework/check.py changes/<slug>` and report what it says. Do not present a verdict, a landing, or a status without it.

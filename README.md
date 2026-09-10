@@ -14,21 +14,15 @@ The research is one document: [`docs/iflow.md`](docs/iflow.md) — goal, researc
 
 [`docs/process.md`](docs/process.md) — the path and its artefacts, where a person actually touches it, the defect flow, what to do when something is wrong, and the mapping to epic, issue, DoR, DoD and testing.
 
-## The first increment
+## The framework
 
-The working part: conventions, artifact formats, rules and a mechanical gate, for one change travelling the path from intent to landing.
+Everything the method is lives in one folder: [`framework/`](framework/) — the vocabulary, the rules, the artefact shapes, the gate that enforces them and the arbiters that prove the gate does what it claims. Its own [README](framework/README.md) says why it is shaped that way.
 
-| | |
-|---|---|
-| [`framework/CONVENTIONS.md`](framework/CONVENTIONS.md) | Every code, defined once. Tools validate against exactly these values |
-| [`framework/RULES.md`](framework/RULES.md) | The nine invariants, each naming the check that proves it — and what is deliberately not enforced |
-| [`templates/`](templates/) | The seven artifacts of the path, plus the append-only record |
-| [`tools/check.py`](tools/check.py) | The gate. Pure Python, no dependencies |
-| [`changes/clock-instant/`](changes/clock-instant/) | A complete worked example — read this first |
-| [`.claude/skills/iflow/`](.claude/skills/iflow/) | The verbs: intent, plan, admit, run, verify, land, status, check |
+[`changes/`](changes/) holds what the framework has produced: every change carried through the path, artefact by artefact. `clock-instant/` is a worked example; the rest are real.
 
 ```bash
-python3 tools/check.py changes/clock-instant
+python3 framework/check.py changes/<slug>     # one change
+python3 framework/check.py --escalations      # what the framework owes itself
 ```
 
 ## Versioning

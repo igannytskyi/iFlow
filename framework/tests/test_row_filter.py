@@ -10,11 +10,11 @@ import pathlib
 import subprocess
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 
 
 def load_gate():
-    spec = importlib.util.spec_from_file_location("gate", ROOT / "tools" / "check.py")
+    spec = importlib.util.spec_from_file_location("gate", ROOT / "framework" / "check.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -43,7 +43,7 @@ def cr_002_01(gate):
 def cr_002_02(gate):
     """Unfilled template rows are still dropped."""
     leaked = []
-    for t in sorted((ROOT / "templates").glob("*.md")):
+    for t in sorted((ROOT / "framework" / "templates").glob("*.md")):
         for _, rows in gate.tables(t.read_text()):
             for r in gate.real(rows):
                 joined = " ".join(v for v in r.values() if v)
@@ -58,7 +58,7 @@ def cr_002_03(_gate):
     for folder in sorted((ROOT / "changes").iterdir()):
         if not folder.is_dir():
             continue
-        out = subprocess.run([sys.executable, str(ROOT / "tools" / "check.py"), str(folder)],
+        out = subprocess.run([sys.executable, str(ROOT / "framework" / "check.py"), str(folder)],
                              capture_output=True, text=True)
         if out.returncode != 0:
             broken.append(f"{folder.name}: {out.stdout.strip().splitlines()[-1]}")

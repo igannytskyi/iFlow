@@ -14,8 +14,8 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-GATE = ROOT / "tools" / "check.py"
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+GATE = ROOT / "framework" / "check.py"
 PRE_EXISTING = ("clock-instant", "placeholder-filter", "rules-enforced", "arbiter-influence",
                 "arbiter-acceptance", "repeatability")
 
@@ -44,8 +44,8 @@ def _tree(tmp):
     """A copy of changes/ that can be edited without touching the repository."""
     d = pathlib.Path(tmp) / "repo"
     d.mkdir()
-    (d / "tools").mkdir()
-    shutil.copy(GATE, d / "tools" / "check.py")
+    (d / "framework").mkdir()
+    shutil.copy(GATE, d / "framework" / "check.py")
     shutil.copytree(ROOT / "changes", d / "changes")
     return d
 
