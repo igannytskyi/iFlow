@@ -11,6 +11,17 @@ import tempfile
 
 from harness import build_change, edit, gate
 
+TESTS = {
+    "CR-009-01": "direct",
+    "CR-009-02": "direct",
+    "CR-009-03": "direct",
+    "CR-009-04": ("proxy", "the criterion is about real work; a built change is run instead"),
+}
+
+# Each criterion says whether this arbiter tests it or a
+# proxy for it. A proxy that is not declared has broken three times.
+
+
 REFUSAL = """
 ## Refusals
 

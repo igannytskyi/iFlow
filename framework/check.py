@@ -4,13 +4,16 @@
 Checks what artifacts can decide. What they cannot decide is listed in
 framework/RULES.md under the rules marked H, and is not attempted here.
 
-Usage: python3 framework/check.py changes/<slug>
-       python3 framework/check.py --escalations
+Usage: python3 framework/check.py changes/<slug>     one change
+       python3 framework/check.py --status [dir]      every change, at a glance
+       python3 framework/check.py --arbiters          run every arbiter
+       python3 framework/check.py --escalations       what the method owes itself
 Exit status is 0 when nothing failed.
 """
 import hashlib
 import pathlib
 import re
+import subprocess
 import sys
 
 STAGES = ["00-intent", "01-specification", "02-plan", "03-admission",
@@ -679,9 +682,91 @@ def ledger(root):
     return owed, closed, problems
 
 
+def arbiters(root):
+    """Run every arbiter, and check each says whether it tests its criterion or
+    a proxy for it. Running them is one action so that it can be done where a
+    change lands and not only in an isolated tree."""
+    import importlib.util
+    tests = sorted((root / "framework" / "tests").glob("test_*.py"))
+    problems, results = [], []
+    for t in tests:
+        r = subprocess.run([sys.executable, str(t)], capture_output=True, text=True, cwd=root)
+        results.append((t.name, r.stdout.strip().splitlines()[-1].strip() if r.stdout.strip()
+                        else "no output", r.returncode))
+        spec = importlib.util.spec_from_file_location(t.stem, t)
+        m = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(t.parent))
+        try:
+            spec.loader.exec_module(m)
+        finally:
+            sys.path.pop(0)
+        declared = getattr(m, "TESTS", None)
+        if declared is None:
+            problems.append(f"R20: {t.name} does not say which of its criteria it tests "
+                            f"directly and which through a proxy")
+            continue
+        checks = {n.upper().replace("_", "-") for n in dir(m)
+                  if n.startswith("cr_") and callable(getattr(m, n))}
+        for c in sorted(checks - set(declared)):
+            problems.append(f"R20: {t.name} checks {c} without saying whether that is the "
+                            f"criterion or a proxy for it")
+        for c, how in declared.items():
+            if isinstance(how, tuple) and not how[1]:
+                problems.append(f"R20: {t.name} calls {c} a proxy without saying for what")
+    return results, problems
+
+
+def status(root, where):
+    """Every change at a glance: how far it got, and what holds it."""
+    rows = []
+    base = pathlib.Path(where)
+    for folder in sorted(base.iterdir()) if base.is_dir() else []:
+        if not folder.is_dir() or not (folder / "00-intent.md").exists():
+            continue
+        c = Check(folder)
+        reached = [s for s in STAGES if s in c.text]
+        problems, _ = c.run()
+        held, waiting, undecided, open_esc = 0, 0, 0, 0
+        for headers, rws in tables(c.text.get("03-admission", "")):
+            if "Outcome" in headers:
+                for r in real(rws):
+                    held += r.get("Outcome") == "held"
+                    waiting += r.get("Outcome") == "awaiting-authority"
+        for headers, rws in tables(c.text.get("05-assurance", "")):
+            if "Outcome" in headers and "Criterion" in headers:
+                undecided += sum(1 for r in real(rws) if r.get("Outcome") == "undecided")
+            if "Standing" in headers:
+                open_esc += sum(1 for r in real(rws) if r.get("Standing") == "open")
+        rows.append((folder.name, reached[-1] if reached else "-", len(problems),
+                     held, waiting, undecided, open_esc))
+    return rows
+
+
 def main(argv):
+    root = pathlib.Path(".").resolve()
+    if len(argv) == 2 and argv[1] == "--arbiters":
+        results, problems = arbiters(root)
+        for name, last, code in results:
+            print(f"  {'FAIL' if code else 'ok  '}  {name}  {last}")
+        for p in problems:
+            print(f"  FAIL    {p}")
+        bad = sum(1 for _, _, c in results if c) + len(problems)
+        print(f"  {'passed' if not bad else str(bad) + ' problem(s)'}")
+        return 1 if bad else 0
+    if len(argv) in (2, 3) and argv[1] == "--status":
+        where = argv[2] if len(argv) == 3 else "changes"
+        rows = status(root, where)
+        if not rows:
+            print(f"  no changes under {where}")
+            return 0
+        print(f"  {'change':28} {'reached':16} {'gate':>5} {'held':>5} {'wait':>5} "
+              f"{'undec':>6} {'owed':>5}")
+        for name, reached, probs, held, waiting, undec, esc in rows:
+            print(f"  {name:28} {reached:16} {('ok' if not probs else str(probs)):>5} "
+                  f"{held:>5} {waiting:>5} {undec:>6} {esc:>5}")
+        print(f"  {len(rows)} change(s)")
+        return 0
     if len(argv) == 2 and argv[1] == "--escalations":
-        root = pathlib.Path(".").resolve()
         owed, closed, problems = ledger(root)
         for p in problems:
             print(f"  FAIL    {p}")

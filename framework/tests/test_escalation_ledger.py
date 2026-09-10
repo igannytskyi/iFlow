@@ -11,6 +11,16 @@ import tempfile
 
 from harness import GATE, add_escalation, build_change, build_repo, close_escalation, gate
 
+TESTS = {
+    "CR-007-01": "direct",
+    "CR-007-02": "direct",
+    "CR-007-03": ("proxy", "the criterion is about real work; a built change is run instead"),
+}
+
+# Each criterion says whether this arbiter tests it or a
+# proxy for it. A proxy that is not declared has broken three times.
+
+
 
 def ledger(root):
     r = subprocess.run([sys.executable, str(GATE), "--escalations"],

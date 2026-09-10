@@ -26,6 +26,8 @@ A change carried through the method lives in a folder of its own — seven artef
 
 ```bash
 python3 framework/check.py changes/<slug>     # one change
+python3 framework/check.py --status [dir]     # every change, at a glance
+python3 framework/check.py --arbiters         # run every arbiter
 python3 framework/check.py --escalations      # what the framework owes itself
 ```
 

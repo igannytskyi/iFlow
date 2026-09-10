@@ -11,6 +11,17 @@ import tempfile
 
 from harness import build_change, edit, gate, reseal
 
+TESTS = {
+    "CR-004-01": "direct",
+    "CR-004-02": "direct",
+    "CR-004-03": "direct",
+    "CR-004-04": ("proxy", "the criterion is about real work; a built change is run instead"),
+}
+
+# Each criterion says whether this arbiter tests it or a
+# proxy for it. A proxy that is not declared has broken three times.
+
+
 
 def cr_004_01():
     with tempfile.TemporaryDirectory() as tmp:

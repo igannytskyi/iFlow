@@ -14,8 +14,12 @@ Everything the method *is* lives here. What it is *about* is in `../docs/`. What
 
 ```bash
 python3 framework/check.py changes/<slug>     # one change
+python3 framework/check.py --status [dir]     # every change, at a glance
+python3 framework/check.py --arbiters         # run every arbiter
 python3 framework/check.py --escalations      # what the framework owes itself
 ```
+
+Running every arbiter is one action so that it can be done where a change lands, and not only in the isolated tree where a fixture may still agree with the world.
 
 ## Why this shape
 

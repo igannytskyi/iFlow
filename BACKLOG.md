@@ -11,20 +11,17 @@ What has been agreed and not done, what is waiting on a decision, and what was r
 | # | Item | Raised |
 |---|---|---|
 | 1 | **The one limit shared by five rules.** R12, R13, R15, R16 and R18 each check that something was recorded and none can check that the record is honest. One defect, recorded five times as five | 09-10, open as `human-control#1` |
-| 2 | **Verification in an isolated tree is not enough** — an arbiter can pass there and fail where the change lands | 09-10, open as `human-control#2` |
-| 3 | **Nothing requires an arbiter to say it tests a proxy** for its criterion rather than the criterion itself. That proxy has broken three times | 09-10, open as `human-control#3` |
-| 4 | **No cross-change view** — what is in flight, held, awaiting another authority, blocked. Computed from the folders in flight and gone with them; it stores nothing | 09-10 |
-| 5 | **Nothing reviews the escalations as a set** — five turned out to be one defect, noticed only by reading them together | 09-10 |
+| 5 | **Nothing reviews the escalations as a set** — five turned out to be one defect, noticed only by reading them together. `--status` now shows how many each change owes, which makes accumulation visible without saying anything about what they share | 09-10 |
 | 6 | **Estate tooling for area 1.** A code graph per repository, consumed rather than built, with the layer above it that nobody ships: cross-repository contract edges matched and confirmed by telemetry, confidence per edge, provenance per statement, freshness per region, observational adequacy per region, reachability beyond the estate, and an overlay of changes in flight. One query: what does this change affect, and at what confidence | 09-10 |
 | 7 | **Refresh on demand, not on a timer.** The index records the commit it was built from per repository; a query names a region; a region whose source has moved is refreshed before the query is answered. Forge events say what changed; local clones hold the content, because a parser needs files and pulling hundreds of repositories over an API is slower than a fetch | 09-10 |
 | 8 | **The estate carries what it does not know.** A configured list does not disappear — discovery needs a seed, and a repository created in another group, another namespace or another forge never appears in any listing. What changes is scale: a handful of groups rotting yearly rather than hundreds of repositories rotting weekly. Completeness is never assumed, and an unindexed region is *coverage unknown*, not *coverage absent*. Gaps announce themselves as unattributable edges — traffic from a service that maps to no repository, an artefact in the registry with no indexed source, an import pointing outside — by the same mechanism that makes a surprising landing evidence against the model | 09-10 |
-| 9 | **Criteria are objects while a change is in flight and history after it lands.** The gate cannot check what lives only in a tracker, and a landed criterion is history for which a tracker is the right home. This is why a change folder is transient by design | 09-10 |
 | 10 | **A baseline measured on real work** — the instruments are described and not one figure has been taken | 09-09, blocked on having an estate |
 
 ## Rejected, with the reason
 
 | Item | Why not |
 |---|---|
+| **A backlog written by hand beside a ledger computed from the changes** | Raised as `self-observation#1` and not yet resolved: the escalation ledger is computed from change folders, which are no longer versioned, so anyone cloning the repository sees only this file — a second copy that will drift from what the ledger says. Either escalations do not belong in change folders, or this file must be derived from them |
 | **The estate as a gate on intent** — refusing an intent the graph does not recognise | The estate model produces statements with provenance and confidence; verdicts belong to assurance and refusals to admission and the human boundary. A fifth gate would refuse work on a knowingly incomplete picture, which is a defect anywhere else in this method. The graph *determines* rather than refuses: area of effect, observational adequacy, the class, and what evidence exists — and what follows from those is already handled by the gates that exist |
 | **A living specification** — a current statement of what the system requires, folded from the deltas of every landed change | It is derived from the record of changes rather than from the system, so relative to current code it is an assertion about the past. Where a derived statement and an asserted one conflict the derived one prevails, so the estate model always wins and the comparison has a foregone answer. Worse, it is a second corpus coupled to history rather than to the code that invalidates it — the decay this method exists to prevent, one level up. The part of the problem that is real, standing obligations not derivable from code, is `Testimony`: it already expires, carries a falsifier, and never outranks a statement derived from current code |
 
@@ -32,6 +29,7 @@ What has been agreed and not done, what is waiting on a decision, and what was r
 
 | Item | Landed |
 |---|---|
+| A view across changes, one action to run every arbiter, and an arbiter that says whether it tests its criterion or a proxy | v3.1.0 |
 | The repository holds the framework and nothing else; arbiters build their fixtures instead of borrowing them | v3.0.0 |
 | Seven probes for arriving at a criterion, one of them mechanical | v2.5.0 |
 | `Refusal` as an object; immutability from a candidate; the criteria review point | v2.2.0 |

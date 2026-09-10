@@ -10,6 +10,19 @@ import tempfile
 
 from harness import build_change, edit, gate, reseal
 
+TESTS = {
+    "CR-010-01": ("proxy", "the criterion is whether a criterion can be met by editing what "
+                           "it names; what is checked is whether its text contains a path "
+                           "the change may touch"),
+    "CR-010-02": ("proxy", "the criterion is whether a rule is enforced; what is checked "
+                           "is whether the gate can name it"),
+    "CR-010-03": ("proxy", "the criterion is about real work; a built change is run instead"),
+}
+
+# Each criterion says whether this arbiter tests it or a
+# proxy for it. A proxy that is not declared has broken three times.
+
+
 from test_rules_enforced import rules, unenforced
 from harness import GATE
 

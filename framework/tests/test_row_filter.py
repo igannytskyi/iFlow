@@ -11,6 +11,17 @@ import tempfile
 
 from harness import GATE, TEMPLATES, build_change, gate
 
+TESTS = {
+    "CR-002-01": "direct",
+    "CR-002-02": "direct",
+    "CR-002-03": ("proxy", "the criterion is about the gate's verdict on real work; "
+                           "what is run is a change built from the current shapes"),
+}
+
+# Each criterion says whether this arbiter tests it or a
+# proxy for it. A proxy that is not declared has broken three times.
+
+
 
 def _gate_module():
     spec = importlib.util.spec_from_file_location("gate", GATE)

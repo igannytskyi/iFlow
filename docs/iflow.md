@@ -1,7 +1,7 @@
 # iFlow
 
 **Status:** research, provisional
-**Version:** 2.0 — 2026-09-10
+**Version:** 2.1 — 2026-09-10
 
 A single document. It supersedes the eight it was assembled from; the git history holds those.
 

@@ -12,6 +12,19 @@ import tempfile
 
 from harness import GATE, ROOT, build_change, edit, gate
 
+TESTS = {
+    "CR-003-01": ("proxy", "the criterion is whether a rule is enforced; what is checked "
+                           "is whether the gate can name it, pointers followed"),
+    "CR-003-02": "direct",
+    "CR-003-03": ("proxy", "the criterion is whether a reason is given; what is checked "
+                           "is whether the column is non-empty"),
+    "CR-003-04": ("proxy", "the criterion is about real work; a built change is run instead"),
+}
+
+# Each criterion says whether this arbiter tests it or a
+# proxy for it. A proxy that is not declared has broken three times.
+
+
 RULES = ROOT / "framework" / "rules.md"
 ROW = re.compile(r"^\|\s*\*\*(?P<id>[A-Z]\d+b?)\*\*\s*\|(?P<rest>.*)\|\s*$")
 
