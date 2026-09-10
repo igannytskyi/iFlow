@@ -1,6 +1,6 @@
 # The framework
 
-Everything the method *is* lives here. What it *produced* is in `../changes/`. What it is *about* is in `../docs/`. Those three are kept apart on purpose: the method should be readable without reading its output, and its output should be readable without reading the research behind it.
+Everything the method *is* lives here. What it is *about* is in `../docs/`. What it *produces* is not versioned at all: a change carried through the method is the output of using it on one estate, every adopter has their own, and nothing in the method requires a particular place for it.
 
 | | |
 |---|---|
@@ -10,6 +10,7 @@ Everything the method *is* lives here. What it *produced* is in `../changes/`. W
 | `templates/` | The seven artefacts a change travels through, plus the append-only record |
 | `check.py` | The gate. Pure Python, no dependencies. Reads a change folder and says what is wrong |
 | `tests/` | The arbiters. Each was written before the thing it judges and shown to fail for its stated reason |
+| `tests/harness.py` | Builds a valid change when one is needed and stores none. A fixture kept on disk drifts away from the templates in silence; one built at run time cannot |
 
 ```bash
 python3 framework/check.py changes/<slug>     # one change
@@ -23,3 +24,9 @@ The method is a document, a vocabulary, a set of artefact shapes, one program th
 `conventions.md` changes when a new value becomes possible. `rules.md` changes when something new becomes checkable, or when a claim of enforcement turns out to be untrue. `templates/` change when an artefact gains a field. `check.py` changes when a rule becomes mechanical. `tests/` change when an arbiter is found to test something other than its criterion — which has happened repeatedly, and always turned out to be the arbiter's fault rather than the rule's.
 
 The skill an agent loads lives at `../.claude/skills/iflow/`, because the tool requires that location. It is the only part of the framework not in this folder, and it is a summary of what is here rather than a source of it.
+
+## What is not here
+
+**No stored fixture.** The arbiters build a complete, valid change when they need one and throw it away afterwards. A fixture kept on disk goes stale the moment a template gains a field, and nothing notices; a fixture built from the current shapes fails loudly instead.
+
+**No worked example.** The templates are the shape, the diagrams are the flow, and an example folder would be a third copy of both — kept in step by hand, which is how it stops being true.

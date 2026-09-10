@@ -11,3 +11,12 @@ _bmad-output/
 
 __pycache__/
 *.pyc
+
+# The framework is what is versioned here. Changes carried through it are the
+# output of using it on one estate, not part of it — every adopter has their
+# own, and nothing in the method requires this folder name.
+changes/
+
+# The author's own notes, which are not documentation of the framework and do
+# not belong under a share-alike licence.
+docs/links.md

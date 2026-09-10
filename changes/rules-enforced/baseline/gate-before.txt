@@ -1,6 +1,0 @@
-# Gate verdict before the repair, on the changes that already exist
-
-changes/clock-instant  stages: 00-intent, 01-specification, 02-plan, 03-admission, 04-execution, 05-assurance, 06-landing
-  passed
-changes/placeholder-filter  stages: 00-intent, 01-specification, 02-plan, 03-admission, 04-execution, 05-assurance, 06-landing
-  passed

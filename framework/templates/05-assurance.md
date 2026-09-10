@@ -30,4 +30,4 @@ Only where a person or an area returned an object to its producer. A refusal is 
 
 | Id | Object | Boundary | Refused by | Ground | At |
 |---|---|---|---|---|---|
-| RF-<nnn>-01 | CA-<nnn>-01 | execution to assurance | person · area | <why> | |
+| RF-<nnn>-01 | <the object returned> | execution to assurance | person · area | <why> | |

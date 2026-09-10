@@ -22,7 +22,7 @@ The research is one document: [`docs/iflow.md`](docs/iflow.md) — goal, researc
 
 Everything the method is lives in one folder: [`framework/`](framework/) — the vocabulary, the rules, the artefact shapes, the gate that enforces them and the arbiters that prove the gate does what it claims. Its own [README](framework/README.md) says why it is shaped that way.
 
-[`changes/`](changes/) holds what the framework has produced: every change carried through the path, artefact by artefact. `clock-instant/` is a worked example; the rest are real.
+A change carried through the method lives in a folder of its own — seven artefacts and an append-only record. That folder is the output of using the framework and is not versioned here; every adopter has their own, and nothing in the method requires a particular name for it. What an artefact looks like is in [`framework/templates/`](framework/templates/).
 
 ```bash
 python3 framework/check.py changes/<slug>     # one change

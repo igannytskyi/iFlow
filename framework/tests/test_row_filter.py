@@ -1,75 +1,59 @@
 #!/usr/bin/env python3
-"""Arbiter for SPEC-002. Run: python3 tests/test_row_filter.py
+"""Arbiter for SPEC-002. Run: python3 framework/tests/test_row_filter.py
 
-CR-002-01  a row a person wrote is judged, whatever punctuation it contains
+CR-002-01  a row a person wrote is judged, whatever punctuation its text contains
 CR-002-02  an unfilled template row is still not mistaken for data
-CR-002-03  the gate's verdict on every existing change is unchanged
+CR-002-03  a change built from the current shapes passes the gate
 """
 import importlib.util
-import pathlib
-import subprocess
 import sys
+import tempfile
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-
-
-def load_gate():
-    spec = importlib.util.spec_from_file_location("gate", ROOT / "framework" / "check.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+from harness import GATE, TEMPLATES, build_change, gate
 
 
-def rows_of(gate, table_text):
-    return gate.tables(table_text)[0][1]
+def _gate_module():
+    spec = importlib.util.spec_from_file_location("gate", GATE)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
 
 
-def cr_002_01(gate):
-    """Written rows survive, whatever punctuation they carry."""
-    written = [
-        ("two-sided bound", "| CR-9 | Queue depth stays > 0 and < 100 under load | machine | test-run | always |"),
-        ("comparison only", "| CR-9 | Latency < 200 ms at p99 | machine | test-run | always |"),
-        ("arrow in prose", "| CR-9 | The old shape -> the new shape, with no gap | machine | test-run | always |"),
-    ]
-    head = "| Id | Criterion | Procedure | Required evidence | Threshold |\n|---|---|---|---|---|\n"
-    bad = []
-    for name, line in written:
-        rows = rows_of(gate, head + line + "\n")
-        if len(gate.real(rows)) != 1:
-            bad.append(name)
+def cr_002_01():
+    m = _gate_module()
+    head = "| Id | Criterion | Procedure |\n|---|---|---|\n"
+    written = {
+        "two-sided bound": "| CR-9 | depth stays > 0 and < 100 | machine |",
+        "comparison only": "| CR-9 | latency < 200 ms | machine |",
+        "arrow in prose": "| CR-9 | the old shape -> the new one | machine |",
+    }
+    bad = [name for name, row in written.items()
+           if len(m.real(m.tables(head + row + "\n")[0][1])) != 1]
     return bad and f"written rows dropped: {', '.join(bad)}" or None
 
 
-def cr_002_02(gate):
-    """Unfilled template rows are still dropped."""
+def cr_002_02():
+    m = _gate_module()
     leaked = []
-    for t in sorted((ROOT / "framework" / "templates").glob("*.md")):
-        for _, rows in gate.tables(t.read_text()):
-            for r in gate.real(rows):
+    for t in sorted(TEMPLATES.glob("*.md")):
+        for _, rows in m.tables(t.read_text()):
+            for r in m.real(rows):
                 joined = " ".join(v for v in r.values() if v)
                 if "<" in joined and ">" in joined:
-                    leaked.append(f"{t.name}: {joined[:50]}")
+                    leaked.append(f"{t.name}: {joined[:40]}")
     return leaked and f"template rows kept as data: {leaked}" or None
 
 
-def cr_002_03(_gate):
-    """Every existing change still passes the gate."""
-    broken = []
-    for folder in sorted((ROOT / "changes").iterdir()):
-        if not folder.is_dir():
-            continue
-        out = subprocess.run([sys.executable, str(ROOT / "framework" / "check.py"), str(folder)],
-                             capture_output=True, text=True)
-        if out.returncode != 0:
-            broken.append(f"{folder.name}: {out.stdout.strip().splitlines()[-1]}")
-    return broken and f"gate verdict moved: {broken}" or None
+def cr_002_03():
+    with tempfile.TemporaryDirectory() as tmp:
+        out = gate(build_change(tmp + "/c"))
+        return "FAIL" in out and f"a change built from the current shapes does not pass:\n{out}" or None
 
 
 def main():
-    gate = load_gate()
     failures = []
     for name, fn in (("CR-002-01", cr_002_01), ("CR-002-02", cr_002_02), ("CR-002-03", cr_002_03)):
-        problem = fn(gate)
+        problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:
             failures.append(name)
