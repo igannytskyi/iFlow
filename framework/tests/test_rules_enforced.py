@@ -10,7 +10,7 @@ import re
 import sys
 import tempfile
 
-from harness import GATE, ROOT, build_change, edit, gate
+from harness import GATE, ROOT, build_change, edit, gate, reseal
 
 TESTS = {
     "CR-003-01": ("proxy", "the criterion is whether a rule is enforced; what is checked "
@@ -78,6 +78,28 @@ def cr_003_02():
         edit(d, "04-execution.md", "| the proposed change |", "| judged/ altered |")
         if "R8" not in gate(d):
             unfired.append("R8 on a unit touching the arbiter that prepares nothing")
+    with tempfile.TemporaryDirectory() as tmp:          # a criterion with no verdict
+        d = build_change(tmp + "/a5")
+        edit(d, "05-assurance.md",
+             "| VE-001-02 | WU-001-01 | CR-001-02 | met | EV-001-01-01 | settled | | |", "")
+        if "A5" not in gate(d):
+            unfired.append("A5 on a criterion nothing rendered a verdict for")
+    with tempfile.TemporaryDirectory() as tmp:          # entry on a failed verdict
+        d = build_change(tmp + "/a6")
+        edit(d, "05-assurance.md", "| CR-001-01 | met |", "| CR-001-01 | failed |")
+        if "A6" not in gate(d):
+            unfired.append("A6 on a candidate entering on a failed verdict")
+    with tempfile.TemporaryDirectory() as tmp:          # a value no convention defines
+        d = build_change(tmp + "/vocab")
+        edit(d, "02-plan.md", "| C1T |", "| C1X |")
+        if "CONVENTIONS" not in gate(d):
+            unfired.append("CONVENTIONS on a code no convention defines")
+    with tempfile.TemporaryDirectory() as tmp:          # scope and arbiter sharing a path
+        d = build_change(tmp + "/r7")
+        edit(d, "01-specification.md", "| subject/ | judged/ |", "| judged/ | subject/ |")
+        reseal(d)
+        if "R7" not in gate(d):
+            unfired.append("R7 on a scope that intersects its own arbiter")
     return unfired and f"claimed but did not fire: {'; '.join(unfired)}" or None
 
 

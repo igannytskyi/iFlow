@@ -16,10 +16,13 @@ Everything the method *is* lives here. What it is *about* is in `../docs/`. What
 python3 framework/check.py changes/<slug>     # one change
 python3 framework/check.py --status [dir]     # every change, at a glance
 python3 framework/check.py --arbiters         # run every arbiter
+python3 framework/check.py --mutate           # break each rule, see who notices
 python3 framework/check.py --escalations      # what the framework owes itself
 ```
 
 Running every arbiter is one action so that it can be done where a change lands, and not only in the isolated tree where a fixture may still agree with the world.
+
+`--mutate` removes each rule in turn and runs every arbiter against the result. A rule whose loss nothing notices is not being tested, whatever the arbiters claim. It replaced a record in which a unit attested that its arbiter had once failed for its stated reason — the demonstration is repeated now rather than believed about a run that has ended, and on its first use it found four rules that nothing was testing.
 
 ## Why this shape
 

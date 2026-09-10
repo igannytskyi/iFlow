@@ -156,11 +156,6 @@ STAGES = {
 | Id | Unit | Stored at | Artefacts | Produced at |
 |---|---|---|---|---|
 | CA-001-01 | WU-001-01 | candidates/CA-001-01/ | the proposed change | 2026-09-10 |
-
-## Arbiter acceptance
-
-| Unit | Criterion | Before repair |
-|---|---|---|
 """,
     "05-assurance": """# Assurance — fixture
 

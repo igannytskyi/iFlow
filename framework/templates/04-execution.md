@@ -16,10 +16,3 @@ Where the class admits a deterministic transformation, using an agent is a defec
 
 A candidate is written under `candidates/<id>/` and nowhere else. Execution that writes into the live tree leaves invariant 2 with nothing to enforce it.
 
-## Arbiter acceptance
-
-Required where a unit builds an arbiter: how that arbiter behaved before the repair, per criterion. A check that could not fail is not evidence of anything.
-
-| Unit | Criterion | Before repair |
-|---|---|---|
-| WU-<nnn>-01 | CR-<nnn>-01 | failed · passed |

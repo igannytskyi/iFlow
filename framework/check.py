@@ -7,6 +7,7 @@ framework/RULES.md under the rules marked H, and is not attempted here.
 Usage: python3 framework/check.py changes/<slug>     one change
        python3 framework/check.py --status [dir]      every change, at a glance
        python3 framework/check.py --arbiters          run every arbiter
+       python3 framework/check.py --mutate            break each rule, see who notices
        python3 framework/check.py --escalations       what the method owes itself
 Exit status is 0 when nothing failed.
 """
@@ -243,33 +244,6 @@ class Check:
         for c in sorted(criteria):
             if c not in claimed:
                 self.fail("R11", f"{c} is claimed by no arbiter, so nothing tests it")
-
-    def arbiter_acceptance(self):
-        """R12: a unit that builds an arbiter records how it failed before acceptance."""
-        if "04-execution" not in self.text:
-            return
-        recorded, has_section = "", False
-        for headers, rows in tables(self.text["04-execution"]):
-            if "Before repair" in headers:
-                has_section = True
-                recorded += " ".join(v for r in real(rows) for v in r.values() if v)
-        if not has_section:
-            self.notes.append("R12: this change records no arbiter acceptance — "
-                              "it predates the obligation rather than violating it")
-            return
-        arbiter = set()
-        for headers, rows in tables(self.text.get("01-specification", "")):
-            if "Path" in headers and "What it arbitrates" in headers:
-                arbiter |= {v for v in col(real(rows), "Path")}
-        for headers, rows in tables(self.text.get("02-plan", "")):
-            if "Preparatory for" in headers and "Scope" in headers:
-                for r in real(rows):
-                    if not r.get("Preparatory for"):
-                        continue
-                    if any(a and a in r.get("Scope", "") for a in arbiter):
-                        if r.get("Id", "") not in recorded:
-                            self.fail("R12", f"{r.get('Id')} builds an arbiter and does not "
-                                             f"record how it failed before acceptance")
 
     def stage_order(self):
         present = [s for s in STAGES if s in self.text]
@@ -634,7 +608,7 @@ class Check:
         for m in (self.stage_order, self.headers_present,
                   self.criteria_vocabulary, self.evidence_plan,
                   self.arbiter_inputs,
-                  self.every_criterion_arbitrated, self.arbiter_acceptance,
+                  self.every_criterion_arbitrated,
                   self.vocabulary, self.spec_immutable,
                   self.candidates_stored,
                   self.scope_arbiter_disjoint, self.evidence_independence,
@@ -716,6 +690,44 @@ def arbiters(root):
     return results, problems
 
 
+def mutate(root):
+    """Break each rule in turn and see whether any arbiter notices.
+
+    A rule nothing notices the loss of is not being tested, whatever the
+    arbiters claim. This replaces asking an arbiter to record that it once
+    failed: the demonstration is repeated now rather than attested about a
+    run that has ended.
+    """
+    import shutil
+    import tempfile
+    source = (root / "framework" / "check.py").read_text()
+    labels = sorted(set(re.findall(r'self\.fail\("([^"]+)"', source))
+                    | set(re.findall(r'problems\.append\(f"([A-Z]\d+)', source)))
+    unnoticed, tests = [], sorted((root / "framework" / "tests").glob("test_*.py"))
+    for label in labels:
+        broken = re.sub(r'self\.fail\("' + re.escape(label) + r'"[^\n]*\n(\s+f"[^\n]*\n)*',
+                        "pass\n", source)
+        broken = re.sub(r'problems\.append\(f"' + re.escape(label) + r'[^\n]*\n(\s+f"[^\n]*\n)*',
+                        "pass\n", broken)
+        if broken == source:
+            continue
+        with tempfile.TemporaryDirectory() as tmp:
+            d = pathlib.Path(tmp) / "iflow"
+            shutil.copytree(root, d, ignore=shutil.ignore_patterns(
+                ".git", "__pycache__", "_bmad*", "node_modules"))
+            (d / "framework" / "check.py").write_text(broken)
+            noticed = False
+            for t in tests:
+                r = subprocess.run([sys.executable, str(d / "framework" / "tests" / t.name)],
+                                   capture_output=True, text=True, cwd=d)
+                if r.returncode:
+                    noticed = True
+                    break
+            if not noticed:
+                unnoticed.append(label)
+    return labels, unnoticed
+
+
 def status(root, where):
     """Every change at a glance: how far it got, and what holds it."""
     rows = []
@@ -753,6 +765,16 @@ def main(argv):
         bad = sum(1 for _, _, c in results if c) + len(problems)
         print(f"  {'passed' if not bad else str(bad) + ' problem(s)'}")
         return 1 if bad else 0
+    if len(argv) == 2 and argv[1] == "--mutate":
+        labels, unnoticed = mutate(root)
+        for label in labels:
+            if label in unnoticed:
+                print(f'  FAIL    {"R12"}: nothing notices the loss of {label}, '
+                      f'so nothing is testing it')
+            else:
+                print(f"  ok      {label}")
+        print(f"  {len(labels) - len(unnoticed)} of {len(labels)} rules are actually tested")
+        return 1 if unnoticed else 0
     if len(argv) in (2, 3) and argv[1] == "--status":
         where = argv[2] if len(argv) == 3 else "changes"
         rows = status(root, where)

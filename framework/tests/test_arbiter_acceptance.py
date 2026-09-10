@@ -2,7 +2,11 @@
 """Arbiter for SPEC-005. Run: python3 framework/tests/test_arbiter_acceptance.py
 
 CR-005-01  a criterion nothing claims to arbitrate is detected
-CR-005-02  a unit that builds an arbiter records its own pre-acceptance outcome
+CR-005-02  retired: the record it required no longer exists. A later change replaced
+           it with `check.py --mutate`, which removes each rule in turn and reports any
+           whose loss nothing notices — the demonstration repeated now rather than
+           attested about a run that has ended. The verdict on SPEC-005 stands; what
+           has stopped is the re-checking of a requirement that no longer exists.
 CR-005-03  a change built from the current shapes passes the gate
 """
 import sys
@@ -12,7 +16,6 @@ from harness import build_change, edit, gate, reseal
 
 TESTS = {
     "CR-005-01": "direct",
-    "CR-005-02": "direct",
     "CR-005-03": ("proxy", "the criterion is about real work; a built change is run instead"),
 }
 
@@ -34,17 +37,6 @@ def cr_005_01():
     return None
 
 
-def cr_005_02():
-    with tempfile.TemporaryDirectory() as tmp:
-        d = build_change(tmp + "/c")
-        edit(d, "02-plan.md", "| CR-001-01, CR-001-02 | | |", "| CR-001-01, CR-001-02 | | WU-001-02 |")
-        edit(d, "02-plan.md", "| WU-001-01 | 1 | C1T | subject/ |", "| WU-001-01 | 1 | C1T | judged/ |")
-        out = gate(d)
-        if "R12" not in out:
-            return "a unit building an arbiter with no pre-acceptance record was not detected"
-    return None
-
-
 def cr_005_03():
     with tempfile.TemporaryDirectory() as tmp:
         out = gate(build_change(tmp + "/c"))
@@ -53,7 +45,7 @@ def cr_005_03():
 
 def main():
     failures = []
-    for name, fn in (("CR-005-01", cr_005_01), ("CR-005-02", cr_005_02), ("CR-005-03", cr_005_03)):
+    for name, fn in (("CR-005-01", cr_005_01), ("CR-005-03", cr_005_03)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:
