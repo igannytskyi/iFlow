@@ -29,6 +29,7 @@ python3 framework/check.py changes/<slug>     # one change
 python3 framework/check.py --status [dir]     # every change, at a glance
 python3 framework/check.py --arbiters         # run every arbiter
 python3 framework/check.py --mutate           # break each rule, see who notices
+python3 framework/check.py --repeat <slug>    # run what claims to repeat, twice
 python3 framework/check.py --escalations      # what the framework owes itself
 ```
 

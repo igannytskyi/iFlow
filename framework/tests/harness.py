@@ -163,7 +163,7 @@ STAGES = {
 
 | Id | Subject | Kind | Producer | Independence | How established | Repeatable | Obtained at | Valid until |
 |---|---|---|---|---|---|---|---|---|
-| EV-001-01-01 | candidate | test-run | the arbiter under judged/ | independent-by-executor | the arbiter lies outside the scope | yes | 2026-09-10 | next change to subject/ |
+| EV-001-01-01 | candidate | test-run | framework/tests/test_row_filter.py | independent-by-executor | the arbiter lies outside the scope | yes | 2026-09-10 | next change to subject/ |
 
 ## Verdicts
 

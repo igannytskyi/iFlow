@@ -8,6 +8,7 @@ Usage: python3 framework/check.py changes/<slug>     one change
        python3 framework/check.py --status [dir]      every change, at a glance
        python3 framework/check.py --arbiters          run every arbiter
        python3 framework/check.py --mutate            break each rule, see who notices
+       python3 framework/check.py --repeat <slug>     run what claims to repeat, twice
        python3 framework/check.py --escalations       what the method owes itself
 Exit status is 0 when nothing failed.
 """
@@ -478,6 +479,12 @@ class Check:
                 self.fail("R13", f"{eid} does not say whether the run behind it repeats")
             elif value not in VOCAB["repeatable"]:
                 self.fail("R13", f"{eid}: Repeatable = {value!r} is not a defined value")
+            elif value == "yes":
+                # A claim to repeat is worth nothing unless it says what to re-run.
+                # Naming it is what makes the claim falsifiable at all.
+                if not self.producer_command(eid):
+                    self.fail("R13", f"{eid} claims to repeat and names nothing that can be "
+                                     f"re-run, so the claim cannot be tested")
         for headers, rows in tables(self.text["05-assurance"]):
             if "Outcome" in headers and "Evidence" in headers:
                 for r in real(rows):
@@ -488,6 +495,25 @@ class Check:
                     if known and all(ev[c] in ("no", "unknown") for c in known):
                         self.fail("R14", f"{r.get('Id')} is met only on runs that cannot be "
                                          f"produced again ({', '.join(known)})")
+
+    def producers(self):
+        """Evidence marked repeatable, and the command each names."""
+        out = {}
+        for headers, rows in tables(self.text.get("05-assurance", "")):
+            if "Repeatable" in headers and "Producer" in headers:
+                for r in real(rows):
+                    if r.get("Repeatable") == "yes":
+                        out[r.get("Id", "")] = r.get("Producer", "")
+        return out
+
+    def producer_command(self, eid):
+        """A path inside the repository that could be run again, or nothing."""
+        said = self.producers().get(eid, "")
+        for token in re.findall(r"[\w./-]+\.py", said):
+            for base in (pathlib.Path("."), self.folder):
+                if (base / token).is_file():
+                    return base / token
+        return None
 
     def deferred_complete(self):
         if "05-assurance" not in self.text:
@@ -763,6 +789,29 @@ def main(argv):
         for p in problems:
             print(f"  FAIL    {p}")
         bad = sum(1 for _, _, c in results if c) + len(problems)
+        print(f"  {'passed' if not bad else str(bad) + ' problem(s)'}")
+        return 1 if bad else 0
+    if len(argv) == 3 and argv[1] == "--repeat":
+        c = Check(argv[2])
+        claims = c.producers()
+        if not claims:
+            print("  nothing here claims to repeat")
+            return 0
+        bad = 0
+        for eid in sorted(claims):
+            cmd = c.producer_command(eid)
+            if cmd is None:
+                print(f"  FAIL    {'R13'}: {eid} claims to repeat and names nothing to re-run")
+                bad += 1
+                continue
+            runs = [subprocess.run([sys.executable, str(cmd)], capture_output=True,
+                                   text=True).stdout for _ in range(2)]
+            if runs[0] == runs[1]:
+                print(f"  ok      {eid}  {cmd} gave the same result twice")
+            else:
+                print(f"  FAIL    {'R13'}: {eid} claims to repeat and {cmd} gave two "
+                      f"different results")
+                bad += 1
         print(f"  {'passed' if not bad else str(bad) + ' problem(s)'}")
         return 1 if bad else 0
     if len(argv) == 2 and argv[1] == "--mutate":
