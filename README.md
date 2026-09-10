@@ -14,6 +14,10 @@ The research is one document: [`docs/iflow.md`](docs/iflow.md) — goal, researc
 
 [`docs/process.md`](docs/process.md) — the path and its artefacts, where a person actually touches it, the defect flow, what to do when something is wrong, and the mapping to epic, issue, DoR, DoD and testing.
 
+## Working in it
+
+[`AGENTS.md`](AGENTS.md) — how any agent works in this repository: the path a change travels, and what binds whoever carries it. Tool-neutral and the single source; `CLAUDE.md` and the skill point at it rather than repeating it.
+
 ## The framework
 
 Everything the method is lives in one folder: [`framework/`](framework/) — the vocabulary, the rules, the artefact shapes, the gate that enforces them and the arbiters that prove the gate does what it claims. Its own [README](framework/README.md) says why it is shaped that way.
