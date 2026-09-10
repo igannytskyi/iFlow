@@ -10,6 +10,10 @@ A framework for software development and maintenance carried out at scale by aut
 
 The research is one document: [`docs/iflow.md`](docs/iflow.md) — goal, research framework, the descriptive schema, the objects, the change classes, the thirteen areas, the feedback loop, five validation runs, how the claim is measured, and what to build first.
 
+## Drawn
+
+[`docs/process.md`](docs/process.md) — the path and its artefacts, where a person actually touches it, the defect flow, what to do when something is wrong, and the mapping to epic, issue, DoR, DoD and testing.
+
 ## The first increment
 
 The working part: conventions, artifact formats, rules and a mechanical gate, for one change travelling the path from intent to landing.
