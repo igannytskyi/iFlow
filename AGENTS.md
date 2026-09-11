@@ -53,6 +53,7 @@ python3 framework/estate.py freshness             # what the answers were derive
 python3 framework/estate.py refresh               # derive again only what moved
 python3 framework/estate.py readers               # which languages are read here
 python3 framework/estate.py coverage              # how much of this the index reaches
+python3 framework/estate.py context <symbol|path> # the code to change, and what it touches
 ```
 
 Python is read by the parser that ships with Python, so an estate written in it needs nothing installed. Every other language is read through its own tree-sitter grammar, installed beside the readers and never committed:
@@ -62,6 +63,8 @@ python3 -m pip install --target framework/readers/_lib -r framework/readers/requ
 ```
 
 What is unread is derived from what is installed, not declared: install a grammar and those files move out of the unseen count; remove it and they move back. A language nothing reads is reported unseen, never absent.
+
+`context` is the one shaped for doing the work rather than deciding about it: it answers with the code itself — the definition quoted with its line numbers, the call sites with the lines around them, what the subject calls that lives here, and what would judge a change to it — firmest first, cut to a budget it names. The others answer with paths, confidences and areas, which is what a decision needs and not what a change needs.
 
 Run it from the repository or the estate it is asked about, not from here. Derived material goes beside that repository in `.estate/`; to keep an estate's material together instead, name one directory:
 

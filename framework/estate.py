@@ -7,6 +7,7 @@ Usage: python3 framework/estate.py affects <path>...     what a change here reac
        python3 framework/estate.py unknown               what it could not resolve
        python3 framework/estate.py readers               which languages are read here
        python3 framework/estate.py coverage              how much of this the index reaches
+       python3 framework/estate.py context <symbol|path>  the code to change, and what it touches
        python3 framework/estate.py contracts <dir>       what crosses between repositories
        python3 framework/estate.py observe <path> <cmd>   run it and see what actually ran
        python3 framework/estate.py inflight <dir>         what unfinished work already holds
@@ -59,6 +60,7 @@ def head(repo):
 
 
 _TOUCHED = {}
+_WHERE = {}
 
 
 def history(repo, prefix=""):
@@ -111,19 +113,19 @@ def last_touched(repo, rel):
 def stamp(repo, rel):
     """What a region was derived from, in a form that changes when it does.
 
-    A commit says both things at once — whether the file moved, and what to
-    cite for it. Outside any history it says neither, and everything was
-    derived again on every query because a non-answer never matches itself.
-    The contents answer the first question wherever the second has no answer.
+    The contents, always. A commit answers a different question — which change
+    to cite for this region — and it answers the invalidation question wrongly
+    while anyone is working: a file edited and not yet committed is still at
+    the commit that last touched it, so the index went on serving line numbers
+    for the file as it used to be. Every answer this thing gives is about a
+    working tree, and a working tree is what it must be keyed on.
     """
     commit, when = last_touched(repo, rel)
-    if commit != "unversioned":
-        return commit, when
     try:
         digest = hashlib.sha1((repo / rel).read_bytes()).hexdigest()[:12]
     except OSError:
         return "unversioned", ""
-    return "contents:" + digest, ""
+    return f"{commit}+{digest}" if commit != "unversioned" else "contents:" + digest, when
 
 
 CACHE = ".estate"
@@ -346,9 +348,9 @@ def index(repo, use_cache=True):
                 and keep.get("read by") == how:
             # Derived once, and the source has not moved since. A cache that the
             # queries do not read is decoration: this one is read here.
-            for name in keep["symbols"]:
+            for name, _start, _end in keep["symbols"]:
                 defines[name].append(rel)
-            calls.extend((rel, n, k) for n, k in keep["calls"])
+            calls.extend((rel, n, k) for n, k, _line in keep["calls"])
             unresolved.extend((rel, w) for w in keep["unresolved"])
             fresh[rel] = keep
             continue
@@ -358,9 +360,9 @@ def index(repo, use_cache=True):
             unresolved.append((rel, "file could not be read"))
             continue
         got, refs, could_not = readers.read(rel, text)
-        for name in got:
+        for name, _start, _end in got:
             defines[name].append(rel)
-        calls.extend((rel, n, k) for n, k in refs)
+        calls.extend((rel, n, k) for n, k, _line in refs)
         unresolved.extend((rel, w) for w in could_not)
         # What this file holds is what the reader just returned. Asking the
         # whole index for it instead — every symbol, every call, filtered by
@@ -368,14 +370,29 @@ def index(repo, use_cache=True):
         # nothing on a hundred files and does not finish on twenty thousand.
         fresh[rel] = {
             "commit": commit, "when": when, "read by": how,
-            "symbols": sorted(set(got)),
+            "symbols": [list(g) for g in got],
             "calls": [list(c) for c in refs],
             "unresolved": list(could_not),
         }
     if use_cache and fresh:
         home(repo).mkdir(parents=True, exist_ok=True)
         (home(repo) / "index.json").write_text(json.dumps(fresh, indent=1, sort_keys=True))
+    _WHERE[str(repo)] = fresh
     return defines, calls, unresolved
+
+
+def positions(repo=None):
+    """Where in each file the definitions and the calls sit.
+
+    The index answers which files are involved; this answers which lines. An
+    answer that names a file sends a reader to look for the thing; an answer
+    that names the lines hands it over, and that difference is most of what a
+    context is for.
+    """
+    repo = (repo or ROOT).resolve()
+    if str(repo) not in _WHERE:
+        index(repo)
+    return _WHERE.get(str(repo), {})
 
 
 def named_by(paths, repo=None):
@@ -634,6 +651,187 @@ def named_in_text(repo, targets):
             if target != rel and pattern.search(text):
                 found[target].add(rel)
     return found
+
+
+# ------------------------------------------------------------------ context
+#
+# Every other answer here is shaped for a decision: what may be admitted, what
+# is judged by nothing, what crosses a boundary. This one is shaped for work.
+# An agent asked to fix something needs the code, not a list of paths to go and
+# read — the round trips it saves are the whole point — and it needs to be told
+# which part of what it was handed is firm.
+#
+# What that changes about the answer: the source is verbatim and carries its
+# line numbers, the firm ground comes first, and everything is cut to a budget
+# that is stated rather than silently exceeded.
+
+
+def where_defined(name, repo=None):
+    """Every place a name is defined, with the lines it spans."""
+    repo = repo or ROOT
+    out = []
+    for rel, spot in positions(repo).items():
+        for symbol, start, end in spot.get("symbols", []):
+            if symbol == name:
+                out.append((rel, start, end))
+    return sorted(out)
+
+
+def excerpt(repo, rel, start, end, limit=120):
+    """The lines themselves, numbered as they are in the file."""
+    try:
+        lines = (repo / rel).read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+    start = max(1, start)
+    end = min(len(lines), end)
+    if end - start + 1 > limit:
+        end = start + limit - 1
+    return [(n, lines[n - 1]) for n in range(start, end + 1)]
+
+
+def call_sites(name, repo=None):
+    """Who calls this name, on which line, and how firmly it is known."""
+    repo = repo or ROOT
+    defines, _, _ = index(repo)
+    where = defines.get(name, [])
+    out = []
+    for rel, spot in positions(repo).items():
+        for called, kind, line in spot.get("calls", []):
+            if called != name:
+                continue
+            if rel in where:
+                # A call in the file that defines it resolves to nothing else.
+                # Left out, the answer says nobody calls what the file calls
+                # eight times on the next page.
+                #
+                # Except a typed one: `self.register(...)` inside the class is
+                # read as reaching the class, which is right for a blast radius
+                # and wrong to quote — what is on that line is a call to a
+                # method, and showing it as a use of the class misleads whoever
+                # reads it.
+                if kind == "typed":
+                    continue
+                out.append({"file": rel, "line": line, "kind": kind,
+                            "confidence": "high", "here": True})
+                continue
+            firm = ("high" if kind == "typed" and len(where) == 1 else
+                    "medium" if kind == "import" or (kind == "name" and len(where) == 1)
+                    else "low")
+            out.append({"file": rel, "line": line, "kind": kind, "confidence": firm,
+                        "here": False})
+    rank = {"high": 0, "medium": 1, "low": 2}
+    # One line is one place to look, however many times the name appears on it.
+    best = {}
+    for r in out:
+        key = (r["file"], r["line"])
+        if key not in best or rank[r["confidence"]] < rank[best[key]["confidence"]]:
+            best[key] = r
+    return sorted(best.values(), key=lambda r: (rank[r["confidence"]], r["file"], r["line"]))
+
+
+def callees(rel, span=None, repo=None):
+    """What this calls that is defined somewhere else here.
+
+    Bounded by the lines asked about. Asked for a file, a file's worth; asked
+    for one function, that function's — otherwise a question about six lines
+    is answered with everything the module happens to touch.
+    """
+    repo = repo or ROOT
+    defines, _, _ = index(repo)
+    # Which files this one can reach at all. A method name matched in a file
+    # nothing here imports is a coincidence of vocabulary, and quoting it sends
+    # a reader somewhere the code never goes.
+    edges = defaultdict(set)
+    for target, who in importers(repo).items():
+        for w in who:
+            edges[w].add(target)
+    seen, frontier = {rel}, [rel]
+    while frontier:
+        for nxt in edges.get(frontier.pop(), ()):
+            if nxt not in seen:
+                seen.add(nxt)
+                frontier.append(nxt)
+    out = {}
+    for called, kind, line in positions(repo).get(rel, {}).get("calls", []):
+        if span and not (span[0] <= line <= span[1]):
+            continue
+        for target in defines.get(called, ()):
+            if target == rel:
+                continue
+            firm = ("high" if kind == "typed" and len(defines[called]) == 1 else
+                    "medium" if kind == "import" or (kind == "name" and
+                                                     len(defines[called]) == 1) else "low")
+            if target not in seen:
+                firm = "low"
+            best = out.get((target, called))
+            rank = {"high": 0, "medium": 1, "low": 2}
+            if best is None or rank[firm] < rank[best["confidence"]]:
+                out[(target, called)] = {"file": target, "name": called, "line": line,
+                                         "confidence": firm, "reachable": target in seen}
+    rank = {"high": 0, "medium": 1, "low": 2}
+    return sorted(out.values(), key=lambda r: (rank[r["confidence"]], r["file"]))
+
+
+def judged_by(rel, name=None, repo=None):
+    """What would judge a change here: the tests that name what it defines."""
+    repo = repo or ROOT
+    spots = positions(repo)
+    mine = {n for n, _s, _e in spots.get(rel, {}).get("symbols", [])}
+    if name:
+        mine &= {name}
+    out = defaultdict(set)
+    for other, spot in spots.items():
+        if other == rel or not is_test(other, repo):
+            continue
+        for called, _kind, line in spot.get("calls", []):
+            if called in mine:
+                out[other].add(called)
+    return {k: sorted(v) for k, v in sorted(out.items())}
+
+
+def context(target, repo=None, budget=40000, want_all=False):
+    """What an agent needs to change one thing, in one answer.
+
+    The target is a symbol, a file, or a file and a symbol in it. What comes
+    back is the definition itself, the places that call into it with the lines
+    around them, what it calls that lives here, and what would judge a change
+    to it — ordered so that what is firm arrives first and what is a guess
+    arrives last, and cut to a budget that is named rather than silently
+    exceeded.
+    """
+    repo = (repo or ROOT).resolve()
+    spots = positions(repo)
+    name, rel = None, None
+    text = str(target)
+    if (repo / text).exists():
+        rel = pathlib.Path(text).as_posix()
+    elif ":" in text:
+        rel, name = text.rsplit(":", 1)
+        rel = rel if (repo / rel).exists() else None
+    else:
+        name = text
+    if name:
+        subjects = [(f, s, e) for f, s, e in where_defined(name, repo)
+                    if rel is None or f == rel]
+    else:
+        subjects = [(rel, s, e) for _n, s, e in spots.get(rel, {}).get("symbols", [])]
+        subjects = [(rel, 1, 10 ** 9)] if not subjects else [
+            (rel, min(s for _f, s, _e in subjects), max(e for _f, _s, e in subjects))]
+    callers = call_sites(name, repo) if name else [
+        {"file": r["file"], "line": 0, "kind": "name", "confidence": r["confidence"]}
+        for r in affects([rel], repo)]
+    return {
+        "target": text,
+        "subjects": subjects,
+        "callers": callers,
+        "calls out": (callees(subjects[0][0], (subjects[0][1], subjects[0][2]), repo)
+                      if subjects else []),
+        "judged by": judged_by(subjects[0][0], name, repo) if subjects else {},
+        "provenance": "derived", "confidence": "medium",
+        "caveat": "what is firm is marked; the rest is a name that matched, and a name "
+                  "can belong to something else",
+    }
 
 
 def coverage(repo=None):
@@ -1330,6 +1528,61 @@ def reachability(where, region, telemetry=None):
     return offers, unmatched
 
 
+def render_context(c, budget, every):
+    """Print what was found, firmest first, and stop when the budget is gone.
+
+    The order is the whole design: what a reader is handed first is what it
+    will act on, and a halo of maybes at the top of an answer is worse than no
+    answer at all.
+    """
+    out, spent = [], 0
+
+    def say(line):
+        nonlocal spent
+        spent += len(line) + 1
+        out.append(line)
+
+    repo = ROOT
+    if len(c["subjects"]) > 1:
+        say(f"    ({len(c['subjects'])} places define this name; all of them are below, "
+            f"because which one a caller means is not derivable from the name)")
+    for rel, start, end in c["subjects"]:
+        say(f"=== {rel}:{start}-{end}")
+        for n, line in excerpt(repo, rel, start, end, limit=400 if every else 120):
+            say(f"{n:>6}  {line}")
+    shown, skipped = 0, 0
+    for who in c["callers"]:
+        if spent > budget * 0.75 and not every:
+            skipped += 1
+            continue
+        where = "in the same file" if who.get("here") else who["confidence"]
+        say(f"--- called from {who['file']}:{who['line']}  ({where})")
+        for n, line in excerpt(repo, who["file"], who["line"] - 2, who["line"] + 2):
+            say(f"{n:>6}  {line}")
+        shown += 1
+    if skipped:
+        say(f"    … and {skipped} more call site(s) not shown at this budget "
+            f"(--all, or --budget=N)")
+    firm_out = [r for r in c["calls out"] if r["confidence"] != "low"]
+    loose_out = len(c["calls out"]) - len(firm_out)
+    if firm_out or loose_out:
+        say("--- what it calls that lives here")
+        for r in (c["calls out"] if every else firm_out)[:40]:
+            say(f"    {r['confidence']:>6}  {r['file']}  {r['name']} (line {r['line']})")
+        if loose_out and not every:
+            say(f"    … and {loose_out} more that share a name with something here and "
+                f"import nothing that leads to it (--all to see them)")
+    if c["judged by"]:
+        say("--- what would judge a change here")
+        for test, names in list(c["judged by"].items())[:10]:
+            say(f"    {test}  names {', '.join(names[:4])}")
+    else:
+        say("--- nothing here names what this defines: a change to it is judged by "
+            "nothing that can be found by reading")
+    print("\n".join(out))
+    return spent
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__.strip())
@@ -1553,6 +1806,19 @@ def main(argv):
                 print(f"  {n} more are {how}")
         print(f"  counting those, {c['counting what a convention reaches']}%")
         print(f"  {c['caveat']}")
+        print(coverage_note())
+        return 0
+    if cmd == "context" and args:
+        every = "--all" in args
+        rest = [a for a in args if a != "--all"]
+        budget = 40000
+        for a in list(rest):
+            if a.startswith("--budget="):
+                budget, rest = int(a.split("=", 1)[1]), [r for r in rest if r != a]
+        c = context(rest[0], budget=budget, want_all=every)
+        spent = render_context(c, budget, every)
+        print(f"  — {spent} character(s) of a {budget} budget; "
+              f"{c['caveat']}")
         print(coverage_note())
         return 0
     if cmd == "readers":

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Arbiter for the readers — what a file is read as, in every language.
 
-CR-018-01  every reader answers in one shape, whatever the language, so that
-           what is derived from one can be graded beside what is derived from
-           another
+CR-018-01  every reader answers in one shape, whatever the language — what is
+           defined and where it spans, what is called and on which line — so
+           that one language's answer can be graded, and quoted, beside
+           another's
 CR-018-02  a language this install claims to read yields what an index needs
            from it: what the file defines, what it imports, and what it calls.
            A language claimed and not checked here is named rather than assumed
@@ -74,13 +75,25 @@ def cr_018_01():
         defines, calls, unresolved = answer
         if not all(isinstance(x, list) for x in answer):
             return f"{ext} answered with something other than lists"
-        if any(not isinstance(n, str) for n in defines):
-            return f"{ext} named a definition with something that is not a name"
+        for entry in defines:
+            if not (isinstance(entry, tuple) and len(entry) == 3):
+                return f"{ext} reported a definition in a shape the index cannot read"
+            name, start, end = entry
+            if not isinstance(name, str) or not isinstance(start, int) \
+                    or not isinstance(end, int):
+                return f"{ext} named a definition without saying where it is"
+            if not 1 <= start <= end:
+                return f"{ext} placed a definition at lines {start}-{end}"
+        lines = len(src.splitlines())
         for entry in calls:
-            if not (isinstance(entry, tuple) and len(entry) == 2):
+            if not (isinstance(entry, tuple) and len(entry) == 3):
                 return f"{ext} reported a call in a shape the index cannot read"
-            if entry[1] not in KINDS:
-                return f"{ext} reported a call of kind {entry[1]!r}, which is not one of {KINDS}"
+            name, kind, line = entry
+            if kind not in KINDS:
+                return f"{ext} reported a call of kind {kind!r}, which is not one of {KINDS}"
+            if not isinstance(line, int) or not 1 <= line <= lines:
+                return (f"{ext} put a call to {name!r} on line {line}, and the file has "
+                        f"{lines}: a line that is not there quotes the wrong thing")
     return None
 
 
@@ -89,7 +102,7 @@ def cr_018_02():
     unchecked = sorted(read_here - set(SAMPLES))
     for ext in sorted(read_here & set(SAMPLES)):
         defines, calls, _ = readers.read("sample" + ext, SAMPLES[ext])
-        kinds = {k for _, k in calls}
+        kinds = {k for _n, k, _l in calls}
         if not defines:
             return f"{ext} is claimed and a file written in it defines nothing"
         if "import" not in kinds:
@@ -143,7 +156,7 @@ def cr_018_05():
         if readers.claims(d / "notes") is not None:
             return "a file that says nothing about itself was claimed anyway"
         defines, calls, _ = readers.read("deploy", (d / "deploy").read_text())
-        if "run" not in defines:
+        if "run" not in {n for n, _s, _e in defines}:
             return "a script named by its first line was claimed and then not read"
     return None
 
@@ -167,7 +180,7 @@ def cr_018_06():
     if not reads(".go"):
         return None
     grouped = 'package m\n\nimport (\n\t"fmt"\n\t"x/one"\n\t"x/two"\n)\n\nfunc Go() {}\n'
-    modules = {n for n, kind in treesitter.read("x.go", grouped)[1] if kind == "import"}
+    modules = {n for n, kind, _l in treesitter.read("x.go", grouped)[1] if kind == "import"}
     for want in ("fmt", "one", "two"):
         if want not in modules:
             return f"a grouped import naming three modules yielded {sorted(modules)}"

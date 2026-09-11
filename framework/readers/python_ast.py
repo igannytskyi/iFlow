@@ -69,36 +69,43 @@ def _enclosing(tree):
 
 def read(rel, text):
     """One file: what it defines, what it calls, what it imports, and what this
-    could not resolve at all."""
+    could not resolve at all.
+
+    Each definition carries the lines it spans and each call the line it sits
+    on, because an answer that names a file sends a reader to look for the
+    thing, and an answer that names the lines hands it over.
+    """
     defines, calls, unresolved = [], [], []
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return [], [], ["file does not parse"]
-    imported = set()
+    # Each import on its own line: attributing them all to the first one was
+    # cheap and quoted the wrong line four times in five.
+    imported = {}
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             mod = getattr(node, "module", None) or ""
             for a in node.names:
-                imported.add(a.name)
+                imported.setdefault(a.name, node.lineno)
                 if mod:
-                    imported.add(mod.split(".")[-1])
+                    imported.setdefault(mod.split(".")[-1], node.lineno)
     bound, inside = _bindings(tree), _enclosing(tree)
     known = {n for n in imported} | {n.split(".")[-1] for n in imported}
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            defines.append(node.name)
+            defines.append((node.name, node.lineno, node.end_lineno or node.lineno))
             for base in getattr(node, "bases", []):
                 # What a class inherits from is a dependency written down, and
                 # in framework code it is often the only one there is.
                 if isinstance(base, ast.Name):
-                    calls.append((base.id, "name"))
+                    calls.append((base.id, "name", base.lineno))
                 elif isinstance(base, ast.Attribute):
-                    calls.append((base.attr, "name"))
+                    calls.append((base.attr, "name", base.lineno))
         elif isinstance(node, ast.Call):
             f = node.func
             if isinstance(f, ast.Name):
-                calls.append((f.id, "name"))
+                calls.append((f.id, "name", node.lineno))
             elif isinstance(f, ast.Attribute):
                 receiver = f.value
                 kind = None
@@ -116,8 +123,8 @@ def read(rel, text):
                     # in another file is reached by the name and by nothing
                     # else, and deleting evidence to raise a figure is the one
                     # move this whole method exists to prevent.
-                    calls.append((kind, "typed"))
-                    calls.append((f.attr, "attribute"))
+                    calls.append((kind, "typed", node.lineno))
+                    calls.append((f.attr, "attribute", node.lineno))
                 else:
                     # A call on a receiver whose type is unknown. Discarding
                     # these was worse than the over-claiming it replaced: on a
@@ -126,8 +133,8 @@ def read(rel, text):
                     # it. They are kept and weighed instead — a weak edge
                     # reported is safer than a strong edge omitted, because
                     # what is not reported is what nobody re-tests.
-                    calls.append((f.attr, "attribute"))
+                    calls.append((f.attr, "attribute", node.lineno))
             else:
                 unresolved.append("a call through something with no name")
-    calls.extend((n, "import") for n in sorted(imported))
+    calls.extend((n, "import", line) for n, line in sorted(imported.items()))
     return defines, calls, unresolved

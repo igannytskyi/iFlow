@@ -310,17 +310,17 @@ def read(rel, text):
             # class names, and a graph joined on class names joins nothing.
             for text_ in _module_text(node):
                 for mod in _module(text_):
-                    calls.append((mod, "import"))
+                    calls.append((mod, "import", node.start_point[0] + 1))
             continue
         stack.extend(node.children)
         if any(k in kind for k in CALLS) and not any(k in kind for k in NOT_CALLS):
             name, how, raw = _callee(node)
             if (name or "").lower() in IMPORTING_CALLS or raw in IMPORTING_CALLS:
                 for mod in _module(_argument(node, raw)):
-                    calls.append((mod, "import"))
+                    calls.append((mod, "import", node.start_point[0] + 1))
                 continue
             if name:
-                calls.append((name, how))
+                calls.append((name, how, node.start_point[0] + 1))
             else:
                 unresolved.append("a call through something with no name")
         elif any(k in kind for k in INHERITS):
@@ -333,12 +333,12 @@ def read(rel, text):
             for word in re.findall(r"[A-Za-z_][A-Za-z0-9_]*",
                                    head.decode("utf-8", "replace")):
                 if word not in KEYWORDS and word not in INHERIT_WORDS:
-                    calls.append((word, "name"))
+                    calls.append((word, "name", node.start_point[0] + 1))
 
         elif any(k in kind for k in DEFINES) and not any(k in kind for k in NOT_DEFINES):
             name = _name_of(node)
             if name:
-                defines.append(name)
+                defines.append((name, node.start_point[0] + 1, node.end_point[0] + 1))
     # The grammar's own tags query, where it has one, is asked as well: it knows
     # declarations peculiar to its language that no general rule catches.
     if query is not None:
@@ -351,16 +351,22 @@ def read(rel, text):
             name = names[0].text.decode("utf-8", "replace").strip('"\'`')
             marks = [k for k in caps if k != "name"]
             if any(k.startswith("definition.") for k in marks):
-                defines.append(name)
+                spot = names[0]
+                defines.append((name, spot.start_point[0] + 1, spot.end_point[0] + 1))
             elif any(k.startswith("reference.") for k in marks):
-                referenced.append(name)
+                referenced.append((name, names[0].start_point[0] + 1))
         # A language where a call needs no brackets — `helper` in Ruby — is a
         # bare identifier to any rule about node types, and indistinguishable
         # from a variable. Its own grammar knows the difference and says so in
         # the tags query, so what that query calls a reference is taken, at the
         # weakest grade, and never for a name this file defines itself.
-        mine, seen = set(defines), {n for n, _ in calls}
-        for name in referenced:
+        mine, seen = {n for n, _, _ in defines}, {n for n, _, _ in calls}
+        for name, line in referenced:
             if name not in mine and name not in seen:
-                calls.append((name, "attribute"))
-    return list(dict.fromkeys(defines)), calls, unresolved
+                calls.append((name, "attribute", line))
+    # One definition, one entry: a grammar's own query and the general rule
+    # both find the same class, and the second sighting adds nothing.
+    first = {}
+    for name, start, end in defines:
+        first.setdefault((name, start), (name, start, end))
+    return list(first.values()), calls, unresolved
