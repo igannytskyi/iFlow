@@ -185,12 +185,14 @@ def index(repo):
                 if isinstance(f, ast.Name):
                     calls.append((rel, f.id, "name"))
                 elif isinstance(f, ast.Attribute):
-                    # An attribute call names a method on something whose type this
-                    # index does not know. Treating it as resolved was the first
-                    # version's mistake: it is a blind spot, and saying so is the
-                    # only honest thing to do with it.
-                    unresolved.append((rel, "a call through an attribute, whose "
-                                            "receiver this index cannot type"))
+                    # A method called on something whose type is unknown. Discarding
+                    # these was worse than the over-claiming it replaced: on a real
+                    # codebase they are the majority form, and throwing them away
+                    # understated what a change reaches by most of it. They are kept
+                    # and weighed instead — a weak edge reported is safer than a
+                    # strong edge omitted, because what is not reported is what
+                    # nobody re-tests.
+                    calls.append((rel, f.attr, "attribute"))
                 else:
                     unresolved.append((rel, "a call through something with no name"))
         for name in imported:
@@ -275,18 +277,23 @@ def affects(paths, repo=None):
         if name not in changed_symbols or rel in wanted:
             continue
         where = defines.get(name, [])
-        if len(where) > 1:
-            # A name several things answer to resolves nothing. Counting it as
-            # reach is how the first version turned a change to one file into
-            # fifty-eight, every one of them a coincidence of naming.
-            continue
-        reached[rel].append((name, DERIVED_PARTIAL if kind == "import" else MATCHED))
+        if kind == "import":
+            grade = DERIVED_PARTIAL
+        elif kind == "attribute":
+            grade = ("matched", "low")     # the receiver's type is unknown
+        elif len(where) > 1:
+            grade = MATCHED_WEAK           # several things answer to this name
+        else:
+            grade = MATCHED
+        reached[rel].append((name, grade))
+    rank = {"high": 0, "medium": 1, "low": 2}
     out = []
     for rel in sorted(reached):
         names = sorted({n for n, _ in reached[rel]})
-        prov, conf = min((p for _, p in reached[rel]), key=lambda p: p[1])
-        out.append({"file": rel, "through": names, "provenance": prov, "confidence": conf})
-    return out
+        best = min((g for _, g in reached[rel]), key=lambda g: rank[g[1]])
+        out.append({"file": rel, "through": names, "provenance": best[0],
+                    "confidence": best[1]})
+    return sorted(out, key=lambda r: (rank[r["confidence"]], r["file"]))
 
 
 def observability(path, repo=None):
@@ -618,7 +625,9 @@ def main(argv):
     if cmd == "affects" and args:
         out = affects(args)
         for row in out:
-            print(f"  {row['confidence']:>6}  {row['file']}  through {', '.join(row['through'])}")
+            names = ", ".join(row["through"][:3])
+            more = "" if len(row["through"]) <= 3 else f" and {len(row['through']) - 3} more"
+            print(f"  {row['confidence']:>6}  {row['file']}  through {names}{more}")
         named = named_by(args)
         for row in named:
             print(f"  {row['confidence']:>6}  {row['file']}  {row['how']}")
