@@ -8,6 +8,8 @@ CR-016-03  a verdict that nothing watches a region says how much of the estate
            it could not read before saying so
 CR-016-04  an estate with nothing readable in it is reported as unreadable, not
            as an estate with no regions
+CR-016-05  what is unread is derived from the readers installed, not declared, so
+           a language a reader covers is read and counted as read
 """
 import json
 import pathlib
@@ -24,6 +26,7 @@ TESTS = {
     "CR-016-02": "direct",
     "CR-016-03": "direct",
     "CR-016-04": "direct",
+    "CR-016-05": "direct",
 }
 
 
@@ -32,11 +35,21 @@ def run(cwd, *args):
                           capture_output=True, text=True, cwd=cwd).stdout
 
 
+def unread_extension():
+    """An extension nothing installed here reads — asked of the tool rather than
+    assumed, because what is unread changes the moment a grammar is installed
+    and a fixture that assumes otherwise tests the install, not the criterion."""
+    out = run(ROOT, "readers")
+    inside = out[out.index("known and unread ("):]
+    return inside[inside.index("(") + 1:inside.index(")")].split()[0]
+
+
 def foreign(where):
     d = pathlib.Path(where)
+    ext = unread_extension()
     (d / "src").mkdir(parents=True)
-    (d / "src" / "index.ts").write_text("export function alpha() { return 1 }\n")
-    (d / "src" / "other.ts").write_text("export function beta() { return 2 }\n")
+    (d / "src" / f"index{ext}").write_text("defmodule Alpha do\nend\n")
+    (d / "src" / f"other{ext}").write_text("defmodule Beta do\nend\n")
     return d
 
 
@@ -48,8 +61,9 @@ def mixed(where):
     (d / "svc").mkdir(parents=True)
     (d / "svc" / "handler.py").write_text("def alpha():\n    return 1\n")
     (d / "other").mkdir(parents=True)
+    ext = unread_extension()
     for i in range(3):
-        (d / "other" / f"svc{i}_test.go").write_text("package main\n")
+        (d / "other" / f"svc{i}_test{ext}").write_text("defmodule T do\nend\n")
     return d
 
 
@@ -67,11 +81,12 @@ def cr_016_01():
 def cr_016_02():
     with tempfile.TemporaryDirectory() as tmp:
         d = foreign(tmp)
-        for cmd in (("freshness",), ("unknown",), ("affects", "src/index.ts")):
+        ext = unread_extension()
+        for cmd in (("freshness",), ("unknown",), ("affects", f"src/index{ext}")):
             out = run(d, *cmd)
             if "are not absent — they are unseen" not in out:
                 return f"`{cmd[0]}` reported a figure without saying what it covers"
-            if ".ts" not in out:
+            if ext not in out:
                 return f"`{cmd[0]}` did not name what it could not read"
     return None
 
@@ -98,10 +113,31 @@ def cr_016_04():
     return None
 
 
+def cr_016_05():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp)
+        read_here = [ln.split()[1:] for ln in run(ROOT, "readers").splitlines()
+                     if ln.strip().startswith("tree-sitter")]
+        if not read_here or not read_here[0]:
+            return None            # no grammar installed here; nothing to prove
+        ext = read_here[0][0]
+        (d / "src").mkdir()
+        (d / "src" / f"thing{ext}").write_text(
+            "func alpha() {}\nfunc beta() { alpha() }\n")
+        (d / "src" / f"other{unread_extension()}").write_text("defmodule A do\nend\n")
+        out = run(d, "freshness")
+        if "this covers 1 file(s)" not in out:
+            return f"a language a reader covers was not counted as read: {out.strip()}"
+        if unread_extension() not in out:
+            return "a language no reader covers was not named as unseen"
+    return None
+
+
 def main():
     failures = []
     for name, fn in (("CR-016-01", cr_016_01), ("CR-016-02", cr_016_02),
-                     ("CR-016-03", cr_016_03), ("CR-016-04", cr_016_04)):
+                     ("CR-016-03", cr_016_03), ("CR-016-04", cr_016_04),
+                     ("CR-016-05", cr_016_05)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:

@@ -5,6 +5,8 @@ Usage: python3 framework/estate.py affects <path>...     what a change here reac
        python3 framework/estate.py observability [<path>]  how well behaviour there is pinned
        python3 framework/estate.py freshness             what this was derived from, and when
        python3 framework/estate.py unknown               what it could not resolve
+       python3 framework/estate.py readers               which languages are read here
+       python3 framework/estate.py coverage              how much of this the index reaches
        python3 framework/estate.py contracts <dir>       what crosses between repositories
        python3 framework/estate.py observe <path> <cmd>   run it and see what actually ran
        python3 framework/estate.py inflight <dir>         what unfinished work already holds
@@ -18,7 +20,6 @@ region whose source has moved is re-derived before it is answered about.
 What this is not: a description of the system kept beside it. The index is a
 cache with an invalidation rule, never a corpus with a publication date.
 """
-import ast
 import json
 import os
 import pathlib
@@ -26,6 +27,10 @@ import re
 import subprocess
 import sys
 from collections import Counter, defaultdict
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import readers                                    # noqa: E402
+from readers import python_ast                    # noqa: E402
 
 # What is looked at is where this is run, not where this file happens to live.
 # The first version took its own location, which meant a tool for looking at
@@ -149,7 +154,8 @@ def refresh(repo=None):
     for path in sources(repo):
         rel = path.relative_to(repo).as_posix()
         commit, when = last_touched(repo, rel)
-        if was.get(rel, {}).get("commit") == commit and commit != "unversioned":
+        if was.get(rel, {}).get("commit") == commit and commit != "unversioned" \
+                and was.get(rel, {}).get("read by") == readers.derivation():
             now[rel] = was[rel]
             continue
         rederived.append(rel)
@@ -162,7 +168,12 @@ def refresh(repo=None):
 # another project's tests, and the second about copies of its own source held
 # in changes still in flight.
 OUTSIDE = {".git", "__pycache__", "node_modules", ".claude", "_bmad", "_bmad-output",
-           ".venv", "venv", "dist", "build", "changes"}
+           ".venv", "venv", "dist", "build", "changes",
+           # Libraries installed beside the code are not the code. The grammars
+           # this index reads with are themselves written in the languages it
+           # reads, and counting them made the method's own estate four times
+           # its size, most of it somebody else's.
+           "_lib", "vendor", "third_party", "site-packages"}
 
 
 # Files this index has no parser for. Counting them is not politeness: a zero
@@ -174,11 +185,17 @@ UNREADABLE = {".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java", ".kt", ".rb",
 
 
 def unseen(repo=None):
-    """What is here and cannot be read, by language."""
+    """What is here and nothing installed can read, by language.
+
+    Derived from the readers rather than declared: installing a grammar moves
+    files out of this count and removing one moves them back. A list written
+    here instead would go on calling a language unread after it became readable.
+    """
     repo = repo or ROOT
+    known = readers.by_extension()
     counted = {}
     for p in repo.rglob("*"):
-        if not p.is_file() or p.suffix not in UNREADABLE:
+        if not p.is_file() or p.suffix in known or p.suffix not in UNREADABLE:
             continue
         if outside(p, repo):
             continue
@@ -216,8 +233,11 @@ def coverage_note(repo=None):
 
 
 def sources(repo):
-    for p in sorted(repo.rglob("*.py")):
-        if outside(p, repo):
+    """Every file some installed reader can read. Which files those are is not
+    a constant here: it is whatever is installed beside the readers."""
+    known = readers.by_extension()
+    for p in sorted(repo.rglob("*")):
+        if p.suffix not in known or not p.is_file() or outside(p, repo):
             continue
         yield p
 
@@ -225,8 +245,9 @@ def sources(repo):
 def unread_sources(repo):
     """Files in languages this index cannot parse, which is where most of an
     estate's offers are declared."""
+    known = readers.by_extension()
     for p in sorted(repo.rglob("*")):
-        if not p.is_file() or p.suffix not in UNREADABLE:
+        if not p.is_file() or p.suffix in known or p.suffix not in UNREADABLE:
             continue
         if outside(p, repo):
             continue
@@ -242,6 +263,7 @@ def index(repo, use_cache=True):
     resolved by nothing, and is counted rather than quietly dropped.
     """
     defines, calls, unresolved = defaultdict(list), [], []
+    how = readers.derivation()
     was = cached(repo) if use_cache else {}
     fresh = {}
     for path in sources(repo):
@@ -249,7 +271,7 @@ def index(repo, use_cache=True):
         commit, when = last_touched(repo, rel)
         keep = was.get(rel)
         if keep and keep.get("commit") == commit and "calls" in keep \
-                and commit != "unversioned":
+                and commit != "unversioned" and keep.get("read by") == how:
             # Derived once, and the source has not moved since. A cache that the
             # queries do not read is decoration: this one is read here.
             for name in keep["symbols"]:
@@ -259,43 +281,24 @@ def index(repo, use_cache=True):
             fresh[rel] = keep
             continue
         try:
-            tree = ast.parse(path.read_text())
-        except SyntaxError:
-            unresolved.append((rel, "file does not parse"))
+            text = path.read_text(errors="replace")
+        except OSError:
+            unresolved.append((rel, "file could not be read"))
             continue
-        imported = set()
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                mod = getattr(node, "module", None) or ""
-                for a in node.names:
-                    imported.add(a.name)
-                    if mod:
-                        imported.add(mod.split(".")[-1])
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                defines[node.name].append(rel)
-            elif isinstance(node, ast.Call):
-                f = node.func
-                if isinstance(f, ast.Name):
-                    calls.append((rel, f.id, "name"))
-                elif isinstance(f, ast.Attribute):
-                    # A method called on something whose type is unknown. Discarding
-                    # these was worse than the over-claiming it replaced: on a real
-                    # codebase they are the majority form, and throwing them away
-                    # understated what a change reaches by most of it. They are kept
-                    # and weighed instead — a weak edge reported is safer than a
-                    # strong edge omitted, because what is not reported is what
-                    # nobody re-tests.
-                    calls.append((rel, f.attr, "attribute"))
-                else:
-                    unresolved.append((rel, "a call through something with no name"))
-        for name in imported:
-            calls.append((rel, name, "import"))
+        got, refs, could_not = readers.read(rel, text)
+        for name in got:
+            defines[name].append(rel)
+        calls.extend((rel, n, k) for n, k in refs)
+        unresolved.extend((rel, w) for w in could_not)
+        # What this file holds is what the reader just returned. Asking the
+        # whole index for it instead — every symbol, every call, filtered by
+        # this one file — cost a pass over the estate per file, which is
+        # nothing on a hundred files and does not finish on twenty thousand.
         fresh[rel] = {
-            "commit": commit, "when": when,
-            "symbols": sorted({n for n, w in defines.items() if rel in w}),
-            "calls": [(n, k) for r, n, k in calls if r == rel],
-            "unresolved": [w for r, w in unresolved if r == rel],
+            "commit": commit, "when": when, "read by": how,
+            "symbols": sorted(set(got)),
+            "calls": [list(c) for c in refs],
+            "unresolved": list(could_not),
         }
     if use_cache and fresh:
         home(repo).mkdir(parents=True, exist_ok=True)
@@ -329,26 +332,28 @@ def named_by(paths, repo=None):
 
 
 def importers(repo=None):
-    """Which file imports which, as a map. Derived: an import is written down."""
+    """Which file imports which, as a map. Derived: an import is written down.
+
+    Read from the index rather than parsed again here, which is what lets reach
+    close over an estate written in several languages: an import is an import
+    whoever read the file.
+    """
     repo = repo or ROOT
-    by_module = {}
-    for path in sources(repo):
-        by_module[path.stem] = path.relative_to(repo).as_posix()
-    edges = defaultdict(set)
+    # A module is a file in some languages and a directory in others. Matching
+    # only file names found none of Go's imports, where the thing imported is
+    # the package and the package is the folder.
+    by_module = defaultdict(set)
     for path in sources(repo):
         rel = path.relative_to(repo).as_posix()
-        try:
-            tree = ast.parse(path.read_text())
-        except SyntaxError:
+        by_module[path.stem].add(rel)
+        by_module[path.parent.name].add(rel)
+    edges = defaultdict(set)
+    for rel, name, kind in index(repo)[1]:
+        if kind != "import":
             continue
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                mod = getattr(node, "module", None) or ""
-                names = [mod.split(".")[-1]] if mod else [a.name.split(".")[0]
-                                                          for a in node.names]
-                for n in names:
-                    if n in by_module and by_module[n] != rel:
-                        edges[by_module[n]].add(rel)
+        for target in by_module.get(name, ()):
+            if target != rel:
+                edges[target].add(rel)
     return edges
 
 
@@ -500,6 +505,71 @@ def observability(path, repo=None):
             # are: on a twelve-service estate every test is in Go or C#. Saying
             # "nothing names this" without saying that is a confident zero.
             "read": coverage_note(repo).strip()}
+
+
+ENTRY_NAMES = {"main", "__main__", "index", "app", "cli", "server", "program",
+               "setup", "manage", "conftest"}
+
+
+def coverage(repo=None):
+    """The share of files something else in this estate is known to reach.
+
+    Borrowed whole from how CodeGraph states its own: of the files that define
+    anything, how many have at least one resolved cross-file dependent —
+    something that imports them, calls into them, or refers to them by name.
+    It is the one figure that can be compared between two indexes, and until
+    now this one had never taken it.
+
+    The residual is not a defect to hide. A file nothing reaches is either
+    genuinely unreached — an entry point, dead ground — or reached by something
+    no static reader follows: reflection, a container, a framework convention,
+    a name assembled at run time. Both are reported, and neither is flattered
+    by narrowing what counts as a file.
+    """
+    repo = repo or ROOT
+    defines, calls, _ = index(repo)
+    where = defaultdict(set)
+    for name, files in defines.items():
+        for f in files:
+            where[f].add(name)
+    reached = defaultdict(set)                 # file → the files that reach it
+    for rel, name, _kind in calls:
+        for target in defines.get(name, ()):
+            if target != rel:
+                reached[target].add(rel)
+    # An import is a dependent as much as a call is, and in several languages
+    # it is the only one visible: a file imported for its side effects, a
+    # package imported whole. Counting only names matched left a fifth of
+    # Python unreached that its own imports reach.
+    for target, who in importers(repo).items():
+        reached[target] |= who
+    bearing = sorted(where)
+    covered = [f for f in bearing if reached.get(f)]
+    rest = sorted(set(bearing) - set(covered))
+    # What is left is not one thing. A test is reached by a runner that finds
+    # it by name, an entry point is reached by whoever starts the program, and
+    # neither is written down anywhere a reader could follow. Saying which is
+    # which is the difference between a frontier and a defect.
+    by_runner = [f for f in rest if is_test(f, repo)]
+    entries = [f for f in rest if f not in by_runner
+               and (pathlib.PurePosixPath(f).stem in ENTRY_NAMES
+                    or "main" in where.get(f, ()))]
+    nothing = [f for f in rest if f not in by_runner and f not in entries]
+    blind = unseen(repo)
+    convention = len(covered) + len(by_runner) + len(entries)
+    return {"files that define anything": len(bearing),
+            "reached by something else": len(covered),
+            "coverage": round(100.0 * len(covered) / len(bearing), 1) if bearing else 0.0,
+            "counting what a convention reaches":
+                round(100.0 * convention / len(bearing), 1) if bearing else 0.0,
+            "reached by a runner": len(by_runner),
+            "entry points": len(entries),
+            "unreached": nothing,
+            "unread files": sum(blind.values()),
+            "provenance": "derived", "confidence": "medium",
+            "caveat": "a name matched is not a call resolved; this counts what one "
+                      "reader could see, and what nothing reaches may be reached by "
+                      "reflection, a container or a framework convention"}
 
 
 def every_region(repo=None):
@@ -781,43 +851,11 @@ def normalise(kind, key):
 def facts(repo):
     """What this repository offers, and what it consumes from elsewhere."""
     declares, uses, stands_in, fragments, shown = [], [], [], [], 0
-    for path in sources(repo):
-        rel = path.relative_to(repo).as_posix()
-        if illustration(rel):
-            shown += 1
-            continue
-        text = path.read_text()
-        decorated = {ln.strip() for ln in text.splitlines() if ln.lstrip().startswith("@")}
-        for pattern, kind in DECLARES_FRAGMENT:
-            for key in re.findall(pattern, text):
-                k, _ = normalise(kind, key)
-                if k and k not in DEGENERATE:
-                    fragments.append({"kind": kind, "key": k, "file": rel})
-        for pattern, kind in DECLARES:
-            for key in re.findall(pattern, text):
-                k, _ = normalise(kind, key)
-                if k and k not in DEGENERATE:
-                    # A route declared inside test ground is a stand-in for a
-                    # service this repository talks to, not something this
-                    # repository offers. On a real estate the orders service
-                    # carries a fake of the users, carts, payment and shipping
-                    # services for its own tests; reading those as offers would
-                    # join every consumer of them to the wrong repository. An
-                    # edge to the wrong service is worse than no edge: it is
-                    # believed, and it points at people who cannot act on it.
-                    (stands_in if is_test(rel, repo) else declares).append(
-                        {"kind": kind, "key": k, "file": rel})
-        for line in text.splitlines():
-            if line.strip() in decorated:
-                continue
-            for pattern, kind in USES:
-                for key in re.findall(pattern, line):
-                    k, host = normalise(kind, key)
-                    if k and k not in DEGENERATE:
-                        uses.append({"kind": kind, "key": k, "file": rel, "host": host,
-                                     "base": key.rstrip('"\'').endswith("/"),
-                                     "in test": is_test(rel, repo)})
-    for path in unread_sources(repo):
+    # One pass over everything, not one over what a parser reads and another
+    # over what it does not. A route is declared in text whoever parses the
+    # file, and splitting the scan by that meant a language stopped being read
+    # for contracts the moment it started being read for symbols.
+    for path in sorted(set(sources(repo)) | set(unread_sources(repo))):
         rel = path.relative_to(repo).as_posix()
         if illustration(rel):
             shown += 1
@@ -826,7 +864,38 @@ def facts(repo):
             text = path.read_text(errors="ignore")
         except OSError:
             continue
-        prefixes = {m for pat in GROUPS for m in re.findall(pat, text)}
+        native = path.suffix in python_ast.EXTENSIONS
+        if native:
+            decorated = {ln.strip() for ln in text.splitlines()
+                         if ln.lstrip().startswith("@")}
+            for pattern, kind in DECLARES_FRAGMENT:
+                for key in re.findall(pattern, text):
+                    k, _ = normalise(kind, key)
+                    if k and k not in DEGENERATE:
+                        fragments.append({"kind": kind, "key": k, "file": rel})
+            for pattern, kind in DECLARES:
+                for key in re.findall(pattern, text):
+                    k, _ = normalise(kind, key)
+                    if k and k not in DEGENERATE:
+                        # A route declared inside test ground is a stand-in for
+                        # a service this repository talks to, not something this
+                        # repository offers. Read as an offer it joins every
+                        # consumer of it to the wrong repository, and an edge to
+                        # the wrong service is worse than no edge: it is
+                        # believed, and it points at people who cannot act on it.
+                        (stands_in if is_test(rel, repo) else declares).append(
+                            {"kind": kind, "key": k, "file": rel})
+            for line in text.splitlines():
+                if line.strip() in decorated:
+                    continue
+                for pattern, kind in USES:
+                    for key in re.findall(pattern, line):
+                        k, host = normalise(kind, key)
+                        if k and k not in DEGENERATE:
+                            uses.append({"kind": kind, "key": k, "file": rel,
+                                         "host": host,
+                                         "base": key.rstrip('"\'').endswith("/"),
+                                         "in test": is_test(rel, repo)})
         for n, (pattern, kind) in enumerate(USES_TEXT):
             for line in text.splitlines():
                 for key in re.findall(pattern, line):
@@ -841,8 +910,9 @@ def facts(repo):
                 r'\.MapForwarder\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"', text):
             k, _ = normalise("http", remote)
             if k and k not in DEGENERATE:
-                uses.append({"kind": "http", "key": k, "file": rel,
+                uses.append({"kind": "http", "key": k, "file": rel, "in test": False,
                              "host": host.split("//")[-1], "read": "text"})
+        prefixes = {m for pat in GROUPS for m in re.findall(pat, text)}
         for pattern, kind in DECLARES_TEXT:
             for key in re.findall(pattern, text):
                 for full in ({key} if not prefixes or key.startswith(("http", "//"))
@@ -1324,6 +1394,30 @@ def main(argv):
                   f"nothing here can say whether they moved: they are derived again "
                   f"every time rather than trusted")
         print(coverage_note())
+        return 0
+    if cmd == "coverage":
+        c = coverage()
+        for f in c["unreached"][:15]:
+            print(f"  unreached  {f}")
+        if len(c["unreached"]) > 15:
+            print(f"  … and {len(c['unreached']) - 15} more nothing here reaches")
+        print(f"  {c['reached by something else']} of {c['files that define anything']} "
+              f"file(s) that define anything are reached by something else here — "
+              f"{c['coverage']}%")
+        print(f"  {c['reached by a runner']} more are test ground a runner finds by name "
+              f"and {c['entry points']} name an entry point; counting those, "
+              f"{c['counting what a convention reaches']}%")
+        print(f"  {c['caveat']}")
+        print(coverage_note())
+        return 0
+    if cmd == "readers":
+        for who, exts in sorted(readers.who().items()):
+            print(f"  {who:>12}  {' '.join(sorted(exts))}")
+        blind = sorted(UNREADABLE - set(readers.by_extension()))
+        print(f"  {len(readers.by_extension())} extension(s) read here; "
+              f"{len(blind)} known and unread ({' '.join(blind)})")
+        print("  a language nothing here reads is reported unseen, never absent — "
+              "install a grammar beside the readers and it moves into the count above")
         return 0
     if cmd == "unknown":
         rows = unknown()

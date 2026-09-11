@@ -29,3 +29,6 @@ BACKLOG.md
 
 # Derived state, rebuilt from the code whenever the code moves.
 .estate/
+
+# Grammars installed beside the readers: binaries belonging to one machine.
+framework/readers/_lib/

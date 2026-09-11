@@ -51,7 +51,17 @@ python3 framework/estate.py contracts <dir>       # what crosses between reposit
 python3 framework/estate.py reachability <dir> <repo>   # who consumes this, who cannot be reached
 python3 framework/estate.py freshness             # what the answers were derived from
 python3 framework/estate.py refresh               # derive again only what moved
+python3 framework/estate.py readers               # which languages are read here
+python3 framework/estate.py coverage              # how much of this the index reaches
 ```
+
+Python is read by the parser that ships with Python, so an estate written in it needs nothing installed. Every other language is read through its own tree-sitter grammar, installed beside the readers and never committed:
+
+```bash
+python3 -m pip install --target framework/readers/_lib -r framework/readers/requirements.txt
+```
+
+What is unread is derived from what is installed, not declared: install a grammar and those files move out of the unseen count; remove it and they move back. A language nothing reads is reported unseen, never absent.
 
 Run it from the repository or the estate it is asked about, not from here. Derived material goes beside that repository in `.estate/`; to keep an estate's material together instead, name one directory:
 

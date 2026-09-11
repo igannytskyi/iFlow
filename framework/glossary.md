@@ -161,6 +161,8 @@ estate.py observe <path> <cmd> run it and see which lines actually ran
 estate.py inflight <dir>      what unfinished work already holds
 estate.py conflicts <dir> <p> who already holds this ground, and on what footing
 estate.py refresh             derive again only what moved
+estate.py readers             which languages are read here, and which are not
+estate.py coverage            the share of this estate something else here reaches
 estate.py reachability <d> <r> who consumes this, and who no change reaches
 
 check.py changes/<slug>     one change, against every rule

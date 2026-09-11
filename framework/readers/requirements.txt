@@ -1,0 +1,16 @@
+# Grammars this reader uses. Installed beside it, never vendored: a compiled
+# grammar belongs to one machine and this method has to travel.
+#
+#   python3 -m pip install --target framework/readers/_lib -r framework/readers/requirements.txt
+#
+# Nothing here is required. Without it every language but Python is reported
+# unread, which is what the estate said before this reader existed.
+tree-sitter>=0.25
+tree-sitter-go
+tree-sitter-java
+tree-sitter-c-sharp
+tree-sitter-typescript
+tree-sitter-javascript
+tree-sitter-rust
+tree-sitter-ruby
+tree-sitter-php

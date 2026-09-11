@@ -778,7 +778,8 @@ def mutate(root):
             # the estates the model was tried against — and copying them once
             # per rule turned a two minute demonstration into an hour of it.
             shutil.copytree(root, d, ignore=shutil.ignore_patterns(
-                ".git", "__pycache__", "_bmad*", "node_modules", "changes", ".estate"))
+                ".git", "__pycache__", "_bmad*", "node_modules", "changes", ".estate",
+                "_lib"))
             (d / "framework" / "check.py").write_text(broken)
             noticed = False
             for t in tests:

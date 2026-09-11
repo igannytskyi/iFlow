@@ -7,6 +7,8 @@ CR-015-03  a consumer belonging to no repository is reported as beyond reach
 CR-015-04  an estate of several repositories takes each region's history from the
            repository it belongs to, and a region no history covers is never
            reported current
+CR-015-06  a region derived by one reader is derived again when the readers
+           change, because the source not moving is only half the question
 CR-015-05  what is looked at is what it is pointed at: a repository kept under a
            directory whose name is excluded is still read, and derived material
            can be kept in one place away from the repositories
@@ -26,6 +28,7 @@ TESTS = {
     "CR-015-03": "direct",
     "CR-015-04": "direct",
     "CR-015-05": "direct",
+    "CR-015-06": "direct",
 }
 
 
@@ -73,6 +76,26 @@ def cr_015_04():
         after = run(estate, "freshness")
         if "stale" not in after or "one/alpha.py" not in after:
             return "a region that moved inside one repository of the estate was not stale"
+    return None
+
+
+def cr_015_06():
+    import json
+    with tempfile.TemporaryDirectory() as tmp:
+        d = build_repo(tmp + "/r")
+        run(d, "refresh")
+        cache = d / ".estate" / "index.json"
+        held = json.loads(cache.read_text())
+        if not all("read by" in v for v in held.values()):
+            return "the index did not record which reader derived each region"
+        for v in held.values():                 # the same source, read another way
+            v["read by"] = "something else"
+        cache.write_text(json.dumps(held))
+        out = run(d, "refresh")
+        if "0 of 2 region(s) had moved" in out:
+            return "regions derived by a different reader were served from the cache"
+        if "2 of 2 region(s) had moved" not in out:
+            return f"a change of reader did not derive the estate again: {out.strip()}"
     return None
 
 
@@ -144,7 +167,7 @@ def cr_015_03():
 def main():
     failures = []
     for name, fn in (("CR-015-01", cr_015_01), ("CR-015-02", cr_015_02),
-                     ("CR-015-03", cr_015_03), ("CR-015-04", cr_015_04), ("CR-015-05", cr_015_05)):
+                     ("CR-015-03", cr_015_03), ("CR-015-04", cr_015_04), ("CR-015-05", cr_015_05), ("CR-015-06", cr_015_06)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:
