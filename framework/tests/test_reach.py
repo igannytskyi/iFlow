@@ -17,6 +17,8 @@ CR-017-05  a shared name is weighed by whether anything imports what it names:
            there is rather than dropped
 CR-017-06  where a file states the type of what it calls into, the call is read
            as reaching that type
+CR-017-07  an import statement is read whole: every module it names, and the
+           module rather than the symbols it brings in
 """
 import pathlib
 import subprocess
@@ -34,6 +36,7 @@ TESTS = {
     "CR-017-04": "direct",
     "CR-017-05": "direct",
     "CR-017-06": "direct",
+    "CR-017-07": "direct",
 }
 
 
@@ -155,11 +158,31 @@ def cr_017_06():
     return None
 
 
+def cr_017_07():
+    if not reads(".go"):
+        return None
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp)
+        (d / "one").mkdir(); (d / "two").mkdir(); (d / "three").mkdir()
+        (d / "one" / "one.go").write_text("package one\nfunc Alpha() {}\n")
+        (d / "two" / "two.go").write_text("package two\nfunc Beta() {}\n")
+        (d / "three" / "three.go").write_text(
+            'package three\n\nimport (\n\t"fmt"\n\t"x/one"\n\t"x/two"\n)\n'
+            "func Go() { fmt.Println(1) }\n")
+        for target in ("one/one.go", "two/two.go"):
+            out = run(d, "affects", target, "--all")
+            if "three/three.go" not in out:
+                return (f"only one module of a grouped import was read: "
+                        f"{target} reached nothing")
+    return None
+
+
 def main():
     failures = []
     for name, fn in (("CR-017-01", cr_017_01), ("CR-017-02", cr_017_02),
                      ("CR-017-03", cr_017_03), ("CR-017-04", cr_017_04),
-                     ("CR-017-05", cr_017_05), ("CR-017-06", cr_017_06)):
+                     ("CR-017-05", cr_017_05), ("CR-017-06", cr_017_06),
+                     ("CR-017-07", cr_017_07)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:

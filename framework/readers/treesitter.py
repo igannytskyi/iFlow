@@ -241,21 +241,20 @@ def _argument(node, callee):
 
 
 def _module_text(node):
-    """The part of an import statement that names what is imported.
+    """Every module an import statement names.
 
-    Every language writes the module as a string or as the last dotted path in
-    the statement, and everything else in there names symbols.
+    A language writes the module as a string or as a dotted path, and one
+    statement can name many: Go groups a dozen imports in a single node, and
+    reading only the last of them lost every other dependency the file had.
     """
-    strings = []
-    stack = [node]
+    strings, stack = [], [node]
     while stack:
         here = stack.pop()
         if "string" in here.type and "content" not in here.type:
             strings.append(here.text.decode("utf-8", "replace"))
-        stack.extend(here.children)
-    if strings:
-        return strings[-1]
-    return node.text.decode("utf-8", "replace")
+        else:
+            stack.extend(here.children)
+    return strings or [node.text.decode("utf-8", "replace")]
 
 
 def _module(text):
@@ -273,7 +272,7 @@ def _module(text):
     text = text.strip().strip('"\'`<>;,()').split(" as ")[0].split("{")[0].strip()
     text = text.strip('"\'`')
     if not text:
-        return None
+        return []
     if any(sep in text for sep in ("/", "\\")) or text.startswith((".", "~", "$")):
         parts = [p for p in re.split(r"[/\\]+", text) if p not in ("", ".", "..")]
         tail = parts[-1] if parts else ""
@@ -309,8 +308,9 @@ def read(rel, text):
             # are named imports and clauses, and each of those carries the name
             # of a *symbol*: read as modules they filled the import graph with
             # class names, and a graph joined on class names joins nothing.
-            for mod in _module(_module_text(node)):
-                calls.append((mod, "import"))
+            for text_ in _module_text(node):
+                for mod in _module(text_):
+                    calls.append((mod, "import"))
             continue
         stack.extend(node.children)
         if any(k in kind for k in CALLS) and not any(k in kind for k in NOT_CALLS):
