@@ -5,6 +5,7 @@ Usage: python3 framework/estate.py affects <path>...     what a change here reac
        python3 framework/estate.py observability <path>  how well behaviour there is pinned
        python3 framework/estate.py freshness             what this was derived from, and when
        python3 framework/estate.py unknown               what it could not resolve
+       python3 framework/estate.py contracts <dir>       what crosses between repositories
 
 Every answer carries where it came from and how far it is to be trusted. Nothing
 here is maintained: it is derived on demand from the code as it stands, and a
@@ -16,6 +17,7 @@ cache with an invalidation rule, never a corpus with a publication date.
 import ast
 import json
 import pathlib
+import re
 import subprocess
 import sys
 from collections import defaultdict
@@ -230,6 +232,123 @@ def unknown(repo=None):
     return [{"why": w, "occurrences": n} for w, n in sorted(counted.items())]
 
 
+# ---------------------------------------------------------------- contracts
+
+# A contract is what one repository offers and another consumes: a route, an
+# event, a queue. Finding both ends is the part nobody ships, and it is the
+# reason a change in one repository can break another with nothing in either
+# saying so.
+#
+# The extraction below is deliberately small. Recognising routes across every
+# web framework is a solved problem taken off the shelf; what is built here is
+# the *join*, and it treats extraction as an input it can be given rather than
+# as work it must do.
+
+DECLARES = [
+    (r'@\w+\.(?:route|get|post|put|patch|delete)\(\s*["\']([^"\']+)["\']', "http"),
+    (r'\bpublish(?:es)?\(\s*["\']([^"\']+)["\']', "event"),
+]
+USES = [
+    (r'(?<!@)\b\w*\.?(?:get|post|put|patch|delete|request)\(\s*["\']([^"\']+)["\']', "http"),
+    (r'\bsubscribe(?:s)?\(\s*["\']([^"\']+)["\']', "event"),
+]
+
+URL = re.compile(r'^(?:[a-z]+:)?//(?P<host>[^/]+)(?P<path>/.*)$')
+
+
+def normalise(kind, key):
+    """A consumer writes a URL and a producer writes a path. Joining them means
+    saying so: the host is not part of the contract, it is a hint about who
+    offers it — and a useful one, because when it agrees with the repository
+    the key matched, two independent things point the same way."""
+    if kind != "http":
+        return key, None
+    m = URL.match(key)
+    if m:
+        return m.group("path"), m.group("host")
+    return key, None
+
+
+def facts(repo):
+    """What this repository offers, and what it consumes from elsewhere."""
+    declares, uses = [], []
+    for path in sources(repo):
+        rel = path.relative_to(repo).as_posix()
+        text = path.read_text()
+        decorated = {ln.strip() for ln in text.splitlines() if ln.lstrip().startswith("@")}
+        for pattern, kind in DECLARES:
+            for key in re.findall(pattern, text):
+                k, _ = normalise(kind, key)
+                declares.append({"kind": kind, "key": k, "file": rel})
+        for line in text.splitlines():
+            if line.strip() in decorated:
+                continue
+            for pattern, kind in USES:
+                for key in re.findall(pattern, line):
+                    k, host = normalise(kind, key)
+                    uses.append({"kind": kind, "key": k, "file": rel, "host": host})
+    return {"repo": repo.name, "declares": declares, "uses": uses}
+
+
+def observed(path):
+    """Runtime, if anyone is collecting it: lines of `consumer kind key`.
+
+    Static analysis proposes an edge; telemetry confirms it. A proposal nobody
+    has ever seen exercised is a guess, and a call nobody could have predicted
+    is a gap in the estate rather than an absence of one.
+    """
+    if not path:
+        return set()
+    out = set()
+    for line in pathlib.Path(path).read_text().splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and not line.startswith("#"):
+            out.add((parts[0], parts[1], parts[2]))
+    return out
+
+
+def contracts(where, telemetry=None):
+    all_facts = [facts(r) for r in sorted(pathlib.Path(where).iterdir()) if r.is_dir()]
+    seen = observed(telemetry)
+    offered = {}
+    for f in all_facts:
+        for d in f["declares"]:
+            offered.setdefault((d["kind"], d["key"]), []).append((f["repo"], d["file"]))
+    edges, unconsumed, unmatched = [], [], []
+    consumed = set()
+    for f in all_facts:
+        for u in f["uses"]:
+            k = (u["kind"], u["key"])
+            producers = [p for p in offered.get(k, []) if p[0] != f["repo"]]
+            if not producers:
+                unmatched.append({"consumer": f["repo"], "file": u["file"], **u})
+                continue
+            consumed.add(k)
+            confirmed = (f["repo"], u["kind"], u["key"]) in seen
+            agrees = u.get("host") and u["host"] == producers[0][0]
+            if confirmed:
+                conf, how = "high", "seen in traffic"
+            elif len(producers) > 1:
+                conf, how = "low", "several repositories offer this key"
+            elif agrees:
+                conf, how = "medium", "the key matches and the address names the same repository"
+            else:
+                conf, how = "medium", "one repository offers this key"
+            edges.append({
+                "from": f["repo"], "to": producers[0][0], "kind": u["kind"], "key": u["key"],
+                "provenance": "observed" if confirmed else "matched",
+                "confidence": conf, "how": how})
+    for k, where_offered in offered.items():
+        if k not in consumed:
+            unconsumed.append({"kind": k[0], "key": k[1],
+                               "offered by": where_offered[0][0],
+                               "file": where_offered[0][1]})
+    surprises = [s for s in seen
+                 if not any(e["from"] == s[0] and e["kind"] == s[1] and e["key"] == s[2]
+                            for e in edges)]
+    return edges, unconsumed, unmatched, surprises
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__.strip())
@@ -255,6 +374,24 @@ def main(argv):
     if cmd == "observability" and args:
         r = observability(args[0])
         print(json.dumps(r, indent=2))
+        return 0
+    if cmd == "contracts" and args:
+        tel = args[1] if len(args) > 1 else None
+        edges, unconsumed, unmatched, surprises = contracts(args[0], tel)
+        for e in edges:
+            print(f"  {e['confidence']:>6}  {e['from']} → {e['to']}  "
+                  f"{e['kind']} {e['key']}  ({e['how']})")
+        for u in unmatched:
+            print(f"     n/a  {u['consumer']} → ?  {u['kind']} {u['key']}  "
+                  f"nothing in the estate offers this, so it is outside it or missing from it")
+        for u in unconsumed:
+            print(f"     n/a  {u['offered by']} offers {u['kind']} {u['key']} and nothing "
+                  f"in the estate consumes it")
+        for s_ in surprises:
+            print(f"    high  {s_[0]} → ?  {s_[1]} {s_[2]}  seen in traffic and predicted "
+                  f"by nothing — the estate does not know about one side")
+        print(f"  {len(edges)} edge(s) joined, {len(unmatched)} consumer(s) pointing outside, "
+              f"{len(unconsumed)} offer(s) nobody takes, {len(surprises)} surprise(s)")
         return 0
     if cmd == "freshness":
         for r in freshness():

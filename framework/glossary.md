@@ -108,6 +108,8 @@ What every word in the method means, in a sentence or two. Grouped by kind, alph
 
 **Provenance** — where a statement came from: derived from an artefact, attested by a person, or produced by an agent.
 
+**Contract edge** — a join between one repository offering something — a route, an event, a queue — and another consuming it. Matched by the key both sides name, raised to certainty only by seeing it happen, and never derived: the key is often not a literal in either source.
+
 **Reachability** — whether every consumer of something can be changed at all. Shipped applications and third parties cannot, which is knowable before any work is done.
 
 **Repeatable** — whether the run behind a piece of evidence can be produced again to the same result. A deterministic transformation can; an agent cannot. A claim to repeat must name what to re-run.
@@ -145,6 +147,7 @@ estate.py affects <path>      what a change there reaches, and how far to trust 
 estate.py observability <path> how well behaviour there can be pinned down
 estate.py freshness           what the answers were derived from, and when
 estate.py unknown             what the index cannot resolve at all
+estate.py contracts <dir>     what crosses between repositories, and on what basis
 
 check.py changes/<slug>     one change, against every rule
 check.py --status [dir]     every change: how far it got, what holds it, what it owes
