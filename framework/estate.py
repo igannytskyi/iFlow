@@ -452,19 +452,37 @@ def affects(paths, repo=None):
     wanted = {pathlib.Path(p).as_posix() for p in paths}
     changed_symbols = {s for s, where in defines.items()
                        if any(w in wanted or w.startswith(tuple(wanted)) for w in where)}
+    # Two files can share a method name and have nothing to do with each other,
+    # and on a real estate most pairs are exactly that: between half and two
+    # thirds of everything a name match reports joins files with no import
+    # between them, directly or through any chain. Code that is never imported
+    # is code that cannot be called, so the import graph is what separates a
+    # dependency from a coincidence of vocabulary. It does not delete the
+    # coincidences — something loaded by a framework is reached by no import
+    # either — it says which is which.
+    linked = set(transitive(set(wanted), repo))
     reached = defaultdict(list)
     for rel, name, kind in calls:
         if name not in changed_symbols or rel in wanted:
             continue
         where = defines.get(name, [])
+        here = rel in linked
         if kind == "import":
             grade = DERIVED_PARTIAL
+        elif kind == "typed":
+            # The file said what the receiver is — an assignment from a
+            # constructor, an annotation, `self` inside a class. That is read
+            # off this file rather than guessed across the estate, so it is the
+            # firmest thing here short of an import.
+            grade = ("derived", "high" if here and len(where) == 1 else "medium")
         elif kind == "attribute":
             grade = ("matched", "low")     # the receiver's type is unknown
         elif len(where) > 1:
             grade = MATCHED_WEAK           # several things answer to this name
-        else:
+        elif here:
             grade = MATCHED
+        else:
+            grade = MATCHED_WEAK           # nothing imports it: the name may be all
         reached[rel].append((name, grade))
     rank = {"high": 0, "medium": 1, "low": 2}
     out = []
@@ -472,7 +490,7 @@ def affects(paths, repo=None):
         names = sorted({n for n, _ in reached[rel]})
         best = min((g for _, g in reached[rel]), key=lambda g: rank[g[1]])
         out.append({"file": rel, "through": names, "provenance": best[0],
-                    "confidence": best[1]})
+                    "confidence": best[1], "imports it": rel in linked})
     return sorted(out, key=lambda r: (rank[r["confidence"]], r["file"]))
 
 
@@ -1329,7 +1347,8 @@ def main(argv):
         for row in shown:
             names = ", ".join(row["through"][:3])
             more = "" if len(row["through"]) <= 3 else f" and {len(row['through']) - 3} more"
-            print(f"  {row['confidence']:>6}  {row['file']}  through {names}{more}")
+            note = "" if row.get("imports it", True) else "  (no import reaches it)"
+            print(f"  {row['confidence']:>6}  {row['file']}  through {names}{more}{note}")
         if not every and len(strong) > len(shown):
             print(f"  … and {len(strong) - len(shown)} more of the same strength "
                   f"(--all for every one)")
@@ -1345,8 +1364,13 @@ def main(argv):
                 where[top] = where.get(top, 0) + 1
             spread = ", ".join(f"{k} {v}" for k, v in
                                sorted(where.items(), key=lambda kv: -kv[1])[:4])
+            stranger = sum(1 for r in out if not r.get("imports it", True))
             print(f"  shape: " + ", ".join(f"{n} {g}" for g, n in
                                            sorted(grades.items())) + f"; mostly in {spread}")
+            if stranger:
+                print(f"  {stranger} of them share a name with it and import nothing that "
+                      f"leads to it — a coincidence of vocabulary unless a framework "
+                      f"loads them")
         named = named_by(args)
         for row in named:
             print(f"  {row['confidence']:>6}  {row['file']}  {row['how']}")

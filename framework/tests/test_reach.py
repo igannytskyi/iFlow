@@ -11,6 +11,12 @@ CR-017-03  what nothing reaches is classified rather than counted as one thing,
            counted
 CR-017-04  a file that says something else wrote it is not read as the estate's
            own code, and is counted rather than dropped
+CR-017-05  a shared name is weighed by whether anything imports what it names:
+           code nothing imports cannot be called, and a match between two such
+           files is a coincidence of vocabulary, reported as the weakest thing
+           there is rather than dropped
+CR-017-06  where a file states the type of what it calls into, the call is read
+           as reaching that type
 """
 import pathlib
 import subprocess
@@ -26,6 +32,8 @@ TESTS = {
     "CR-017-02": "direct",
     "CR-017-03": "direct",
     "CR-017-04": "direct",
+    "CR-017-05": "direct",
+    "CR-017-06": "direct",
 }
 
 
@@ -114,10 +122,44 @@ def cr_017_04():
     return None
 
 
+def cr_017_05():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp)
+        (d / "core.py").write_text("class Engine:\n    def start(self):\n        return 1\n")
+        (d / "user.py").write_text(
+            "from core import Engine\n\n\ndef go():\n    e = Engine()\n    return e.start()\n")
+        (d / "stranger.py").write_text(
+            "def go(thing):\n    return thing.start()\n")
+        out = run(d, "affects", "core.py", "--all")
+        rows = {ln.split()[1]: ln.split()[0] for ln in out.splitlines()
+                if ln.strip().startswith(("high", "medium", "low"))}
+        if rows.get("stranger.py") != "low":
+            return f"a name shared with nothing importing it was not weighed down: {rows}"
+        if "no import reaches it" not in out:
+            return "a coincidence of vocabulary was not said to be one"
+        if rows.get("user.py") == "low":
+            return f"a call from a file that imports it was weighed as a coincidence: {rows}"
+    return None
+
+
+def cr_017_06():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp)
+        (d / "core.py").write_text("class Engine:\n    def start(self):\n        return 1\n")
+        (d / "user.py").write_text(
+            "from core import Engine\n\n\ndef go():\n    e = Engine()\n    return e.start()\n")
+        out = run(d, "affects", "core.py")
+        row = [ln for ln in out.splitlines() if "user.py" in ln]
+        if not row or not row[0].strip().startswith("high"):
+            return f"a call whose receiver type the file states was not read as firm: {row}"
+    return None
+
+
 def main():
     failures = []
     for name, fn in (("CR-017-01", cr_017_01), ("CR-017-02", cr_017_02),
-                     ("CR-017-03", cr_017_03), ("CR-017-04", cr_017_04)):
+                     ("CR-017-03", cr_017_03), ("CR-017-04", cr_017_04),
+                     ("CR-017-05", cr_017_05), ("CR-017-06", cr_017_06)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:

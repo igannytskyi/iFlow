@@ -240,6 +240,24 @@ def _argument(node, callee):
     return rest[-1].text.decode("utf-8", "replace") if rest else ""
 
 
+def _module_text(node):
+    """The part of an import statement that names what is imported.
+
+    Every language writes the module as a string or as the last dotted path in
+    the statement, and everything else in there names symbols.
+    """
+    strings = []
+    stack = [node]
+    while stack:
+        here = stack.pop()
+        if "string" in here.type and "content" not in here.type:
+            strings.append(here.text.decode("utf-8", "replace"))
+        stack.extend(here.children)
+    if strings:
+        return strings[-1]
+    return node.text.decode("utf-8", "replace")
+
+
 def _module(text):
     """The part of an import that can be matched against a file.
 
@@ -257,9 +275,17 @@ def _module(text):
     if not text:
         return None
     if any(sep in text for sep in ("/", "\\")) or text.startswith((".", "~", "$")):
-        tail = re.split(r"[/\\]+", text)[-1]
-        return (tail.rsplit(".", 1)[0] if "." in tail[1:] else tail).strip() or None
-    return re.split(r"[.:]+", text)[-1].strip() or None
+        parts = [p for p in re.split(r"[/\\]+", text) if p not in ("", ".", "..")]
+        tail = parts[-1] if parts else ""
+        tail = tail.rsplit(".", 1)[0] if "." in tail[1:] else tail
+        return [p for p in (tail, parts[-2] if len(parts) > 1 else None) if p]
+    # `use crate::search::Searcher` names a type inside a module, and the file
+    # is as likely to be named for one as for the other. Both are offered; a
+    # name that matches nothing costs nothing.
+    parts = [p for p in re.split(r"[.:]+", text) if p]
+    if not parts:
+        return []
+    return [p for p in (parts[-1], parts[-2] if len(parts) > 1 else None) if p]
 
 
 def read(rel, text):
@@ -275,15 +301,22 @@ def read(rel, text):
     stack = [tree.root_node]
     while stack:
         node = stack.pop()
-        stack.extend(node.children)
         kind = node.type
         if not node.is_named or node.child_count == 0:
             continue                    # a keyword is a token, not a statement
+        if any(k in kind for k in IMPORTS):
+            # Read the statement whole and do not descend into it. Its parts
+            # are named imports and clauses, and each of those carries the name
+            # of a *symbol*: read as modules they filled the import graph with
+            # class names, and a graph joined on class names joins nothing.
+            for mod in _module(_module_text(node)):
+                calls.append((mod, "import"))
+            continue
+        stack.extend(node.children)
         if any(k in kind for k in CALLS) and not any(k in kind for k in NOT_CALLS):
             name, how, raw = _callee(node)
             if (name or "").lower() in IMPORTING_CALLS or raw in IMPORTING_CALLS:
-                mod = _module(_argument(node, raw))
-                if mod:
+                for mod in _module(_argument(node, raw)):
                     calls.append((mod, "import"))
                 continue
             if name:
@@ -301,10 +334,7 @@ def read(rel, text):
                                    head.decode("utf-8", "replace")):
                 if word not in KEYWORDS and word not in INHERIT_WORDS:
                     calls.append((word, "name"))
-        elif any(k in kind for k in IMPORTS):
-            mod = _module(node.text.decode("utf-8", "replace"))
-            if mod:
-                calls.append((mod, "import"))
+
         elif any(k in kind for k in DEFINES) and not any(k in kind for k in NOT_DEFINES):
             name = _name_of(node)
             if name:
