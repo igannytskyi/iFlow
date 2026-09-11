@@ -122,6 +122,8 @@ What every word in the method means, in a sentence or two. Grouped by kind, alph
 
 **Freshness** — whether what a region was derived from is still what last touched it. Measured per region, never per repository: an index is never wholly fresh or wholly stale, and treating it as either is how a model comes to be trusted about ground that moved under it.
 
+**Unseen** — present and not read, because nothing here can parse it. Reported separately from what was looked at and found to be nothing, since a zero over unexamined ground reads exactly like a zero over covered ground and means the opposite.
+
 **Validity** — until when a statement holds, and what ends it. Evidence has a shelf life because the ground it was obtained against moves.
 
 ---

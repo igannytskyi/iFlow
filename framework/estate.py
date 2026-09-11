@@ -111,6 +111,41 @@ OUTSIDE = {".git", "__pycache__", "node_modules", ".claude", "_bmad", "_bmad-out
            ".venv", "venv", "dist", "build", "changes"}
 
 
+# Files this index has no parser for. Counting them is not politeness: a zero
+# over ground nobody looked at reads exactly like a zero over ground that was
+# covered, and on a repository written in another language every answer here
+# was a confident nothing.
+UNREADABLE = {".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java", ".kt", ".rb",
+              ".php", ".cs", ".c", ".h", ".cpp", ".swift", ".scala", ".ex", ".exs"}
+
+
+def unseen(repo=None):
+    """What is here and cannot be read, by language."""
+    repo = repo or ROOT
+    counted = {}
+    for p in repo.rglob("*"):
+        if not p.is_file() or p.suffix not in UNREADABLE:
+            continue
+        if any(part in OUTSIDE or part.startswith("_bmad") for part in p.parts):
+            continue
+        counted[p.suffix] = counted.get(p.suffix, 0) + 1
+    return counted
+
+
+def coverage_note(repo=None):
+    """One line, printed beside every answer, saying how much of the estate this
+    answer is about."""
+    repo = repo or ROOT
+    read = sum(1 for _ in sources(repo))
+    blind = unseen(repo)
+    if not blind:
+        return f"  this covers all {read} file(s) here"
+    total = sum(blind.values())
+    kinds = ", ".join(f"{n} {ext}" for ext, n in sorted(blind.items(), key=lambda kv: -kv[1])[:4])
+    return (f"  this covers {read} file(s); {total} more are in languages this index "
+            f"cannot read ({kinds}) and are not absent — they are unseen")
+
+
 def sources(repo):
     for p in sorted(repo.rglob("*.py")):
         if any(part in OUTSIDE or part.startswith("_bmad") for part in p.parts):
@@ -270,8 +305,12 @@ def observability(path, repo=None):
     watchers = sorted({rel for rel, name, _ in calls
                        if name in here and "/tests/" in rel})
     if not here:
+        blind = unseen(repo)
         return {"region": path, "verdict": "unknown",
-                "why": "nothing is defined here that this index can see",
+                "why": ("nothing here is in a language this index can read; that is not "
+                        f"an empty region, it is an unread one ({sum(blind.values())} "
+                        f"file(s): {', '.join(sorted(blind))})") if blind else
+                       "nothing is defined here that this index can see",
                 "provenance": "derived", "confidence": "low"}
     named = {s for s in here if any(rel for rel, n, _ in calls
                                     if n == s and "/tests/" in rel)}
@@ -592,6 +631,7 @@ def main(argv):
               f"text, {len(far)} further through imports.")
         print(f"  {blind} call(s) this index cannot resolve at all, so neither figure "
               f"is a floor or a ceiling — it is what one parser could see.")
+        print(coverage_note())
         return 0
     if cmd == "observe" and len(args) >= 2:
         print(json.dumps(observe(args[0], args[1:]), indent=2))
@@ -638,6 +678,7 @@ def main(argv):
             print(f"  re-derived  {rel}")
         print(f"  {len(rederived)} of {total} region(s) had moved; the rest were not "
               f"looked at again")
+        print(coverage_note())
         return 0
     if cmd == "reachability" and len(args) >= 2:
         tel = args[2] if len(args) > 2 else None
@@ -664,12 +705,15 @@ def main(argv):
                       f"{r['when']}")
         fresh = sum(1 for r in rows if r["state"] == "fresh")
         print(f"  {fresh} of {len(rows)} region(s) current against what last touched them")
+        print(coverage_note())
         return 0
     if cmd == "unknown":
         rows = unknown()
         for r in rows:
             print(f"  {r['occurrences']:>5}  {r['why']}")
-        print(f"  {sum(r['occurrences'] for r in rows)} thing(s) this index cannot resolve")
+        print(f"  {sum(r['occurrences'] for r in rows)} thing(s) this index cannot resolve "
+              f"inside what it can read")
+        print(coverage_note())
         return 0
     print(__doc__.strip())
     return 2
