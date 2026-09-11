@@ -13,6 +13,13 @@ CR-012-08  offers declared in a language this index cannot parse are read as
            offers rather than left out of the estate
 CR-012-09  one repository declaring a route twice is one offer, and a key that
            several repositories offer keeps all of them
+CR-012-10  what is shaped like a route and is not one — a dotted module path, a
+           snippet in documentation — does not become a contract
+CR-012-11  two spellings of one route are one key, and a call that lands inside a
+           route a repository offers is joined to it rather than called absent
+CR-012-12  a call a repository makes to its own routes is not reported as
+           crossing a boundary, and routes assembled at import time are reported
+           as unresolved rather than as offering nothing
 """
 import pathlib
 import subprocess
@@ -35,6 +42,9 @@ TESTS = {
                   "framework writes a route; what is tested is that an unparsed language "
                   "is read at all, not that every form of it is recognised"),
     "CR-012-09": "direct",
+    "CR-012-10": "direct",
+    "CR-012-11": "direct",
+    "CR-012-12": "direct",
 }
 
 
@@ -193,12 +203,81 @@ def cr_012_09():
     return None
 
 
+def cr_012_10():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp)
+        (d / "svc").mkdir()
+        (d / "svc" / "tests").mkdir()
+        (d / "svc" / "tests" / "test_it.py").write_text(
+            '@mock.patch("svc.clusters.cluster.get_local_nodes")\ndef t(): ...\n')
+        (d / "svc" / "docs").mkdir()
+        (d / "svc" / "docs" / "onboarding.go").write_text('r.GET("/foo", handler)\n')
+        (d / "caller").mkdir()
+        (d / "caller" / "c.py").write_text('def hit(): requests.get("/foo")\n')
+        out = run(d)
+        if "cluster" in out:
+            return "a dotted module path in a decorator was read as a route"
+        if "→ svc" in out:
+            return "a route in a documentation snippet was read as an offer"
+        if "not read" not in out:
+            return "documentation and examples were skipped without saying so"
+    return None
+
+
+def cr_012_11():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp)
+        (d / "api").mkdir()
+        (d / "api" / "app.py").write_text(
+            '@app.route("/api/orders/<order_id>")\ndef one(): ...\n')
+        (d / "web").mkdir()
+        (d / "web" / "client.py").write_text(
+            'def one(): requests.get("/api/Orders/{id}")\n'
+            'def all(): requests.get("/api/orders/7/items")\n')
+        out = run(d)
+        if out.count("web → api") < 2:
+            return f"a route written in two spellings was not joined: {out}"
+        if "covers it" not in out and "cover it" not in out:
+            return "a call landing inside an offered route did not say what covered it"
+        # The other direction: the caller's literals match nothing but
+        # themselves, or a route of parameters swallows every call in the estate.
+        (d / "api" / "subs.py").write_text(
+            '@app.route("/<org>/<project>/subscriptions")\ndef subs(): ...\n')
+        (d / "web" / "unrelated.py").write_text(
+            'def go(): requests.get("/user/orgs")\n')
+        out = run(d)
+        if "/user/orgs" in out and "web → api" in out.split("/user/orgs")[0].splitlines()[-1]:
+            return "a call was joined to a route that matches it only through parameters"
+    return None
+
+
+def cr_012_12():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp)
+        (d / "site").mkdir()
+        (d / "site" / "app.py").write_text(
+            '@app.route("/internal/status")\ndef st(): ...\n'
+            'def check(): requests.get("/internal/status")\n')
+        (d / "site" / "urls.py").write_text(
+            're_path(r"^projectconfigs/$", View.as_view()),\n')
+        out = run(d)
+        if "cross no boundary" not in out:
+            return "a call to a route the repository offers itself was not recognised"
+        if "pointing outside" not in out or "1 consumer(s) pointing outside" in out:
+            return "an internal call was still counted as pointing outside the estate"
+        if "assembled at import time" not in out:
+            return "routes declared as fragments were not reported as unresolved"
+    return None
+
+
 def main():
     failures = []
     for name, fn in (("CR-012-01", cr_012_01), ("CR-012-02", cr_012_02),
                      ("CR-012-03", cr_012_03), ("CR-012-04", cr_012_04), ("CR-012-05", cr_012_05),
                      ("CR-012-06", cr_012_06), ("CR-012-07", cr_012_07),
-                     ("CR-012-08", cr_012_08), ("CR-012-09", cr_012_09)):
+                     ("CR-012-08", cr_012_08), ("CR-012-09", cr_012_09),
+                     ("CR-012-10", cr_012_10), ("CR-012-11", cr_012_11),
+                     ("CR-012-12", cr_012_12)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:

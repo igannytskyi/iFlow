@@ -375,6 +375,20 @@ TEST_DIRS = {"tests", "spec", "specs", "__tests__"}
 AMBIGUOUS_DIRS = {"test", "testing"}
 
 
+# Ground that shows what code looks like rather than running it. A getting
+# started page carries a Go snippet with `r.GET("/foo")` in it, and read as a
+# declaration it makes the service offer `/foo` to anyone who asks — and
+# something in the estate always asks. What is written to be read is not what
+# is deployed.
+ILLUSTRATION = {"docs", "doc", "examples", "example", "samples", "sample",
+                "fixtures", "mocks", "snippets", "gettingstarteddocs", "templates"}
+
+
+def illustration(rel):
+    return any(part.lower() in ILLUSTRATION
+               for part in pathlib.PurePosixPath(rel).parts[:-1])
+
+
 def test_ground(region, repo=None):
     """Whether the region is itself where tests are kept.
 
@@ -588,6 +602,34 @@ USES = [
     (r'\bsubscribe(?:s)?\(\s*["\']([^"\']+)["\']', "event"),
 ]
 
+# The consuming side of an estate is written in the same languages the offering
+# side is, and reading only one of them halves every answer: twenty-three offers
+# and no consumers is not an estate nobody calls, it is an estate half read.
+# A service rarely writes the whole path at the point of call — it keeps a base
+# and joins a fragment to it — so the base is read as what it is: evidence that
+# this repository calls that path.
+# A route table declares fragments, not paths: Django writes `^projectconfigs/$`
+# in one module and joins it to `^api/0/relays/` in another, at import time.
+# Read as a path, the fragment joins to nothing and, worse, invites a join on a
+# tail — `/settings` is a fragment of half the estate. They are read and counted
+# so that the gap is stated, and are not offered for joining.
+DECLARES_FRAGMENT = [
+    (r'\b(?:re_path|path|url)\(\s*r?["\']\^?([^"\']+)["\']', "http"),
+]
+BASE_PATTERN = 1          # the entry below that reads a base kept in a field
+
+USES_TEXT = [
+    (r'(?:GetFromJsonAsync|PostAsJsonAsync|PutAsJsonAsync|PatchAsJsonAsync|'
+     r'GetStringAsync|GetAsync|PostAsync|PutAsync|DeleteAsync)\s*(?:<[^>]*>)?\s*\(\s*'
+     r'\$?"((?:[a-z]+:)?//[^"]+|/[^"]*)"', "http"),                      # .NET
+    (r'\b\w*(?:BaseUrl|BaseAddress|baseUrl|Endpoint|endpoint)\w*\s*=\s*'
+     r'\$?"((?:[a-z]+:)?//[^"]+|/?[a-zA-Z][\w-]*(?:/[^"]*)+)"', "http"),  # a base kept in a field
+    (r'\bfetch\(\s*[`"\']((?:[a-z]+:)?//[^`"\']+|/[^`"\']*)', "http"),   # browsers
+    (r'\baxios\.(?:get|post|put|patch|delete)\(\s*[`"\']'
+     r'((?:[a-z]+:)?//[^`"\']+|/[^`"\']*)', "http"),
+    (r'\bhttp\.(?:Get|Post|NewRequest)\([^)]*?"((?:[a-z]+:)?//[^"]+|/[^"]*)"', "http"),  # Go
+]
+
 # Keys too generic to identify anything. A route of "/" is offered by most
 # services that offer anything, and joining on it says only that both sides
 # speak HTTP.
@@ -609,6 +651,7 @@ DECLARES_TEXT = [
      r'"([^"]+)"', "http"),                                  # Spring
     (r'@Path\(\s*"([^"]+)"\s*\)', "http"),                   # JAX-RS
     (r'\[(?:HttpGet|HttpPost|HttpPut|HttpDelete|Route)\(\s*"([^"]+)"', "http"),  # ASP.NET
+    (r'\.Map(?:Get|Post|Put|Patch|Delete|Forwarder)\(\s*"([^"]+)"', "http"),  # minimal APIs
     (r'\.(?:HandleFunc|Handle|Path)\(\s*(?:[\w.()]+\s*\+\s*)?"(/[^"]*)"',
      "http"),                                                # net/http, gorilla/mux
     (r'\b(?:r|router|app|e|g)\.(?:GET|POST|PUT|PATCH|DELETE)\(\s*'
@@ -618,6 +661,12 @@ DECLARES_TEXT = [
 ]
 
 DEGENERATE = {"/", "", "/*", "/health", "/healthz", "/ping", "/metrics"}
+
+# A route is declared relative to the group it is mapped on, and the group is
+# named once at the top of the file. Reading the route alone gives `/items`,
+# which belongs to no service in particular and joins to nothing.
+GROUPS = [r'\.MapGroup\(\s*"([^"]+)"', r'\bAPIRouter\(\s*prefix\s*=\s*["\']([^"\']+)["\']',
+          r'\bBlueprint\([^)]*url_prefix\s*=\s*["\']([^"\']+)["\']']
 
 # Ways one service reaches another that this index does not read. Naming them
 # matters more than the edges it does find: an estate bound together by gRPC
@@ -652,6 +701,13 @@ def other_kinds(where):
 URL = re.compile(r'^(?:[a-z]+:)?//(?P<host>[^/]+)(?P<path>/.*)$')
 
 
+# One path parameter, five spellings: {id}, :id, <custid>, <int:pk>, %s. They
+# are the same contract written in five frameworks, and comparing them as text
+# reports a front end and the service behind it as two unrelated things.
+PARAM = re.compile(r'\{[^/}]*\}|<[^/>]*>|\([^/)]*\)|:[A-Za-z_][A-Za-z0-9_]*'
+                   r'|%[sd]|\$\{[^/}]*\}')
+
+
 def normalise(kind, key):
     """A consumer writes a URL and a producer writes a path. Joining them means
     saying so: the host is not part of the contract, it is a hint about who
@@ -659,23 +715,51 @@ def normalise(kind, key):
     the key matched, two independent things point the same way."""
     if kind != "http":
         return key, None
+    # `@mock.patch("snuba.clusters.cluster.get_local_nodes")` is a decorator that
+    # takes a dotted module path, and it is shaped exactly like a route
+    # declaration. Read as one, a single estate contributed one thousand seven
+    # hundred imaginary routes. A route has a separator in it; a module path
+    # does not.
+    if "/" not in key or key.lstrip().startswith("."):
+        return None, None
+    host = None
     m = URL.match(key)
     if m:
-        return m.group("path"), m.group("host")
-    return key, None
+        key, host = m.group("path"), m.group("host")
+    # Parameters first: `{brandId?}` is an optional parameter, not a query
+    # string, and cutting at the question mark left half a parameter behind.
+    key = PARAM.sub("{}", key)
+    key = key.split("?")[0]                      # a query string is not the contract
+    # Routers match paths without regard to case, so two spellings of one route
+    # are one contract. Holding them apart reported a caller of /api/Orders as
+    # pointing outside an estate that offers /api/orders.
+    key = key.lower()
+    if not key.startswith("/"):
+        key = "/" + key                          # `api/catalog/items` is that path
+    if len(key) > 1:
+        key = key.rstrip("*").rstrip("/") or "/"
+    return key, host
 
 
 def facts(repo):
     """What this repository offers, and what it consumes from elsewhere."""
-    declares, uses, stands_in = [], [], []
+    declares, uses, stands_in, fragments, shown = [], [], [], [], 0
     for path in sources(repo):
         rel = path.relative_to(repo).as_posix()
+        if illustration(rel):
+            shown += 1
+            continue
         text = path.read_text()
         decorated = {ln.strip() for ln in text.splitlines() if ln.lstrip().startswith("@")}
+        for pattern, kind in DECLARES_FRAGMENT:
+            for key in re.findall(pattern, text):
+                k, _ = normalise(kind, key)
+                if k and k not in DEGENERATE:
+                    fragments.append({"kind": kind, "key": k, "file": rel})
         for pattern, kind in DECLARES:
             for key in re.findall(pattern, text):
                 k, _ = normalise(kind, key)
-                if k not in DEGENERATE:
+                if k and k not in DEGENERATE:
                     # A route declared inside test ground is a stand-in for a
                     # service this repository talks to, not something this
                     # repository offers. On a real estate the orders service
@@ -692,23 +776,48 @@ def facts(repo):
             for pattern, kind in USES:
                 for key in re.findall(pattern, line):
                     k, host = normalise(kind, key)
-                    if k not in DEGENERATE:
-                        uses.append({"kind": kind, "key": k, "file": rel, "host": host})
+                    if k and k not in DEGENERATE:
+                        uses.append({"kind": kind, "key": k, "file": rel, "host": host,
+                                     "base": key.rstrip('"\'').endswith("/"),
+                                     "in test": is_test(rel, repo)})
     for path in unread_sources(repo):
         rel = path.relative_to(repo).as_posix()
+        if illustration(rel):
+            shown += 1
+            continue
         try:
             text = path.read_text(errors="ignore")
         except OSError:
             continue
+        prefixes = {m for pat in GROUPS for m in re.findall(pat, text)}
+        for n, (pattern, kind) in enumerate(USES_TEXT):
+            for line in text.splitlines():
+                for key in re.findall(pattern, line):
+                    k, host = normalise(kind, key)
+                    if k and k not in DEGENERATE:
+                        uses.append({"kind": kind, "key": k, "file": rel, "host": host,
+                                     "read": "text", "in test": is_test(rel, repo),
+                                     "base": n == BASE_PATTERN or key.endswith("/")})
+        # A forwarder is both ends at once: it offers a path and says which
+        # service the call is handed to, which is the one thing a key never says.
+        for local, host, remote in re.findall(
+                r'\.MapForwarder\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"', text):
+            k, _ = normalise("http", remote)
+            if k and k not in DEGENERATE:
+                uses.append({"kind": "http", "key": k, "file": rel,
+                             "host": host.split("//")[-1], "read": "text"})
         for pattern, kind in DECLARES_TEXT:
             for key in re.findall(pattern, text):
-                k, _ = normalise(kind, key)
-                if k in DEGENERATE:
-                    continue
-                (stands_in if is_test(rel, repo) else declares).append(
-                    {"kind": kind, "key": k, "file": rel, "read": "text"})
+                for full in ({key} if not prefixes or key.startswith(("http", "//"))
+                             else {p.rstrip("/") + "/" + key.lstrip("/") for p in prefixes}):
+                    k, _ = normalise(kind, full)
+                    if not k or k in DEGENERATE:
+                        continue
+                    (stands_in if is_test(rel, repo) else declares).append(
+                        {"kind": kind, "key": k, "file": rel, "read": "text"})
     return {"repo": repo.name, "declares": declares, "uses": uses,
-            "stands in for": stands_in}
+            "stands in for": stands_in, "fragments": fragments,
+            "illustrations": shown}
 
 
 def observed(path):
@@ -728,6 +837,38 @@ def observed(path):
     return out
 
 
+def covers(offered, consumed, consumed_is_base=False):
+    """Whether the offered route covers the call, the way a router would.
+
+    Matching is directional. A route is a pattern and a call is a path: the
+    pattern's parameters match whatever the caller put there, and the caller's
+    literals match nothing but themselves. Letting both sides wildcard made
+    `/{}/{}/subscriptions` cover `/user/orgs` and joined twenty-six unrelated
+    calls to one service.
+
+    The one case where a call may be shorter than the route it reaches is a
+    base — a prefix the caller keeps and joins fragments to. A base is visible
+    in the source: it ends in a separator, or it is held in a field named for
+    one. Then, and only then, the comparison runs the other way, and it runs on
+    literals alone.
+    """
+    o = [p for p in offered.strip("/").split("/") if p]
+    c = [p for p in consumed.strip("/").split("/") if p]
+    if not any(seg != "{}" for seg in o):
+        # A route that is nothing but parameters — `/{customerId}` — matches
+        # every call of one segment. It is degenerate for the same reason `/`
+        # is: matching everything says nothing about who offers what.
+        return False
+    if len(o) <= len(c):
+        if any(x != y and x != "{}" for x, y in zip(o, c)):
+            return False
+        rest = c[len(o):]
+        return len(o) >= 2 or all(seg == "{}" for seg in rest)
+    if not consumed_is_base:
+        return False
+    return len(c) >= 2 and all(x == y for x, y in zip(c, o))
+
+
 def contracts(where, telemetry=None):
     all_facts = [facts(r) for r in sorted(pathlib.Path(where).iterdir()) if r.is_dir()]
     seen = observed(telemetry)
@@ -736,7 +877,7 @@ def contracts(where, telemetry=None):
         for d in f["declares"]:
             offered.setdefault((d["kind"], d["key"]), []).append((f["repo"], d["file"]))
     edges, unconsumed, unmatched = [], [], []
-    consumed = set()
+    consumed, internal = set(), 0
     for f in all_facts:
         for u in f["uses"]:
             k = (u["kind"], u["key"])
@@ -745,14 +886,42 @@ def contracts(where, telemetry=None):
             # answers GET and POST on the same path look like two services
             # claiming it, and downgraded a sound edge to an ambiguous one.
             producers = sorted({p[0] for p in offered.get(k, [])} - {f["repo"]})
+            near = None
             if not producers:
+                # No exact key. The router the estate actually runs matches a
+                # prefix, so this looks for the same thing rather than calling
+                # the dependency absent.
+                candidates = [(ok, sorted({p[0] for p in who} - {f["repo"]}))
+                              for (okind, ok), who in offered.items()
+                              if okind == u["kind"]
+                              and covers(ok, u["key"], u.get("base", False))]
+                candidates = [(ok, reps) for ok, reps in candidates if reps]
+                if candidates:
+                    near, producers = min(candidates, key=lambda c: len(c[0]))
+                    near = (near, len(candidates))
+            if not producers:
+                if any(p[0] == f["repo"] for p in offered.get(k, [])) or any(
+                        covers(ok, u["key"], u.get("base", False))
+                        and f["repo"] in {p[0] for p in who}
+                        for (okind, ok), who in offered.items() if okind == u["kind"]):
+                    # A repository calling a route it offers itself is not a
+                    # contract crossing a boundary, and reporting it as pointing
+                    # outside the estate buried the calls that really do.
+                    internal += 1
+                    continue
                 unmatched.append({"consumer": f["repo"], "file": u["file"], **u})
                 continue
-            consumed.add(k)
+            consumed.add(k if near is None else (u["kind"], near[0]))
             confirmed = (f["repo"], u["kind"], u["key"]) in seen
             agrees = u.get("host") and u["host"] == producers[0]
             if confirmed:
                 conf, how = "high", "seen in traffic"
+            elif near is not None:
+                route, many = near
+                conf, how = "low", (
+                    f"no repository offers this key; {producers[0]} offers {many} route(s) "
+                    f"that cover it, {route} among them" if many > 1 else
+                    f"no repository offers this key; the route {route} covers it")
             elif len(producers) > 1:
                 conf, how = "low", ("this key is offered by " + ", ".join(producers)
                                     + ", and which one it reaches is not derivable here")
@@ -760,6 +929,12 @@ def contracts(where, telemetry=None):
                 conf, how = "medium", "the key matches and the address names the same repository"
             else:
                 conf, how = "medium", "one repository offers this key"
+            if u.get("in test") and not confirmed:
+                # A URL written in a test is as likely to name a fixture as a
+                # service: a unit test hitting its own application on /settings
+                # was joined to another repository that happens to offer one.
+                conf = "low"
+                how += "; the call is made from the consumer's own test ground"
             edges.append({
                 "from": f["repo"], "to": producers[0], "kind": u["kind"], "key": u["key"],
                 # Which of several offerers a call reaches is not decidable from
@@ -808,7 +983,9 @@ def contracts(where, telemetry=None):
     surprises = [s for s in seen
                  if not any(e["from"] == s[0] and e["kind"] == s[1] and e["key"] == s[2]
                             for e in edges)]
-    return edges, unconsumed, unmatched, surprises, fakes
+    loose = [{"repo": f["repo"], **d} for f in all_facts for d in f["fragments"]]
+    shown = sum(f["illustrations"] for f in all_facts)
+    return edges, unconsumed, unmatched, surprises, fakes, internal, loose, shown
 
 
 # ------------------------------------------------------------- in flight
@@ -886,7 +1063,7 @@ def reachability(where, region, telemetry=None):
     base = pathlib.Path(where)
     reps = [r for r in sorted(base.iterdir()) if r.is_dir()]
     known = {r.name for r in reps}
-    edges, _, unmatched, surprises, _fakes = contracts(where, telemetry)
+    edges, _, unmatched, surprises, *_rest = contracts(where, telemetry)
     offers = []
     for r in reps:
         if region and not (r.name == region or str(r).endswith(region)):
@@ -997,7 +1174,8 @@ def main(argv):
         return 0
     if cmd == "contracts" and args:
         tel = args[1] if len(args) > 1 else None
-        edges, unconsumed, unmatched, surprises, fakes = contracts(args[0], tel)
+        edges, unconsumed, unmatched, surprises, fakes, internal, loose, shown = \
+            contracts(args[0], tel)
         for e in edges:
             print(f"  {e['confidence']:>6}  {e['from']} → {e['to']}  "
                   f"{e['kind']} {e['key']}  ({e['how']})")
@@ -1016,6 +1194,18 @@ def main(argv):
                   f"by nothing — the estate does not know about one side")
         print(f"  {len(edges)} edge(s) joined, {len(unmatched)} consumer(s) pointing outside, "
               f"{len(unconsumed)} offer(s) nobody takes, {len(surprises)} surprise(s)")
+        if shown:
+            print(f"  {shown} file(s) of documentation, examples and fixtures were not "
+                  f"read: a route in a snippet is written to be read, not deployed")
+        if internal:
+            print(f"  {internal} call(s) go to routes the calling repository offers "
+                  f"itself and cross no boundary")
+        if loose:
+            byrepo = Counter(f["repo"] for f in loose)
+            print(f"  {len(loose)} route(s) are declared as fragments assembled at import "
+                  f"time (" + ", ".join(f"{r} {n}" for r, n in byrepo.most_common(4))
+                  + "); this index does not resolve them into paths, so what they offer "
+                  f"is unread rather than absent")
         loose = [f for f in fakes if not f["to"]]
         for f in loose:
             print(f"     low  {f['repo']} → ?  {f['kind']} {f['key']}  a stand-in for it is "
