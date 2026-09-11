@@ -210,6 +210,9 @@ def cr_012_10():
         (d / "svc" / "tests").mkdir()
         (d / "svc" / "tests" / "test_it.py").write_text(
             '@mock.patch("svc.clusters.cluster.get_local_nodes")\ndef t(): ...\n')
+        (d / "svc" / "fixtures").mkdir()
+        (d / "svc" / "fixtures" / "fake_other.py").write_text(
+            '@app.route("/other/thing")\ndef t(): ...\n')
         (d / "svc" / "docs").mkdir()
         (d / "svc" / "docs" / "onboarding.go").write_text('r.GET("/foo", handler)\n')
         (d / "caller").mkdir()
@@ -221,6 +224,9 @@ def cr_012_10():
             return "a route in a documentation snippet was read as an offer"
         if "not read" not in out:
             return "documentation and examples were skipped without saying so"
+        if "/other/thing" not in out:
+            return ("a fake of another service kept as a fixture was read as an "
+                    "illustration and dropped, losing the dependency it evidences")
     return None
 
 

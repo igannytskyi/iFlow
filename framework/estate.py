@@ -494,8 +494,11 @@ AMBIGUOUS_DIRS = {"test", "testing"}
 # declaration it makes the service offer `/foo` to anyone who asks — and
 # something in the estate always asks. What is written to be read is not what
 # is deployed.
+# Fixtures and mocks were here once and did not belong: a fake of another
+# service is not an illustration of one, it is the plainest evidence that this
+# repository calls it. Dropping them lost every stand-in a real estate keeps.
 ILLUSTRATION = {"docs", "doc", "examples", "example", "samples", "sample",
-                "fixtures", "mocks", "snippets", "gettingstarteddocs", "templates"}
+                "snippets", "gettingstarteddocs", "templates"}
 
 
 def illustration(rel):
@@ -1165,10 +1168,13 @@ def contracts(where, telemetry=None):
     # nobody writes a fake of a service they do not call. It is the weakest
     # ground for an edge and says so, but a dependency stated nowhere else is
     # worth more reported weakly than dropped.
-    fakes = []
+    fakes, already = [], set()
     for f in all_facts:
         for d in f["stands in for"]:
             k = (d["kind"], d["key"])
+            if (f["repo"], k) in already:       # one fake written twice is one fake
+                continue
+            already.add((f["repo"], k))
             producers = sorted({p[0] for p in offered.get(k, [])} - {f["repo"]})
             row = {"repo": f["repo"], "to": producers[0] if producers else None, **d}
             fakes.append(row)
