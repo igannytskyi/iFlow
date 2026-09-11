@@ -126,6 +126,46 @@ def named_by(paths, repo=None):
     return out
 
 
+def importers(repo=None):
+    """Which file imports which, as a map. Derived: an import is written down."""
+    repo = repo or ROOT
+    by_module = {}
+    for path in sources(repo):
+        by_module[path.stem] = path.relative_to(repo).as_posix()
+    edges = defaultdict(set)
+    for path in sources(repo):
+        rel = path.relative_to(repo).as_posix()
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                mod = getattr(node, "module", None) or ""
+                names = [mod.split(".")[-1]] if mod else [a.name.split(".")[0]
+                                                          for a in node.names]
+                for n in names:
+                    if n in by_module and by_module[n] != rel:
+                        edges[by_module[n]].add(rel)
+    return edges
+
+
+def transitive(seeds, repo=None):
+    """Reach is not one hop. Reporting only the files that touch a change
+    directly understates the blast radius, and understating it is the dangerous
+    direction: what is not reported is what nobody re-tests."""
+    edges = importers(repo)
+    seen, frontier, hops = set(seeds), list(seeds), {s: 0 for s in seeds}
+    while frontier:
+        cur = frontier.pop()
+        for nxt in edges.get(cur, ()):
+            if nxt not in seen:
+                seen.add(nxt)
+                hops[nxt] = hops[cur] + 1
+                frontier.append(nxt)
+    return {f: h for f, h in hops.items() if f not in seeds}
+
+
 def affects(paths, repo=None):
     """What a change to these paths reaches, and how far to trust each answer."""
     repo = repo or ROOT
@@ -202,8 +242,13 @@ def main(argv):
         named = named_by(args)
         for row in named:
             print(f"  {row['confidence']:>6}  {row['file']}  {row['how']}")
+        direct = {r["file"] for r in out} | {r["file"] for r in named}
+        far = transitive(direct | {pathlib.Path(a).as_posix() for a in args})
+        for f, hops in sorted(far.items(), key=lambda kv: (kv[1], kv[0])):
+            print(f"     low  {f}  through {hops} import(s)")
         blind = sum(r["occurrences"] for r in unknown())
-        print(f"  {len(out)} reached through code, {len(named)} that only name it as text.")
+        print(f"  {len(out)} reached through code, {len(named)} that only name it as "
+              f"text, {len(far)} further through imports.")
         print(f"  {blind} call(s) this index cannot resolve at all, so neither figure "
               f"is a floor or a ceiling — it is what one parser could see.")
         return 0
