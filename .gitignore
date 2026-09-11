@@ -26,3 +26,6 @@ docs/links.md
 # the repository is a second copy of what the escalation ledger already
 # computes from the changes in flight.
 BACKLOG.md
+
+# Derived state, rebuilt from the code whenever the code moves.
+.estate/

@@ -543,6 +543,34 @@ def conflicts(where, paths):
     return out
 
 
+def reachability(where, region, telemetry=None):
+    """Who consumes what this region offers, and which of them no change reaches.
+
+    A consumer inside the estate can be changed with the offer. One outside it —
+    an application already installed, another organization, a caller seen in
+    traffic and belonging to no repository here — cannot. Knowing that before
+    any work is done is what makes a contract change knowably unfinishable
+    without a person, rather than a surprise at the end.
+    """
+    base = pathlib.Path(where)
+    reps = [r for r in sorted(base.iterdir()) if r.is_dir()]
+    known = {r.name for r in reps}
+    edges, _, unmatched, surprises = contracts(where, telemetry)
+    offers = []
+    for r in reps:
+        if region and not (r.name == region or str(r).endswith(region)):
+            continue
+        for d in facts(r)["declares"]:
+            takers = [e["from"] for e in edges
+                      if e["to"] == r.name and e["kind"] == d["kind"]
+                      and e["key"] == d["key"]]
+            outside = [s[0] for s in surprises
+                       if s[1] == d["kind"] and s[2] == d["key"] and s[0] not in known]
+            offers.append({"repo": r.name, **d, "taken by": takers,
+                           "beyond reach": outside})
+    return offers, unmatched
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__.strip())
@@ -611,6 +639,23 @@ def main(argv):
         print(f"  {len(rederived)} of {total} region(s) had moved; the rest were not "
               f"looked at again")
         return 0
+    if cmd == "reachability" and len(args) >= 2:
+        tel = args[2] if len(args) > 2 else None
+        offers, unmatched = reachability(args[0], args[1], tel)
+        for o in offers:
+            takers = ", ".join(o["taken by"]) or "nobody in the estate"
+            print(f"  {o['repo']} offers {o['kind']} {o['key']} — taken by {takers}")
+            for who in o["beyond reach"]:
+                print(f"    beyond reach  {who}  belongs to no repository here, so no "
+                      f"change reaches it")
+        for u in unmatched:
+            if u["consumer"] == args[1]:
+                print(f"    beyond reach  {u['key']}  this region consumes something the "
+                      f"estate does not offer")
+        blocked = sum(len(o["beyond reach"]) for o in offers)
+        print(f"  {len(offers)} offer(s); {blocked} consumer(s) no change can reach"
+              if offers else "  this region offers nothing across a boundary")
+        return 0
     if cmd == "freshness":
         rows = freshness(args[0] if args else None)
         for r in rows:
@@ -632,4 +677,3 @@ def main(argv):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
-# a comment

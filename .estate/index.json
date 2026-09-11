@@ -46,7 +46,7 @@
   "when": "2026-09-10"
  },
  "framework/estate.py": {
-  "commit": "6301dcd",
+  "commit": "6458ffb",
   "symbols": [
    "affects",
    "cached",

@@ -120,6 +120,8 @@ What every word in the method means, in a sentence or two. Grouped by kind, alph
 
 **Tenure** — the accumulated, largely unspoken familiarity a person builds with a system by working in it for years. What made large systems tractable before, what agents cannot inherit, and what this method exists to replace.
 
+**Freshness** — whether what a region was derived from is still what last touched it. Measured per region, never per repository: an index is never wholly fresh or wholly stale, and treating it as either is how a model comes to be trusted about ground that moved under it.
+
 **Validity** — until when a statement holds, and what ends it. Evidence has a shelf life because the ground it was obtained against moves.
 
 ---
@@ -153,6 +155,8 @@ estate.py contracts <dir>     what crosses between repositories, and on what bas
 estate.py observe <path> <cmd> run it and see which lines actually ran
 estate.py inflight <dir>      what unfinished work already holds
 estate.py conflicts <dir> <p> who already holds this ground, and on what footing
+estate.py refresh             derive again only what moved
+estate.py reachability <d> <r> who consumes this, and who no change reaches
 
 check.py changes/<slug>     one change, against every rule
 check.py --status [dir]     every change: how far it got, what holds it, what it owes
