@@ -29,14 +29,48 @@ def by_extension():
     return claimed
 
 
+_peeked = {}
+
+
+def claims(path):
+    """Which reader takes this file.
+
+    The extension decides it, except where there is none: a deploy script, a
+    release step, the thing a pipeline runs are written as `bin/deploy` with
+    the language on the first line. Reading that line is the difference
+    between an estate whose scripts are part of it and one where they are not.
+    """
+    path = pathlib.Path(path)
+    known = by_extension()
+    if path.suffix in known:
+        return known[path.suffix]
+    if path.suffix:
+        return None
+    key = str(path)
+    if key not in _peeked:
+        try:
+            with open(path, "r", errors="replace") as f:
+                alias = treesitter.shebang(f.read(200))
+        except OSError:
+            alias = None
+        _peeked[key] = alias
+    alias = _peeked[key]
+    return known.get(alias) if alias else None
+
+
 def readable(path):
-    return pathlib.Path(path).suffix in by_extension()
+    return claims(path) is not None
 
 
 def read(rel, text):
     """What this file defines, refers to and imports — or nothing at all, if no
     reader here can read it."""
-    reader = by_extension().get(pathlib.Path(rel).suffix)
+    known = by_extension()
+    suffix = pathlib.Path(rel).suffix
+    reader = known.get(suffix)
+    if reader is None and not suffix:
+        alias = treesitter.shebang(text)
+        reader, rel = known.get(alias), rel + (alias or "")
     if reader is None:
         return [], [], []
     return reader.read(rel, text)

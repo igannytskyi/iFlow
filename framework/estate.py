@@ -235,9 +235,8 @@ def coverage_note(repo=None):
 def sources(repo):
     """Every file some installed reader can read. Which files those are is not
     a constant here: it is whatever is installed beside the readers."""
-    known = readers.by_extension()
     for p in sorted(repo.rglob("*")):
-        if p.suffix not in known or not p.is_file() or outside(p, repo):
+        if not p.is_file() or outside(p, repo) or not readers.readable(p):
             continue
         yield p
 
@@ -510,6 +509,38 @@ def observability(path, repo=None):
 ENTRY_NAMES = {"main", "__main__", "index", "app", "cli", "server", "program",
                "setup", "manage", "conftest"}
 
+# Directories a framework loads from by name. Nothing imports a Rails model or
+# a migration: the framework finds the file because of where it sits. That is
+# not the same as nothing reaching it, and it is not the same as something
+# reaching it either — it is a third thing, and it is named as one.
+LOADED_BY_NAME = {"migrate", "migrations", "initializers", "models", "controllers",
+                  "jobs", "mailers", "channels", "helpers", "policies", "tasks",
+                  "middleware", "plugins", "hooks", "seeds", "steps"}
+
+
+def named_in_text(repo, targets):
+    """Which files name these ones as text rather than reaching them in code.
+
+    A Sphinx configuration says `pygments_style = "flask_theme_support.FlaskyStyle"`
+    and a framework loads what that string names. The edge is real, the reader
+    is a regular expression, and both facts are reported.
+    """
+    if not targets:
+        return {}
+    want = {t: re.compile(r"\b" + re.escape(pathlib.PurePosixPath(t).stem) + r"\b")
+            for t in targets if len(pathlib.PurePosixPath(t).stem) >= 5}
+    found = defaultdict(set)
+    for path in sources(repo):
+        rel = path.relative_to(repo).as_posix()
+        try:
+            text = path.read_text(errors="ignore")
+        except OSError:
+            continue
+        for target, pattern in want.items():
+            if target != rel and pattern.search(text):
+                found[target].add(rel)
+    return found
+
 
 def coverage(repo=None):
     """The share of files something else in this estate is known to reach.
@@ -551,12 +582,17 @@ def coverage(repo=None):
     # neither is written down anywhere a reader could follow. Saying which is
     # which is the difference between a frontier and a defect.
     by_runner = [f for f in rest if is_test(f, repo)]
-    entries = [f for f in rest if f not in by_runner
-               and (pathlib.PurePosixPath(f).stem in ENTRY_NAMES
-                    or "main" in where.get(f, ()))]
-    nothing = [f for f in rest if f not in by_runner and f not in entries]
+    left = [f for f in rest if f not in by_runner]
+    entries = [f for f in left if pathlib.PurePosixPath(f).stem in ENTRY_NAMES
+               or "main" in where.get(f, ())]
+    left = [f for f in left if f not in entries]
+    loaded = [f for f in left
+              if any(part in LOADED_BY_NAME for part in pathlib.PurePosixPath(f).parts[:-1])]
+    left = [f for f in left if f not in loaded]
+    as_text = named_in_text(repo, left)
+    nothing = [f for f in left if f not in as_text]
     blind = unseen(repo)
-    convention = len(covered) + len(by_runner) + len(entries)
+    convention = len(covered) + len(by_runner) + len(entries) + len(loaded) + len(as_text)
     return {"files that define anything": len(bearing),
             "reached by something else": len(covered),
             "coverage": round(100.0 * len(covered) / len(bearing), 1) if bearing else 0.0,
@@ -564,6 +600,8 @@ def coverage(repo=None):
                 round(100.0 * convention / len(bearing), 1) if bearing else 0.0,
             "reached by a runner": len(by_runner),
             "entry points": len(entries),
+            "loaded by name": len(loaded),
+            "named only as text": len(as_text),
             "unreached": nothing,
             "unread files": sum(blind.values()),
             "provenance": "derived", "confidence": "medium",
@@ -1404,9 +1442,13 @@ def main(argv):
         print(f"  {c['reached by something else']} of {c['files that define anything']} "
               f"file(s) that define anything are reached by something else here — "
               f"{c['coverage']}%")
-        print(f"  {c['reached by a runner']} more are test ground a runner finds by name "
-              f"and {c['entry points']} name an entry point; counting those, "
-              f"{c['counting what a convention reaches']}%")
+        for how, n in (("test ground a runner finds by name", c["reached by a runner"]),
+                       ("an entry point", c["entry points"]),
+                       ("where a framework loads by name", c["loaded by name"]),
+                       ("named as text and nowhere else", c["named only as text"])):
+            if n:
+                print(f"  {n} more are {how}")
+        print(f"  counting those, {c['counting what a convention reaches']}%")
         print(f"  {c['caveat']}")
         print(coverage_note())
         return 0
@@ -1416,6 +1458,7 @@ def main(argv):
         blind = sorted(UNREADABLE - set(readers.by_extension()))
         print(f"  {len(readers.by_extension())} extension(s) read here; "
               f"{len(blind)} known and unread ({' '.join(blind)})")
+        print("  a file with no extension is read by what its first line says it is")
         print("  a language nothing here reads is reported unseen, never absent — "
               "install a grammar beside the readers and it moves into the count above")
         return 0

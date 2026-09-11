@@ -14,3 +14,12 @@ tree-sitter-javascript
 tree-sitter-rust
 tree-sitter-ruby
 tree-sitter-php
+tree-sitter-c
+tree-sitter-cpp
+tree-sitter-kotlin
+tree-sitter-scala
+tree-sitter-swift
+# Scripts are code an estate runs: a deploy step, a migration, what a pipeline
+# calls. A file with no extension is read by what its first line says it is.
+tree-sitter-bash
+tree-sitter-powershell

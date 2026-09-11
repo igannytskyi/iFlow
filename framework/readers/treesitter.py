@@ -46,7 +46,34 @@ GRAMMARS = {
     ".kt": ("tree_sitter_kotlin", "language"),
     ".swift": ("tree_sitter_swift", "language"),
     ".scala": ("tree_sitter_scala", "language"),
+    # Scripts are code an estate runs and nothing else reads: a deploy step, a
+    # migration, the thing a pipeline calls. Left unread they are the part of
+    # an estate that changes silently.
+    ".sh": ("tree_sitter_bash", "language"),
+    ".bash": ("tree_sitter_bash", "language"),
+    ".zsh": ("tree_sitter_bash", "language"),
+    ".ps1": ("tree_sitter_powershell", "language"),
+    ".psm1": ("tree_sitter_powershell", "language"),
+    ".psd1": ("tree_sitter_powershell", "language"),
 }
+
+# A shell script is often written with no extension at all — `bin/deploy`,
+# `scripts/release`. What it is is written on its first line.
+SHEBANG = {"sh": ".sh", "bash": ".sh", "zsh": ".sh", "dash": ".sh", "ksh": ".sh",
+           "python": ".py", "python3": ".py", "ruby": ".rb", "node": ".js",
+           "pwsh": ".ps1"}
+
+
+def shebang(text):
+    """The extension a file without one would have had, read off its first line."""
+    first = text[:200].splitlines()[0] if text[:200].strip() else ""
+    if not first.startswith("#!"):
+        return None
+    words = first[2:].replace("/", " ").split()
+    for word in reversed(words):
+        if word in SHEBANG:
+            return SHEBANG[word]
+    return None
 
 _loaded = {}
 _missing = set()
@@ -118,11 +145,21 @@ DEFINES = ("function", "method", "class", "struct", "interface", "trait", "enum"
            "module", "constructor", "record", "protocol", "object_declaration",
            "type_alias", "namespace_definition", "package_declaration")
 NOT_DEFINES = ("call", "invocation", "expression", "type", "parameter", "argument")
-CALLS = ("call", "invocation", "object_creation", "new_expression")
+CALLS = ("call", "invocation", "object_creation", "new_expression", "command")
+# A node type that merely contains one of those words as a part: the name of a
+# call is not a call, and its argument list is not one either.
+NOT_CALLS = ("name", "argument", "element", "sep", "list", "chain", "clause",
+             "body", "parameter", "declarator", "substitution")
+# What a type says about where it came from. A class naming its parent depends
+# on it as plainly as a call does, and in framework code it is often the only
+# dependency there is: nothing calls a Rails model, it inherits from one.
+INHERITS = ("superclass", "heritage", "extends", "implements", "base_list",
+            "inherit", "super_interfaces", "supertypes", "derive", "impl_item")
 IMPORTS = ("import", "use_declaration", "namespace_use_clause", "using_directive",
            "preproc_include", "include_statement")
 # Ruby writes its imports as ordinary calls, and so do several others.
-IMPORTING_CALLS = {"require", "require_relative", "load", "include_once", "import"}
+IMPORTING_CALLS = {"require", "require_relative", "load", "include_once", "import",
+                   "source", ".", "import-module", "using", "dofile"}
 IDENT = ("identifier", "name", "constant", "word")
 # Words a grammar leaves in the callee position that name nothing.
 # `require` and `import` are left out on purpose: where a grammar puts them in
@@ -130,6 +167,10 @@ IDENT = ("identifier", "name", "constant", "word")
 # them as one.
 KEYWORDS = {"new", "self", "this", "super", "return", "await", "yield",
             "typeof", "delete"}
+# The words a grammar leaves inside an inheritance clause that name no type.
+INHERIT_WORDS = {"extends", "implements", "impl", "for", "where", "class",
+                 "interface", "public", "private", "protected", "abstract",
+                 "sealed", "final", "static", "override", "open", "data"}
 
 
 def _name_of(node):
@@ -159,34 +200,66 @@ def _callee(node):
               or node.child_by_field_name("type")
               or node.child_by_field_name("name"))
     if target is None:
-        target = next((c for c in node.children if c.is_named), None)
+        target = next((c for c in node.children if c.is_named
+                       and c.type not in ("comment",)), None)
     if target is None:
-        return None, "name"
-    text = target.text.decode("utf-8", "replace")
+        return None, "name", ""
+    raw = target.text.decode("utf-8", "replace").strip()
+    if raw in (".", "&") or target.type.endswith("operator"):
+        # A shell dot-sources a file with an operator where other languages
+        # write a keyword. What it runs is the next thing along.
+        after = [c for c in node.children if c.is_named and c is not target]
+        raw = after[0].text.decode("utf-8", "replace").strip() if after else raw
+        return raw.strip('"\'`'), "name", "."
+    text = raw
     # A grammar that keeps the receiver in its own field says the same thing a
     # separator says in the text: this call goes through something whose type
     # is not known here.
     through = any(node.child_by_field_name(f) is not None
                   for f in ("object", "receiver", "operand", "instance"))
     qualified = through or any(sep in text for sep in (".", "::", "->", "\\"))
-    tail = re.split(r"\.|::|->|\\", text)[-1].strip()
+    if target.type.startswith("command_name") or node.type == "command":
+        qualified = False        # a shell names what it runs; nothing is behind it
+    tail = text if node.type == "command" else re.split(r"\.|::|->|\\", text)[-1]
+    tail = tail.strip().strip('"\'`')
     if not tail or not (tail[0].isalpha() or tail[0] == "_") or tail in KEYWORDS:
-        return None, "name"
-    return tail, ("attribute" if qualified else "name")
+        return None, "name", raw
+    return tail, ("attribute" if qualified else "name"), raw
+
+
+def _argument(node, callee):
+    """What an import was given. Grammars name that child every way there is —
+    a field called arguments, one called argument, a list of elements, or
+    simply whatever follows the word."""
+    for field in ("arguments", "argument", "value", "name"):
+        got = node.child_by_field_name(field)
+        if got is not None and got.text.decode("utf-8", "replace").strip() != callee:
+            return got.text.decode("utf-8", "replace")
+    rest = [c for c in node.children if c.is_named
+            and c.text.decode("utf-8", "replace").strip() != callee]
+    return rest[-1].text.decode("utf-8", "replace") if rest else ""
 
 
 def _module(text):
-    """The part of an import that can be matched against a file: its last
-    segment. A path, a dotted package and a scoped namespace all end in the
-    name of the thing being imported."""
+    """The part of an import that can be matched against a file.
+
+    A path and a dotted module end differently: `./lib/common.sh` names the
+    file `common` and `Az.Storage` names the module `Storage`. Splitting both
+    on every separator at once made the first one name the extension.
+    """
     text = text.strip().strip(";").strip()
     for word in ("import", "use", "using", "require_relative", "require", "from",
-                 "include", "#include"):
-        if text.startswith(word + " "):
+                 "include", "#include", "source", "Import-Module"):
+        if text.lower().startswith(word.lower() + " "):
             text = text[len(word) + 1:]
-    text = text.strip().strip('"\'`<>;')
-    tail = re.split(r"[/\\.:]+", text.split(" as ")[0].split("{")[0])[-1]
-    return tail.strip() or None
+    text = text.strip().strip('"\'`<>;,()').split(" as ")[0].split("{")[0].strip()
+    text = text.strip('"\'`')
+    if not text:
+        return None
+    if any(sep in text for sep in ("/", "\\")) or text.startswith((".", "~", "$")):
+        tail = re.split(r"[/\\]+", text)[-1]
+        return (tail.rsplit(".", 1)[0] if "." in tail[1:] else tail).strip() or None
+    return re.split(r"[.:]+", text)[-1].strip() or None
 
 
 def read(rel, text):
@@ -206,11 +279,10 @@ def read(rel, text):
         kind = node.type
         if not node.is_named or node.child_count == 0:
             continue                    # a keyword is a token, not a statement
-        if any(k in kind for k in CALLS):
-            name, how = _callee(node)
-            if name in IMPORTING_CALLS:
-                arg = node.child_by_field_name("arguments")
-                mod = _module(arg.text.decode("utf-8", "replace")) if arg is not None else None
+        if any(k in kind for k in CALLS) and not any(k in kind for k in NOT_CALLS):
+            name, how, raw = _callee(node)
+            if (name or "").lower() in IMPORTING_CALLS or raw in IMPORTING_CALLS:
+                mod = _module(_argument(node, raw))
                 if mod:
                     calls.append((mod, "import"))
                 continue
@@ -218,6 +290,17 @@ def read(rel, text):
                 calls.append((name, how))
             else:
                 unresolved.append("a call through something with no name")
+        elif any(k in kind for k in INHERITS):
+            # Only the header. Rust writes the whole implementation inside the
+            # node that names the trait, and reading all of it would call every
+            # word in the body a type this file inherits from.
+            body = [c.start_byte for c in node.children
+                    if any(w in c.type for w in ("body", "block", "declaration_list"))]
+            head = node.text[:(min(body) - node.start_byte)] if body else node.text
+            for word in re.findall(r"[A-Za-z_][A-Za-z0-9_]*",
+                                   head.decode("utf-8", "replace")):
+                if word not in KEYWORDS and word not in INHERIT_WORDS:
+                    calls.append((word, "name"))
         elif any(k in kind for k in IMPORTS):
             mod = _module(node.text.decode("utf-8", "replace"))
             if mod:
