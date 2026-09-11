@@ -42,7 +42,9 @@ What every word in the method means, in a sentence or two. Grouped by kind, alph
 
 **ChangePlan** — the ordered phases realising one specification where they cannot all land at once, with the waits between them and a rollback position for each.
 
-**Conflict** — two units whose areas of effect intersect in a way that would invalidate the evidence of either. Found before work starts, not at merge.
+**Conflict** — two units whose areas of effect intersect in a way that would invalidate the evidence of either. Found before work starts, not at merge. Derived from what unfinished work already holds rather than asserted: two units declaring the same region collide weakly, one reaching into what the other holds collides more strongly.
+
+**In flight** — planned and not yet entered. An estate described only by what has landed describes the past, and a gate reading it decides against a world that has moved.
 
 **ContextBundle** — the knowledge handed to an executor for one unit. Assembled for that run and not reused.
 
@@ -149,6 +151,8 @@ estate.py freshness           what the answers were derived from, and when
 estate.py unknown             what the index cannot resolve at all
 estate.py contracts <dir>     what crosses between repositories, and on what basis
 estate.py observe <path> <cmd> run it and see which lines actually ran
+estate.py inflight <dir>      what unfinished work already holds
+estate.py conflicts <dir> <p> who already holds this ground, and on what footing
 
 check.py changes/<slug>     one change, against every rule
 check.py --status [dir]     every change: how far it got, what holds it, what it owes

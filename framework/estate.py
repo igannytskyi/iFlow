@@ -7,6 +7,8 @@ Usage: python3 framework/estate.py affects <path>...     what a change here reac
        python3 framework/estate.py unknown               what it could not resolve
        python3 framework/estate.py contracts <dir>       what crosses between repositories
        python3 framework/estate.py observe <path> <cmd>   run it and see what actually ran
+       python3 framework/estate.py inflight <dir>         what unfinished work already holds
+       python3 framework/estate.py conflicts <dir> <path> who already holds these paths
 
 Every answer carries where it came from and how far it is to be trusted. Nothing
 here is maintained: it is derived on demand from the code as it stands, and a
@@ -407,6 +409,69 @@ def contracts(where, telemetry=None):
     return edges, unconsumed, unmatched, surprises
 
 
+# ------------------------------------------------------------- in flight
+
+# An estate described only by what has landed describes the past. Two units can
+# each be sound against the code as it stands and unsound against each other,
+# and the moment to find that out is before either is started. Which means the
+# model must carry work that has not landed yet.
+#
+# This also removes a record: a conflict was written into the admission artefact
+# and nothing could check it. Now it is derived, and the writing down is a
+# report rather than a claim.
+
+
+def unfinished(where):
+    """Every unit that has been planned and has not entered, with what it holds."""
+    out = []
+    base = pathlib.Path(where)
+    for folder in sorted(base.iterdir()) if base.is_dir() else []:
+        if not folder.is_dir() or not (folder / "02-plan.md").exists():
+            continue
+        landed = set()
+        land = folder / "06-landing.md"
+        if land.exists():
+            for line in land.read_text().splitlines():
+                cells = [c.strip() for c in line.strip("|").split("|")]
+                if len(cells) > 5 and cells[1].startswith("WU-") and cells[4]:
+                    landed.add(cells[1])
+        for line in (folder / "02-plan.md").read_text().splitlines():
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if len(cells) > 4 and cells[0].startswith("WU-") and cells[0] not in landed:
+                out.append({"change": folder.name, "unit": cells[0],
+                            "holds": [p for p in cells[3].split() if p and p != "|"],
+                            "provenance": "attested", "confidence": "low",
+                            "how": "the plan says so; a scope is declared, not derived"})
+    return out
+
+
+def conflicts(where, paths):
+    """Who already holds these paths, and on what footing.
+
+    A declared scope is what someone wrote down. What that scope *reaches* is
+    computed. An intersection on the second is worth more than on the first,
+    and saying which is the difference between a warning and a fact.
+    """
+    wanted = {pathlib.Path(p).as_posix() for p in paths}
+    reached = {r["file"] for r in affects(sorted(wanted))} | {
+        r["file"] for r in named_by(sorted(wanted))}
+    out = []
+    for unit in unfinished(where):
+        held = set(unit["holds"])
+        direct = {h for h in held if any(h == w or w.startswith(h) or h.startswith(w)
+                                         for w in wanted)}
+        indirect = {h for h in held if any(f == h or f.startswith(h) for f in reached)}
+        if direct:
+            out.append({**unit, "on": sorted(direct), "confidence": "low",
+                        "how": "both declare the same region, and a declaration is "
+                               "what someone wrote down"})
+        elif indirect:
+            out.append({**unit, "on": sorted(indirect), "confidence": "medium",
+                        "provenance": "matched",
+                        "how": "what this change reaches runs into what that unit holds"})
+    return out
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__.strip())
@@ -453,6 +518,20 @@ def main(argv):
                   f"by nothing — the estate does not know about one side")
         print(f"  {len(edges)} edge(s) joined, {len(unmatched)} consumer(s) pointing outside, "
               f"{len(unconsumed)} offer(s) nobody takes, {len(surprises)} surprise(s)")
+        return 0
+    if cmd == "inflight" and args:
+        rows = unfinished(args[0])
+        for r in rows:
+            print(f"  {r['change']}/{r['unit']}  holds {', '.join(r['holds']) or '—'}")
+        print(f"  {len(rows)} unit(s) planned and not entered")
+        return 0
+    if cmd == "conflicts" and len(args) >= 2:
+        rows = conflicts(args[0], args[1:])
+        for r in rows:
+            print(f"  {r['confidence']:>6}  {r['change']}/{r['unit']}  on "
+                  f"{', '.join(r['on'])}  ({r['how']})")
+        print(f"  {len(rows)} unfinished unit(s) already hold this ground"
+              if rows else "  nothing unfinished holds this ground")
         return 0
     if cmd == "freshness":
         for r in freshness():
