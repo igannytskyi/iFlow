@@ -462,9 +462,49 @@ DECLARES = [
     (r'\bpublish(?:es)?\(\s*["\']([^"\']+)["\']', "event"),
 ]
 USES = [
-    (r'(?<!@)\b\w*\.?(?:get|post|put|patch|delete|request)\(\s*["\']([^"\']+)["\']', "http"),
+    # `get(` is not an HTTP verb. Reading it as one turned every environment
+    # lookup and dictionary access in a real estate into a consumed contract —
+    # PORT, timestamp, severity — and reported each as a dependency pointing
+    # outside. A use is one only where what is passed looks like an address.
+    (r'(?<!@)\b\w*\.?(?:get|post|put|patch|delete|request)\(\s*'
+     r'["\']((?:[a-z]+:)?//[^"\']+|/[^"\']*)["\']', "http"),
     (r'\bsubscribe(?:s)?\(\s*["\']([^"\']+)["\']', "event"),
 ]
+
+# Keys too generic to identify anything. A route of "/" is offered by most
+# services that offer anything, and joining on it says only that both sides
+# speak HTTP.
+DEGENERATE = {"/", "", "/*", "/health", "/healthz", "/ping", "/metrics"}
+
+# Ways one service reaches another that this index does not read. Naming them
+# matters more than the edges it does find: an estate bound together by gRPC
+# and reported as fifteen consumers pointing outside is not being described,
+# it is being misdescribed.
+OTHER_KINDS = [
+    (r"\.proto\b", "protocol buffers"),
+    (r"\b\w+ServiceStub\b|grpc\.", "gRPC"),
+    (r"\b[A-Z_]+_SERVICE_ADDR\b", "service addresses from the environment"),
+    (r"\bboto3\b|\bSQS\b|\bkafka\b|\bKafkaProducer\b", "queues and brokers"),
+]
+
+
+def other_kinds(where):
+    """Contract kinds present in this estate that this index does not read."""
+    found = {}
+    base = pathlib.Path(where)
+    for p in base.rglob("*"):
+        if not p.is_file() or p.suffix in {".png", ".jpg", ".pdf", ".lock"}:
+            continue
+        if any(part in OUTSIDE or part.startswith("_bmad") for part in p.parts):
+            continue
+        try:
+            text = p.read_text(errors="ignore")
+        except OSError:
+            continue
+        for pattern, name in OTHER_KINDS:
+            if re.search(pattern, text):
+                found[name] = found.get(name, 0) + 1
+    return found
 
 URL = re.compile(r'^(?:[a-z]+:)?//(?P<host>[^/]+)(?P<path>/.*)$')
 
@@ -492,14 +532,16 @@ def facts(repo):
         for pattern, kind in DECLARES:
             for key in re.findall(pattern, text):
                 k, _ = normalise(kind, key)
-                declares.append({"kind": kind, "key": k, "file": rel})
+                if k not in DEGENERATE:
+                    declares.append({"kind": kind, "key": k, "file": rel})
         for line in text.splitlines():
             if line.strip() in decorated:
                 continue
             for pattern, kind in USES:
                 for key in re.findall(pattern, line):
                     k, host = normalise(kind, key)
-                    uses.append({"kind": kind, "key": k, "file": rel, "host": host})
+                    if k not in DEGENERATE:
+                        uses.append({"kind": kind, "key": k, "file": rel, "host": host})
     return {"repo": repo.name, "declares": declares, "uses": uses}
 
 
@@ -718,9 +760,13 @@ def main(argv):
         for e in edges:
             print(f"  {e['confidence']:>6}  {e['from']} → {e['to']}  "
                   f"{e['kind']} {e['key']}  ({e['how']})")
+        blind_here = sum(unseen(pathlib.Path(args[0])).values())
         for u in unmatched:
-            print(f"     n/a  {u['consumer']} → ?  {u['kind']} {u['key']}  "
-                  f"nothing in the estate offers this, so it is outside it or missing from it")
+            why = ("nothing the index can read offers this — it may be offered by one of "
+                   f"the {blind_here} file(s) here it cannot read, or from outside the estate"
+                   if blind_here else
+                   "nothing in the estate offers this, so it is outside it or missing from it")
+            print(f"     n/a  {u['consumer']} → ?  {u['kind']} {u['key']}  {why}")
         for u in unconsumed:
             print(f"     n/a  {u['offered by']} offers {u['kind']} {u['key']} and nothing "
                   f"in the estate consumes it")
@@ -729,6 +775,13 @@ def main(argv):
                   f"by nothing — the estate does not know about one side")
         print(f"  {len(edges)} edge(s) joined, {len(unmatched)} consumer(s) pointing outside, "
               f"{len(unconsumed)} offer(s) nobody takes, {len(surprises)} surprise(s)")
+        others = other_kinds(args[0])
+        if others:
+            named = ", ".join(f"{k} ({n} file(s))" for k, n in
+                              sorted(others.items(), key=lambda kv: -kv[1]))
+            print(f"  and this estate is also bound together by {named}, which this index "
+                  f"does not read — those services are not unconnected, they are unexamined")
+        print(coverage_note(pathlib.Path(args[0])))
         return 0
     if cmd == "inflight" and args:
         rows = unfinished(args[0])

@@ -110,7 +110,7 @@ What every word in the method means, in a sentence or two. Grouped by kind, alph
 
 **Provenance** — where a statement came from: derived from an artefact, attested by a person, or produced by an agent.
 
-**Contract edge** — a join between one repository offering something — a route, an event, a queue — and another consuming it. Matched by the key both sides name, raised to certainty only by seeing it happen, and never derived: the key is often not a literal in either source.
+**Contract edge** — a join between one repository offering something — a route, an event, a queue — and another consuming it. Joined only on a key that identifies something: a route of `/` is offered by most services that offer anything, and matching on it says only that both speak the same protocol. Matched by the key both sides name, raised to certainty only by seeing it happen, and never derived: the key is often not a literal in either source.
 
 **Reach** — what a change touches, in grades rather than as one number. An import is written down and is the strongest; a call to a name only one thing answers to is weaker; a call on something whose type is unknown, or to a name several things answer to, is weaker still. All of them are reported. Omitting the weak ones understated reach by most of it on a real codebase, and what is not reported is what nobody re-tests.
 

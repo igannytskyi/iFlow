@@ -22,6 +22,8 @@ TESTS = {
     "CR-012-02": "direct",
     "CR-012-03": "direct",
     "CR-012-04": "direct",
+    "CR-012-05": "direct",
+    "CR-012-06": "direct",
 }
 
 
@@ -92,10 +94,40 @@ def cr_012_04():
     return None
 
 
+def cr_012_05():
+    """A key too generic to identify anything does not join two services."""
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp)
+        (d / "one").mkdir()
+        (d / "one" / "a.py").write_text('@app.route("/")\ndef root(): ...\n')
+        (d / "two").mkdir()
+        (d / "two" / "b.py").write_text('def hit(): requests.get("http://one/")\n')
+        if "one → " in run(d) or "two → " in run(d):
+            return "two services were joined on a key that identifies nothing"
+    return None
+
+
+def cr_012_06():
+    """An estate bound by something this index does not read says so."""
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp)
+        (d / "svc").mkdir()
+        (d / "svc" / "client.py").write_text(
+            "stub = RecommendationServiceStub(channel)\n")
+        (d / "svc" / "api.proto").write_text("service Recommendation {}\n")
+        out = run(d)
+        if "does not read" not in out:
+            return "a contract kind this index cannot read was not named"
+        if "not unconnected, they are unexamined" not in out:
+            return "silence about an unread contract kind was not distinguished from absence"
+    return None
+
+
 def main():
     failures = []
     for name, fn in (("CR-012-01", cr_012_01), ("CR-012-02", cr_012_02),
-                     ("CR-012-03", cr_012_03), ("CR-012-04", cr_012_04)):
+                     ("CR-012-03", cr_012_03), ("CR-012-04", cr_012_04), ("CR-012-05", cr_012_05),
+                     ("CR-012-06", cr_012_06)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:
