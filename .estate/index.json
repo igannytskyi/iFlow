@@ -1,0 +1,224 @@
+{
+ "framework/check.py": {
+  "commit": "e3c49fc",
+  "symbols": [
+   "Check",
+   "__init__",
+   "_choice_list",
+   "arbiter_changes_separate",
+   "arbiter_inputs",
+   "arbiters",
+   "candidates",
+   "candidates_stored",
+   "col",
+   "criteria_review",
+   "criteria_vocabulary",
+   "deferred_complete",
+   "digest",
+   "every_criterion_arbitrated",
+   "evidence_independence",
+   "evidence_plan",
+   "fail",
+   "headers_present",
+   "landing_backed",
+   "ledger",
+   "main",
+   "mutate",
+   "producer_command",
+   "producers",
+   "readmission_recorded",
+   "real",
+   "record_append_only",
+   "record_complete",
+   "refusals",
+   "repeatability",
+   "run",
+   "scope_arbiter_disjoint",
+   "scope_paths",
+   "spec_immutable",
+   "stage_order",
+   "status",
+   "tables",
+   "unused",
+   "verdict_coverage",
+   "vocabulary"
+  ],
+  "when": "2026-09-10"
+ },
+ "framework/estate.py": {
+  "commit": "6301dcd",
+  "symbols": [
+   "affects",
+   "cached",
+   "conflicts",
+   "contracts",
+   "facts",
+   "freshness",
+   "head",
+   "importers",
+   "index",
+   "last_touched",
+   "main",
+   "named_by",
+   "normalise",
+   "observability",
+   "observe",
+   "observed",
+   "refresh",
+   "repos",
+   "sources",
+   "transitive",
+   "unfinished",
+   "unknown"
+  ],
+  "when": "2026-09-11"
+ },
+ "framework/tests/harness.py": {
+  "commit": "e3c49fc",
+  "symbols": [
+   "add_escalation",
+   "build_change",
+   "build_repo",
+   "close_escalation",
+   "edit",
+   "gate",
+   "reseal",
+   "template_columns"
+  ],
+  "when": "2026-09-10"
+ },
+ "framework/tests/test_arbiter_acceptance.py": {
+  "commit": "4505993",
+  "symbols": [
+   "cr_005_01",
+   "cr_005_03",
+   "main"
+  ],
+  "when": "2026-09-10"
+ },
+ "framework/tests/test_arbiter_influence.py": {
+  "commit": "b0cd974",
+  "symbols": [
+   "cr_004_01",
+   "cr_004_02",
+   "cr_004_03",
+   "cr_004_04",
+   "main"
+  ],
+  "when": "2026-09-10"
+ },
+ "framework/tests/test_contracts.py": {
+  "commit": "29b277c",
+  "symbols": [
+   "build_estate",
+   "cr_012_01",
+   "cr_012_02",
+   "cr_012_03",
+   "cr_012_04",
+   "main",
+   "run"
+  ],
+  "when": "2026-09-11"
+ },
+ "framework/tests/test_criteria_technique.py": {
+  "commit": "b0cd974",
+  "symbols": [
+   "cr_010_01",
+   "cr_010_02",
+   "cr_010_03",
+   "main"
+  ],
+  "when": "2026-09-10"
+ },
+ "framework/tests/test_escalation_ledger.py": {
+  "commit": "b0cd974",
+  "symbols": [
+   "cr_007_01",
+   "cr_007_02",
+   "cr_007_03",
+   "ledger",
+   "main"
+  ],
+  "when": "2026-09-10"
+ },
+ "framework/tests/test_evidence_plan.py": {
+  "commit": "b0cd974",
+  "symbols": [
+   "cr_008_01",
+   "cr_008_02",
+   "cr_008_03",
+   "main"
+  ],
+  "when": "2026-09-10"
+ },
+ "framework/tests/test_human_control.py": {
+  "commit": "b0cd974",
+  "symbols": [
+   "cr_009_01",
+   "cr_009_02",
+   "cr_009_03",
+   "cr_009_04",
+   "main"
+  ],
+  "when": "2026-09-10"
+ },
+ "framework/tests/test_inflight.py": {
+  "commit": "6301dcd",
+  "symbols": [
+   "ask",
+   "cr_014_01",
+   "cr_014_02",
+   "cr_014_03",
+   "estate_with",
+   "main"
+  ],
+  "when": "2026-09-11"
+ },
+ "framework/tests/test_observability.py": {
+  "commit": "16d6228",
+  "symbols": [
+   "ask",
+   "build_region",
+   "cr_013_01",
+   "cr_013_02",
+   "cr_013_03",
+   "main"
+  ],
+  "when": "2026-09-11"
+ },
+ "framework/tests/test_repeatability.py": {
+  "commit": "ee7e592",
+  "symbols": [
+   "cr_006_01",
+   "cr_006_02",
+   "cr_006_03",
+   "cr_006_04",
+   "main"
+  ],
+  "when": "2026-09-10"
+ },
+ "framework/tests/test_row_filter.py": {
+  "commit": "b0cd974",
+  "symbols": [
+   "_gate_module",
+   "cr_002_01",
+   "cr_002_02",
+   "cr_002_03",
+   "main"
+  ],
+  "when": "2026-09-10"
+ },
+ "framework/tests/test_rules_enforced.py": {
+  "commit": "4505993",
+  "symbols": [
+   "cr_003_01",
+   "cr_003_02",
+   "cr_003_03",
+   "cr_003_04",
+   "main",
+   "rules",
+   "unenforced"
+  ],
+  "when": "2026-09-10"
+ }
+}

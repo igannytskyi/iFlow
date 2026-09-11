@@ -9,6 +9,7 @@ Usage: python3 framework/estate.py affects <path>...     what a change here reac
        python3 framework/estate.py observe <path> <cmd>   run it and see what actually ran
        python3 framework/estate.py inflight <dir>         what unfinished work already holds
        python3 framework/estate.py conflicts <dir> <path> who already holds these paths
+       python3 framework/estate.py reachability <dir> <p>  who consumes this, and who cannot be reached
 
 Every answer carries where it came from and how far it is to be trusted. Nothing
 here is maintained: it is derived on demand from the code as it stands, and a
@@ -48,6 +49,58 @@ def head(repo):
     r = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
                        capture_output=True, text=True)
     return r.stdout.strip() or "unversioned"
+
+
+def last_touched(repo, rel):
+    """The commit that last moved this file. The invalidation key: a region is
+    stale when what it was derived from is not what last touched it."""
+    r = subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%h %cs", "--", rel],
+                       capture_output=True, text=True)
+    parts = r.stdout.strip().split()
+    return (parts[0], parts[1]) if len(parts) == 2 else ("unversioned", "")
+
+
+CACHE = ".estate"
+
+
+def cached(repo):
+    p = repo / CACHE / "index.json"
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except json.JSONDecodeError:
+        return {}
+
+
+def refresh(repo=None):
+    """Re-derive what moved and nothing else.
+
+    This is what makes the index a cache rather than a corpus: it carries the
+    commit each region was derived from, and a region whose source has not
+    moved is not looked at again. A corpus would carry a date instead, and a
+    date cannot tell you whether anything changed.
+    """
+    repo = repo or ROOT
+    was, now, rederived = cached(repo), {}, []
+    for path in sources(repo):
+        rel = path.relative_to(repo).as_posix()
+        commit, when = last_touched(repo, rel)
+        if was.get(rel, {}).get("commit") == commit:
+            now[rel] = was[rel]
+            continue
+        rederived.append(rel)
+        try:
+            tree = ast.parse(path.read_text())
+            symbols = sorted({n.name for n in ast.walk(tree)
+                              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                                ast.ClassDef))})
+        except SyntaxError:
+            symbols = []
+        now[rel] = {"commit": commit, "when": when, "symbols": symbols}
+    (repo / CACHE).mkdir(exist_ok=True)
+    (repo / CACHE / "index.json").write_text(json.dumps(now, indent=1, sort_keys=True))
+    return rederived, len(now)
 
 
 # What is not the estate. A boundary nobody draws is a boundary that includes
@@ -276,9 +329,27 @@ def observe(path, command, repo=None):
             "caveat": "what one run reached, not what could be reached"}
 
 
-def freshness():
-    return [{"repo": r.name, "derived from": head(r), "files": sum(1 for _ in sources(r))}
-            for r in repos()]
+def freshness(region=None, repo=None):
+    """What each region was derived from, and whether that is still current.
+
+    Not one answer for a repository: an index is never wholly fresh or wholly
+    stale, and treating it as either is how a model comes to be trusted about
+    ground that moved under it.
+    """
+    repo = repo or ROOT
+    was = cached(repo)
+    rows = []
+    for path in sources(repo):
+        rel = path.relative_to(repo).as_posix()
+        if region and not rel.startswith(pathlib.Path(region).as_posix()):
+            continue
+        commit, when = last_touched(repo, rel)
+        known = was.get(rel, {}).get("commit")
+        rows.append({"region": rel, "derived from": known or "—", "last touched": commit,
+                     "when": when,
+                     "state": "fresh" if known == commit else
+                              ("never derived" if known is None else "stale")})
+    return rows
 
 
 def unknown(repo=None):
@@ -533,9 +604,21 @@ def main(argv):
         print(f"  {len(rows)} unfinished unit(s) already hold this ground"
               if rows else "  nothing unfinished holds this ground")
         return 0
+    if cmd == "refresh":
+        rederived, total = refresh()
+        for rel in rederived:
+            print(f"  re-derived  {rel}")
+        print(f"  {len(rederived)} of {total} region(s) had moved; the rest were not "
+              f"looked at again")
+        return 0
     if cmd == "freshness":
-        for r in freshness():
-            print(f"  {r['repo']}  derived from {r['derived from']}  {r['files']} files")
+        rows = freshness(args[0] if args else None)
+        for r in rows:
+            if r["state"] != "fresh":
+                print(f"  {r['state']:>13}  {r['region']}  last touched {r['last touched']} "
+                      f"{r['when']}")
+        fresh = sum(1 for r in rows if r["state"] == "fresh")
+        print(f"  {fresh} of {len(rows)} region(s) current against what last touched them")
         return 0
     if cmd == "unknown":
         rows = unknown()
@@ -549,3 +632,4 @@ def main(argv):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
+# a comment
