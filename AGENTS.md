@@ -40,6 +40,34 @@ python3 framework/check.py --unused           # fields nobody reads, codes nobod
 python3 framework/check.py --escalations      # what the method still owes itself
 ```
 
+## What the estate is
+
+Before a change is planned, what the system is now is derived from it rather than described about it: what a change here reaches, how well behaviour there is pinned down, what crosses between repositories, and how far each of those answers is to be trusted. Nothing here is maintained — the index is a cache with an invalidation rule, never a corpus with a publication date.
+
+```bash
+python3 framework/estate.py affects <path>...     # what a change here reaches
+python3 framework/estate.py observability         # every region, worst first
+python3 framework/estate.py contracts <dir>       # what crosses between repositories
+python3 framework/estate.py reachability <dir> <repo>   # who consumes this, who cannot be reached
+python3 framework/estate.py freshness             # what the answers were derived from
+python3 framework/estate.py refresh               # derive again only what moved
+```
+
+Run it from the repository or the estate it is asked about, not from here. Derived material goes beside that repository in `.estate/`; to keep an estate's material together instead, name one directory:
+
+```bash
+export IFLOW_ESTATE=changes/<slug>/estate        # cache/ and answers/ go here
+export IFLOW_ESTATE_ROOT=changes/<slug>/estate/repos
+```
+
+| | |
+|---|---|
+| `<home>/repos/` | The repositories the change is decided against |
+| `<home>/cache/` | One index per repository, keyed by the commit each region was last touched by |
+| `<home>/answers/` | What the tooling said, and from which commit — read afterwards to see whether the model was right |
+
+The cache is disposable; the answers are not.
+
 ## What binds you
 
 **Never invent a code.** If a value is not in `framework/conventions.md`, stop and say so. Adding one is a change to the method, decided outside it, not a decision to take mid-task.

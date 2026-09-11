@@ -6,6 +6,8 @@ CR-016-01  a repository in a language this index cannot read is reported unread,
 CR-016-02  every answer says how much of the estate it covers
 CR-016-03  a verdict that nothing watches a region says how much of the estate
            it could not read before saying so
+CR-016-04  an estate with nothing readable in it is reported as unreadable, not
+           as an estate with no regions
 """
 import json
 import pathlib
@@ -21,6 +23,7 @@ TESTS = {
     "CR-016-01": "direct",
     "CR-016-02": "direct",
     "CR-016-03": "direct",
+    "CR-016-04": "direct",
 }
 
 
@@ -84,10 +87,21 @@ def cr_016_03():
     return None
 
 
+def cr_016_04():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = foreign(tmp)
+        out = run(d, "observability")
+        if "0 region(s)" in out:
+            return "an estate this index cannot read was counted as having no regions"
+        if "it is one this cannot see" not in out:
+            return "an unreadable estate was not distinguished from an empty one"
+    return None
+
+
 def main():
     failures = []
     for name, fn in (("CR-016-01", cr_016_01), ("CR-016-02", cr_016_02),
-                     ("CR-016-03", cr_016_03)):
+                     ("CR-016-03", cr_016_03), ("CR-016-04", cr_016_04)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:

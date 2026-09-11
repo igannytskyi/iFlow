@@ -20,6 +20,7 @@ cache with an invalidation rule, never a corpus with a publication date.
 """
 import ast
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -104,8 +105,29 @@ def last_touched(repo, rel):
 CACHE = ".estate"
 
 
+def home(repo):
+    """Where derived material for this repository is kept.
+
+    By default beside the repository it belongs to, because that is where the
+    thing it is derived from lives and where an adopter will look for it. An
+    estate of many repositories usually wants them together instead — under the
+    change the answers were taken for — and says so with IFLOW_ESTATE, which
+    names one directory holding a cache per repository.
+    """
+    root = os.environ.get("IFLOW_ESTATE")
+    if not root:
+        return repo / CACHE
+    base = pathlib.Path(root).expanduser().resolve() / "cache"
+    here = pathlib.Path(os.environ.get("IFLOW_ESTATE_ROOT", "")).expanduser()
+    try:
+        name = repo.resolve().relative_to(here.resolve()).as_posix() if here else repo.name
+    except ValueError:
+        name = repo.name
+    return base / (name or repo.name)
+
+
 def cached(repo):
-    p = repo / CACHE / "index.json"
+    p = home(repo) / "index.json"
     if not p.exists():
         return {}
     try:
@@ -158,10 +180,25 @@ def unseen(repo=None):
     for p in repo.rglob("*"):
         if not p.is_file() or p.suffix not in UNREADABLE:
             continue
-        if any(part in OUTSIDE or part.startswith("_bmad") for part in p.parts):
+        if outside(p, repo):
             continue
         counted[p.suffix] = counted.get(p.suffix, 0) + 1
     return counted
+
+
+def outside(p, base):
+    """Whether this file is outside what is being looked at.
+
+    The names are matched against the path *inside* the estate, never the whole
+    path: an estate kept under a directory called `changes` is not a folder of
+    changes, and matching the ancestors made every file in it vanish — nought
+    of nought regions, reported as an estate with nothing in it.
+    """
+    try:
+        parts = p.relative_to(base).parts
+    except ValueError:
+        parts = p.parts
+    return any(part in OUTSIDE or part.startswith("_bmad") for part in parts)
 
 
 def coverage_note(repo=None):
@@ -180,7 +217,7 @@ def coverage_note(repo=None):
 
 def sources(repo):
     for p in sorted(repo.rglob("*.py")):
-        if any(part in OUTSIDE or part.startswith("_bmad") for part in p.parts):
+        if outside(p, repo):
             continue
         yield p
 
@@ -191,7 +228,7 @@ def unread_sources(repo):
     for p in sorted(repo.rglob("*")):
         if not p.is_file() or p.suffix not in UNREADABLE:
             continue
-        if any(part in OUTSIDE or part.startswith("_bmad") for part in p.parts):
+        if outside(p, repo):
             continue
         yield p
 
@@ -261,8 +298,8 @@ def index(repo, use_cache=True):
             "unresolved": [w for r, w in unresolved if r == rel],
         }
     if use_cache and fresh:
-        (repo / CACHE).mkdir(exist_ok=True)
-        (repo / CACHE / "index.json").write_text(json.dumps(fresh, indent=1, sort_keys=True))
+        home(repo).mkdir(parents=True, exist_ok=True)
+        (home(repo) / "index.json").write_text(json.dumps(fresh, indent=1, sort_keys=True))
     return defines, calls, unresolved
 
 
@@ -687,7 +724,7 @@ def other_kinds(where):
     for p in base.rglob("*"):
         if not p.is_file() or p.suffix in {".png", ".jpg", ".pdf", ".lock"}:
             continue
-        if any(part in OUTSIDE or part.startswith("_bmad") for part in p.parts):
+        if outside(p, base):
             continue
         try:
             text = p.read_text(errors="ignore")
@@ -1158,6 +1195,13 @@ def main(argv):
         if not every and len(worst) > 25:
             print(f"  … and {len(worst) - 25} more that are not fully claimed "
                   f"(--all for every region)")
+        if not all_rows:
+            blind = unseen()
+            print("  nothing here is in a language this index can read: that is not an "
+                  "estate with no regions, it is one this cannot see" if blind else
+                  "  nothing is defined here that this index can see")
+            print(coverage_note())
+            return 0
         tally = Counter(r["verdict"] for r in rows)
         syms = sum(r["symbols"] for r in rows)
         loose = sum(r["symbols"] for r in rows if r["verdict"] == "unclaimed")

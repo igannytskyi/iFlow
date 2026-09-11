@@ -773,8 +773,12 @@ def mutate(root):
             continue
         with tempfile.TemporaryDirectory() as tmp:
             d = pathlib.Path(tmp) / "iflow"
+            # What is copied is the method, not the work carried through it.
+            # Changes are local material — on this repository they came to hold
+            # the estates the model was tried against — and copying them once
+            # per rule turned a two minute demonstration into an hour of it.
             shutil.copytree(root, d, ignore=shutil.ignore_patterns(
-                ".git", "__pycache__", "_bmad*", "node_modules"))
+                ".git", "__pycache__", "_bmad*", "node_modules", "changes", ".estate"))
             (d / "framework" / "check.py").write_text(broken)
             noticed = False
             for t in tests:

@@ -7,6 +7,9 @@ CR-015-03  a consumer belonging to no repository is reported as beyond reach
 CR-015-04  an estate of several repositories takes each region's history from the
            repository it belongs to, and a region no history covers is never
            reported current
+CR-015-05  what is looked at is what it is pointed at: a repository kept under a
+           directory whose name is excluded is still read, and derived material
+           can be kept in one place away from the repositories
 """
 import pathlib
 import subprocess
@@ -22,6 +25,7 @@ TESTS = {
     "CR-015-02": "direct",
     "CR-015-03": "direct",
     "CR-015-04": "direct",
+    "CR-015-05": "direct",
 }
 
 
@@ -69,6 +73,26 @@ def cr_015_04():
         after = run(estate, "freshness")
         if "stale" not in after or "one/alpha.py" not in after:
             return "a region that moved inside one repository of the estate was not stale"
+    return None
+
+
+def cr_015_05():
+    import os
+    with tempfile.TemporaryDirectory() as tmp:
+        # `changes` is the one directory this method excludes by name. Kept
+        # under it, an estate reported nought of nought regions.
+        d = build_repo(tmp + "/changes/experiments/repos/one")
+        keep = pathlib.Path(tmp) / "derived"
+        env = dict(os.environ, IFLOW_ESTATE=str(keep),
+                   IFLOW_ESTATE_ROOT=str(pathlib.Path(tmp) / "changes/experiments/repos"))
+        out = subprocess.run([sys.executable, str(ESTATE), "refresh"], cwd=d,
+                             capture_output=True, text=True, env=env).stdout
+        if "2 of 2 region(s)" not in out:
+            return f"a repository under an excluded directory was not read: {out.strip()}"
+        if (d / ".estate").exists():
+            return "derived material was written beside the repository after being sent elsewhere"
+        if not (keep / "cache" / "one" / "index.json").exists():
+            return "derived material was not kept where it was asked to be kept"
     return None
 
 
@@ -120,7 +144,7 @@ def cr_015_03():
 def main():
     failures = []
     for name, fn in (("CR-015-01", cr_015_01), ("CR-015-02", cr_015_02),
-                     ("CR-015-03", cr_015_03), ("CR-015-04", cr_015_04)):
+                     ("CR-015-03", cr_015_03), ("CR-015-04", cr_015_04), ("CR-015-05", cr_015_05)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:
