@@ -24,7 +24,7 @@ import pathlib
 import re
 import subprocess
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 # What is looked at is where this is run, not where this file happens to live.
 # The first version took its own location, which meant a tool for looking at
@@ -332,6 +332,33 @@ def affects(paths, repo=None):
     return sorted(out, key=lambda r: (rank[r["confidence"]], r["file"]))
 
 
+# What counts as a test. Looking for "/tests/" in the path is looking for one
+# project's layout: a repository whose tests live at its root has none, and the
+# answer comes back "nothing names this" when the truth is "I looked in the
+# wrong place". A wrong shape of path is not evidence of an unwatched region.
+#
+# The opposite error costs more here. Reporting a region as watched when it is
+# not tells a change it has something to be judged against when it has nothing,
+# so a directory that ships as an importable package — a project's own testing
+# library, not its tests — is not counted however it is named.
+TEST_DIRS = {"tests", "spec", "specs", "__tests__"}
+AMBIGUOUS_DIRS = {"test", "testing"}
+
+
+def is_test(rel, repo=None):
+    parts = pathlib.PurePosixPath(rel).parts
+    for i, d in enumerate(parts[:-1]):
+        if d in TEST_DIRS:
+            return True
+        if d in AMBIGUOUS_DIRS and not (repo and
+                (repo / pathlib.Path(*parts[:i + 1]) / "__init__.py").exists()):
+            return True
+    name = parts[-1]
+    stem = name.split(".")[0]
+    return stem.startswith("test_") or stem.endswith("_test") \
+        or ".test." in name or ".spec." in name
+
+
 def observability(path, repo=None):
     """How well behaviour in a region can be pinned down — as far as structure
     can say, which is not far.
@@ -346,7 +373,7 @@ def observability(path, repo=None):
     here = {s for s, where in defines.items()
             if any(w.startswith(pathlib.Path(path).as_posix()) for w in where)}
     watchers = sorted({rel for rel, name, _ in calls
-                       if name in here and "/tests/" in rel})
+                       if name in here and is_test(rel, repo)})
     if not here:
         blind = unseen(repo)
         return {"region": path, "verdict": "unknown",
@@ -356,12 +383,19 @@ def observability(path, repo=None):
                        "nothing is defined here that this index can see",
                 "provenance": "derived", "confidence": "low"}
     named = {s for s in here if any(rel for rel, n, _ in calls
-                                    if n == s and "/tests/" in rel)}
+                                    if n == s and is_test(rel, repo))}
     share = len(named) / len(here)
     verdict = ("claimed" if share > 0.66 else
                "partly claimed" if named else "unclaimed")
+    # 800 paths is a correct answer nobody reads. Name a few and say where the
+    # rest are: which part of the estate watches this is the answerable question.
+    shown = watchers[:12]
+    where = Counter(str(pathlib.PurePosixPath(w).parent) for w in watchers)
     return {"region": path, "symbols": len(here), "named by a test": len(named),
-            "watched by": watchers, "verdict": verdict,
+            "watched by": shown + ([f"… and {len(watchers) - len(shown)} more, mostly in "
+                                    + ", ".join(f"{d} {n}" for d, n in where.most_common(4))]
+                                   if len(watchers) > len(shown) else []),
+            "verdict": verdict,
             "means": {"claimed": "structure suggests it can be observed; run it to find out",
                       "partly claimed": "some of it is spoken for and the rest is not",
                       "unclaimed": "nothing names it, so a change here has nothing to be "

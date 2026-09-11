@@ -6,6 +6,9 @@ CR-013-01  a region nothing names is reported as needing characterising first,
 CR-013-02  what structure claims is held apart from what execution shows, and
            only the second is trusted
 CR-013-03  a region nothing executes is reported unobserved rather than unknown
+CR-013-04  a test is recognised by where tests are kept and how they are named,
+           not by one project's layout, and a directory that ships as an
+           importable package is not counted as one
 """
 import json
 import pathlib
@@ -21,6 +24,7 @@ TESTS = {
     "CR-013-01": "direct",
     "CR-013-02": "direct",
     "CR-013-03": "direct",
+    "CR-013-04": "direct",
 }
 
 
@@ -75,6 +79,28 @@ def cr_013_02():
     return None
 
 
+def cr_013_04():
+    """Two ways to be wrong about what a test is, in one region.
+
+    Tests at the root of a repository are the common layout, and a project's
+    own testing library is the common thing mistaken for one. Getting either
+    wrong turns "I looked in the wrong place" into "nothing watches this".
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        d = build_region(tmp, watched=True)          # tests/ lies at the root
+        r = ask("observability", "subject", cwd=d)
+        if not r.get("named by a test"):
+            return "a test at the root of the repository was not found"
+        (d / "test").mkdir()
+        (d / "test" / "__init__.py").write_text("")
+        (d / "test" / "client.py").write_text(
+            "import sys\nsys.path.insert(0, 'subject')\nfrom thing import alpha\n")
+        r = ask("observability", "subject", cwd=d)
+        if any("test/client.py" in w for w in r.get("watched by", [])):
+            return "a directory that ships as an importable package was counted as tests"
+    return None
+
+
 def cr_013_03():
     with tempfile.TemporaryDirectory() as tmp:
         d = build_region(tmp, watched=False)
@@ -87,7 +113,7 @@ def cr_013_03():
 def main():
     failures = []
     for name, fn in (("CR-013-01", cr_013_01), ("CR-013-02", cr_013_02),
-                     ("CR-013-03", cr_013_03)):
+                     ("CR-013-03", cr_013_03), ("CR-013-04", cr_013_04)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:
