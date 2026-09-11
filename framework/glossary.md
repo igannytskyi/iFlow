@@ -152,6 +152,7 @@ Ordered by what settles them, from the strongest to none at all.
 
 ```
 estate.py affects <path>      what a change there reaches: its shape, then --all for every file
+estate.py observability        every region, worst first: where nothing can judge a change
 estate.py observability <path> how well behaviour there can be pinned down
 estate.py freshness           what the answers were derived from, and when
 estate.py unknown             what the index cannot resolve at all

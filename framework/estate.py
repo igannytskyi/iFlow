@@ -2,7 +2,7 @@
 """What the estate is, derived from it rather than described about it.
 
 Usage: python3 framework/estate.py affects <path>...     what a change here reaches
-       python3 framework/estate.py observability <path>  how well behaviour there is pinned
+       python3 framework/estate.py observability [<path>]  how well behaviour there is pinned
        python3 framework/estate.py freshness             what this was derived from, and when
        python3 framework/estate.py unknown               what it could not resolve
        python3 framework/estate.py contracts <dir>       what crosses between repositories
@@ -345,6 +345,18 @@ TEST_DIRS = {"tests", "spec", "specs", "__tests__"}
 AMBIGUOUS_DIRS = {"test", "testing"}
 
 
+def test_ground(region, repo=None):
+    """Whether the region is itself where tests are kept.
+
+    Asked of the whole estate, "nothing names this region" is true of almost
+    every test fixture directory and says nothing anyone can act on: a change
+    to a test is judged by the test it belongs to. Keeping the two populations
+    apart is what leaves the answer readable — the question is about the code
+    under test, and drowning it in four hundred fixture directories loses it.
+    """
+    return is_test(str(pathlib.PurePosixPath(region) / "x"), repo)
+
+
 def is_test(rel, repo=None):
     parts = pathlib.PurePosixPath(rel).parts
     for i, d in enumerate(parts[:-1]):
@@ -407,6 +419,41 @@ def observability(path, repo=None):
             # are: on a twelve-service estate every test is in Go or C#. Saying
             # "nothing names this" without saying that is a confident zero.
             "read": coverage_note(repo).strip()}
+
+
+def every_region(repo=None):
+    """The same question asked of the whole estate at once.
+
+    Asked one directory at a time, this answers "is this region watched", which
+    is the question you ask when you already know where to look. The question
+    before it is where in the estate nothing can judge a change, and that one is
+    only answerable by asking everywhere and sorting by what it costs to be
+    wrong there. A large unclaimed region is worse than a small one, so size
+    orders the answer.
+
+    A region here is a directory that directly holds code this index can read.
+    Nesting is not summed: a parent that holds no files of its own is not a
+    region, and one that does is answered for its own files only, because a
+    verdict averaged over a subtree hides the part of it nothing watches.
+    """
+    repo = repo or ROOT
+    defines, calls, _ = index(repo)
+    where = defaultdict(set)                      # directory → symbols defined there
+    for sym, files in defines.items():
+        for f in files:
+            where[str(pathlib.PurePosixPath(f).parent)].add(sym)
+    named_anywhere = {n for rel, n, _ in calls if is_test(rel, repo)}
+    rows = []
+    for region, syms in where.items():
+        named = syms & named_anywhere
+        share = len(named) / len(syms)
+        rows.append({"region": region, "symbols": len(syms), "named by a test": len(named),
+                     "share": share, "is test ground": test_ground(region, repo),
+                     "verdict": ("claimed" if share > 0.66 else
+                                 "partly claimed" if named else "unclaimed")})
+    order = {"unclaimed": 0, "partly claimed": 1, "claimed": 2}
+    rows.sort(key=lambda r: (order[r["verdict"]], -r["symbols"]))
+    return rows
 
 
 def observe(path, command, repo=None):
@@ -789,9 +836,34 @@ def main(argv):
     if cmd == "observe" and len(args) >= 2:
         print(json.dumps(observe(args[0], args[1:]), indent=2))
         return 0
-    if cmd == "observability" and args:
-        r = observability(args[0])
-        print(json.dumps(r, indent=2))
+    if cmd == "observability":
+        if args and args[0] != "--all":
+            print(json.dumps(observability(args[0]), indent=2))
+            return 0
+        every = "--all" in args
+        all_rows = every_region()
+        rows = [r for r in all_rows if not r["is test ground"]]
+        ground = [r for r in all_rows if r["is test ground"]]
+        worst = [r for r in rows if r["verdict"] != "claimed"]
+        for r in (rows if every else worst[:25]):
+            print(f"  {r['verdict']:>14}  {r['region']}  "
+                  f"{r['named by a test']}/{r['symbols']} symbol(s) named by a test")
+        if not every and len(worst) > 25:
+            print(f"  … and {len(worst) - 25} more that are not fully claimed "
+                  f"(--all for every region)")
+        tally = Counter(r["verdict"] for r in rows)
+        syms = sum(r["symbols"] for r in rows)
+        loose = sum(r["symbols"] for r in rows if r["verdict"] == "unclaimed")
+        print(f"  {len(rows)} region(s): " + ", ".join(f"{tally[v]} {v}" for v in
+              ("claimed", "partly claimed", "unclaimed") if tally[v]))
+        if ground:
+            print(f"  {len(ground)} further region(s) are themselves where tests are kept "
+                  f"and are not counted — a change there is judged by the test it is part of")
+        print(f"  {loose} of {syms} symbol(s) sit in regions nothing names, so a change "
+              f"there has nothing to be judged against")
+        print("  a test naming a symbol is not a test exercising it — this is what "
+              "structure suggests, not what execution showed")
+        print(coverage_note())
         return 0
     if cmd == "contracts" and args:
         tel = args[1] if len(args) > 1 else None

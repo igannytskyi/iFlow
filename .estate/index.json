@@ -2315,12 +2315,40 @@
     "name"
    ],
    [
+    "enumerate",
+    "name"
+   ],
+   [
     "index",
     "name"
    ],
    [
     "sorted",
     "name"
+   ],
+   [
+    "Counter",
+    "name"
+   ],
+   [
+    "index",
+    "name"
+   ],
+   [
+    "defaultdict",
+    "name"
+   ],
+   [
+    "items",
+    "attribute"
+   ],
+   [
+    "items",
+    "attribute"
+   ],
+   [
+    "sort",
+    "attribute"
    ],
    [
     "resolve",
@@ -2353,6 +2381,14 @@
    [
     "defaultdict",
     "name"
+   ],
+   [
+    "Path",
+    "attribute"
+   ],
+   [
+    "rglob",
+    "attribute"
    ],
    [
     "match",
@@ -2575,6 +2611,22 @@
     "attribute"
    ],
    [
+    "PurePosixPath",
+    "attribute"
+   ],
+   [
+    "split",
+    "attribute"
+   ],
+   [
+    "startswith",
+    "attribute"
+   ],
+   [
+    "endswith",
+    "attribute"
+   ],
+   [
     "unseen",
     "name"
    ],
@@ -2593,6 +2645,14 @@
    [
     "len",
     "name"
+   ],
+   [
+    "strip",
+    "attribute"
+   ],
+   [
+    "append",
+    "attribute"
    ],
    [
     "splitlines",
@@ -2649,6 +2709,10 @@
    [
     "append",
     "attribute"
+   ],
+   [
+    "any",
+    "name"
    ],
    [
     "as_posix",
@@ -2747,7 +2811,31 @@
     "name"
    ],
    [
-    "observability",
+    "every_region",
+    "name"
+   ],
+   [
+    "Counter",
+    "name"
+   ],
+   [
+    "sum",
+    "name"
+   ],
+   [
+    "sum",
+    "name"
+   ],
+   [
+    "print",
+    "name"
+   ],
+   [
+    "print",
+    "name"
+   ],
+   [
+    "print",
     "name"
    ],
    [
@@ -2756,6 +2844,18 @@
    ],
    [
     "contracts",
+    "name"
+   ],
+   [
+    "sum",
+    "name"
+   ],
+   [
+    "print",
+    "name"
+   ],
+   [
+    "other_kinds",
     "name"
    ],
    [
@@ -2939,6 +3039,26 @@
     "name"
    ],
    [
+    "str",
+    "name"
+   ],
+   [
+    "add",
+    "attribute"
+   ],
+   [
+    "is_test",
+    "name"
+   ],
+   [
+    "len",
+    "name"
+   ],
+   [
+    "len",
+    "name"
+   ],
+   [
     "strip",
     "attribute"
    ],
@@ -2953,6 +3073,14 @@
    [
     "sorted",
     "name"
+   ],
+   [
+    "read_text",
+    "attribute"
+   ],
+   [
+    "search",
+    "attribute"
    ],
    [
     "group",
@@ -3083,7 +3211,27 @@
     "attribute"
    ],
    [
-    "dumps",
+    "print",
+    "name"
+   ],
+   [
+    "print",
+    "name"
+   ],
+   [
+    "print",
+    "name"
+   ],
+   [
+    "coverage_note",
+    "name"
+   ],
+   [
+    "print",
+    "name"
+   ],
+   [
+    "values",
     "attribute"
    ],
    [
@@ -3099,7 +3247,15 @@
     "name"
    ],
    [
+    "join",
+    "attribute"
+   ],
+   [
     "print",
+    "name"
+   ],
+   [
+    "coverage_note",
     "name"
    ],
    [
@@ -3223,6 +3379,18 @@
     "attribute"
    ],
    [
+    "coverage_note",
+    "name"
+   ],
+   [
+    "len",
+    "name"
+   ],
+   [
+    "len",
+    "name"
+   ],
+   [
     "read_text",
     "attribute"
    ],
@@ -3251,6 +3419,10 @@
     "attribute"
    ],
    [
+    "is_file",
+    "attribute"
+   ],
+   [
     "relative_to",
     "attribute"
    ],
@@ -3265,10 +3437,6 @@
    [
     "normalise",
     "name"
-   ],
-   [
-    "append",
-    "attribute"
    ],
    [
     "strip",
@@ -3371,8 +3539,24 @@
     "name"
    ],
    [
+    "dumps",
+    "attribute"
+   ],
+   [
     "len",
     "name"
+   ],
+   [
+    "join",
+    "attribute"
+   ],
+   [
+    "len",
+    "name"
+   ],
+   [
+    "Path",
+    "attribute"
    ],
    [
     "len",
@@ -3439,8 +3623,28 @@
     "name"
    ],
    [
+    "exists",
+    "attribute"
+   ],
+   [
     "startswith",
     "attribute"
+   ],
+   [
+    "is_test",
+    "name"
+   ],
+   [
+    "PurePosixPath",
+    "attribute"
+   ],
+   [
+    "len",
+    "name"
+   ],
+   [
+    "len",
+    "name"
    ],
    [
     "startswith",
@@ -3459,12 +3663,20 @@
     "attribute"
    ],
    [
-    "normalise",
-    "name"
+    "startswith",
+    "attribute"
+   ],
+   [
+    "get",
+    "attribute"
    ],
    [
     "append",
     "attribute"
+   ],
+   [
+    "normalise",
+    "name"
    ],
    [
     "Path",
@@ -3555,6 +3767,14 @@
     "name"
    ],
    [
+    "observability",
+    "name"
+   ],
+   [
+    "unseen",
+    "name"
+   ],
+   [
     "len",
     "name"
    ],
@@ -3627,6 +3847,14 @@
     "attribute"
    ],
    [
+    "join",
+    "attribute"
+   ],
+   [
+    "str",
+    "name"
+   ],
+   [
     "Path",
     "attribute"
    ],
@@ -3636,6 +3864,10 @@
    ],
    [
     "lstrip",
+    "attribute"
+   ],
+   [
+    "append",
     "attribute"
    ],
    [
@@ -3661,6 +3893,18 @@
    [
     "join",
     "attribute"
+   ],
+   [
+    "len",
+    "name"
+   ],
+   [
+    "Path",
+    "attribute"
+   ],
+   [
+    "sorted",
+    "name"
    ],
    [
     "join",
@@ -3700,6 +3944,10 @@
    ],
    [
     "sorted",
+    "name"
+   ],
+   [
+    "is_test",
     "name"
    ],
    [
@@ -3755,6 +4003,14 @@
     "name"
    ],
    [
+    "len",
+    "name"
+   ],
+   [
+    "items",
+    "attribute"
+   ],
+   [
     "join",
     "attribute"
    ],
@@ -3764,6 +4020,10 @@
    ],
    [
     "Path",
+    "attribute"
+   ],
+   [
+    "PurePosixPath",
     "attribute"
    ],
    [
@@ -3783,6 +4043,22 @@
     "attribute"
    ],
    [
+    "Path",
+    "attribute"
+   ],
+   [
+    "len",
+    "name"
+   ],
+   [
+    "len",
+    "name"
+   ],
+   [
+    "most_common",
+    "attribute"
+   ],
+   [
     "sorted",
     "name"
    ],
@@ -3795,7 +4071,7 @@
     "attribute"
    ],
    [
-    "sys",
+    "subprocess",
     "import"
    ],
    [
@@ -3807,15 +4083,11 @@
     "import"
    ],
    [
-    "subprocess",
-    "import"
-   ],
-   [
-    "json",
-    "import"
-   ],
-   [
     "trace",
+    "import"
+   ],
+   [
+    "sys",
     "import"
    ],
    [
@@ -3823,26 +4095,36 @@
     "import"
    ],
    [
-    "defaultdict",
+    "Counter",
     "import"
    ],
    [
     "re",
     "import"
+   ],
+   [
+    "json",
+    "import"
+   ],
+   [
+    "defaultdict",
+    "import"
    ]
   ],
-  "commit": "8df1ebf",
+  "commit": "10fb11a",
   "symbols": [
    "affects",
    "cached",
    "conflicts",
    "contracts",
    "coverage_note",
+   "every_region",
    "facts",
    "freshness",
    "head",
    "importers",
    "index",
+   "is_test",
    "last_touched",
    "main",
    "named_by",
@@ -3850,6 +4132,7 @@
    "observability",
    "observe",
    "observed",
+   "other_kinds",
    "reachability",
    "refresh",
    "repos",
@@ -4461,6 +4744,54 @@
     "attribute"
    ],
    [
+    "TemporaryDirectory",
+    "attribute"
+   ],
+   [
+    "Path",
+    "attribute"
+   ],
+   [
+    "mkdir",
+    "attribute"
+   ],
+   [
+    "write_text",
+    "attribute"
+   ],
+   [
+    "mkdir",
+    "attribute"
+   ],
+   [
+    "write_text",
+    "attribute"
+   ],
+   [
+    "TemporaryDirectory",
+    "attribute"
+   ],
+   [
+    "Path",
+    "attribute"
+   ],
+   [
+    "mkdir",
+    "attribute"
+   ],
+   [
+    "write_text",
+    "attribute"
+   ],
+   [
+    "write_text",
+    "attribute"
+   ],
+   [
+    "run",
+    "name"
+   ],
+   [
     "fn",
     "name"
    ],
@@ -4479,6 +4810,14 @@
    [
     "append",
     "attribute"
+   ],
+   [
+    "run",
+    "name"
+   ],
+   [
+    "run",
+    "name"
    ],
    [
     "splitlines",
@@ -4513,19 +4852,7 @@
     "name"
    ],
    [
-    "sys",
-    "import"
-   ],
-   [
-    "harness",
-    "import"
-   ],
-   [
     "subprocess",
-    "import"
-   ],
-   [
-    "tempfile",
     "import"
    ],
    [
@@ -4533,17 +4860,31 @@
     "import"
    ],
    [
+    "sys",
+    "import"
+   ],
+   [
     "pathlib",
+    "import"
+   ],
+   [
+    "tempfile",
+    "import"
+   ],
+   [
+    "harness",
     "import"
    ]
   ],
-  "commit": "29b277c",
+  "commit": "ca79fe9",
   "symbols": [
    "build_estate",
    "cr_012_01",
    "cr_012_02",
    "cr_012_03",
    "cr_012_04",
+   "cr_012_05",
+   "cr_012_06",
    "main",
    "run"
   ],
@@ -5670,6 +6011,38 @@
     "name"
    ],
    [
+    "mkdir",
+    "attribute"
+   ],
+   [
+    "write_text",
+    "attribute"
+   ],
+   [
+    "write_text",
+    "attribute"
+   ],
+   [
+    "ask",
+    "name"
+   ],
+   [
+    "any",
+    "name"
+   ],
+   [
+    "TemporaryDirectory",
+    "attribute"
+   ],
+   [
+    "build_region",
+    "name"
+   ],
+   [
+    "ask",
+    "name"
+   ],
+   [
     "fn",
     "name"
    ],
@@ -5687,6 +6060,10 @@
    ],
    [
     "loads",
+    "attribute"
+   ],
+   [
+    "get",
     "attribute"
    ],
    [
@@ -5730,6 +6107,10 @@
     "attribute"
    ],
    [
+    "get",
+    "attribute"
+   ],
+   [
     "str",
     "name"
    ],
@@ -5738,19 +6119,7 @@
     "name"
    ],
    [
-    "sys",
-    "import"
-   ],
-   [
-    "harness",
-    "import"
-   ],
-   [
     "subprocess",
-    "import"
-   ],
-   [
-    "tempfile",
     "import"
    ],
    [
@@ -5758,21 +6127,34 @@
     "import"
    ],
    [
-    "json",
+    "sys",
     "import"
    ],
    [
     "pathlib",
     "import"
+   ],
+   [
+    "tempfile",
+    "import"
+   ],
+   [
+    "harness",
+    "import"
+   ],
+   [
+    "json",
+    "import"
    ]
   ],
-  "commit": "16d6228",
+  "commit": "9670460",
   "symbols": [
    "ask",
    "build_region",
    "cr_013_01",
    "cr_013_02",
    "cr_013_03",
+   "cr_013_04",
    "main"
   ],
   "unresolved": [],
@@ -6489,6 +6871,26 @@
     "attribute"
    ],
    [
+    "Path",
+    "attribute"
+   ],
+   [
+    "mkdir",
+    "attribute"
+   ],
+   [
+    "write_text",
+    "attribute"
+   ],
+   [
+    "mkdir",
+    "attribute"
+   ],
+   [
+    "range",
+    "name"
+   ],
+   [
     "print",
     "name"
    ],
@@ -6498,6 +6900,10 @@
    ],
    [
     "run",
+    "attribute"
+   ],
+   [
+    "write_text",
     "attribute"
    ],
    [
@@ -6519,6 +6925,18 @@
    [
     "foreign",
     "name"
+   ],
+   [
+    "TemporaryDirectory",
+    "attribute"
+   ],
+   [
+    "mixed",
+    "name"
+   ],
+   [
+    "loads",
+    "attribute"
    ],
    [
     "fn",
@@ -6549,6 +6967,18 @@
     "name"
    ],
    [
+    "run",
+    "name"
+   ],
+   [
+    "get",
+    "attribute"
+   ],
+   [
+    "get",
+    "attribute"
+   ],
+   [
     "append",
     "attribute"
    ],
@@ -6565,19 +6995,7 @@
     "name"
    ],
    [
-    "sys",
-    "import"
-   ],
-   [
-    "harness",
-    "import"
-   ],
-   [
     "subprocess",
-    "import"
-   ],
-   [
-    "tempfile",
     "import"
    ],
    [
@@ -6585,20 +7003,34 @@
     "import"
    ],
    [
-    "json",
+    "sys",
     "import"
    ],
    [
     "pathlib",
     "import"
+   ],
+   [
+    "tempfile",
+    "import"
+   ],
+   [
+    "harness",
+    "import"
+   ],
+   [
+    "json",
+    "import"
    ]
   ],
-  "commit": "2f9691a",
+  "commit": "10fb11a",
   "symbols": [
    "cr_016_01",
    "cr_016_02",
+   "cr_016_03",
    "foreign",
    "main",
+   "mixed",
    "run"
   ],
   "unresolved": [],
