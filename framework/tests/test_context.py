@@ -122,7 +122,7 @@ def cr_019_04():
         big = run(d, "context", "Engine")
         if len(small) >= len(big):
             return "a smaller budget did not produce a shorter answer"
-        if "not shown at this budget" not in small:
+        if "not quoted" not in small:
             return "an answer that left something out did not say so"
     return None
 

@@ -251,10 +251,14 @@ def _module_text(node):
     while stack:
         here = stack.pop()
         if "string" in here.type and "content" not in here.type:
-            strings.append(here.text.decode("utf-8", "replace"))
+            # Each module on the line it is written on. A grouped import is one
+            # node and a dozen dependencies, and giving them all the line the
+            # group opens on makes them look like one statement's alternatives.
+            strings.append((here.text.decode("utf-8", "replace"),
+                            here.start_point[0] + 1))
         else:
             stack.extend(here.children)
-    return strings or [node.text.decode("utf-8", "replace")]
+    return strings or [(node.text.decode("utf-8", "replace"), node.start_point[0] + 1)]
 
 
 def _module(text):
@@ -277,14 +281,19 @@ def _module(text):
         parts = [p for p in re.split(r"[/\\]+", text) if p not in ("", ".", "..")]
         tail = parts[-1] if parts else ""
         tail = tail.rsplit(".", 1)[0] if "." in tail[1:] else tail
-        return [p for p in (tail, parts[-2] if len(parts) > 1 else None) if p]
+        whole = "/".join(parts[:-1] + [tail]) if len(parts) > 1 else None
+        return [p for p in (tail, parts[-2] if len(parts) > 1 else None, whole) if p]
     # `use crate::search::Searcher` names a type inside a module, and the file
     # is as likely to be named for one as for the other. Both are offered; a
     # name that matches nothing costs nothing.
     parts = [p for p in re.split(r"[.:]+", text) if p]
     if not parts:
         return []
-    return [p for p in (parts[-1], parts[-2] if len(parts) > 1 else None) if p]
+    # The whole path as well as its end. `using eShop.WebAppComponents.Catalog`
+    # names a place, and on an estate where three services each define a
+    # CatalogItem the last segment names all three of them at once.
+    whole = "/".join(parts) if len(parts) > 1 else None
+    return [p for p in (parts[-1], parts[-2] if len(parts) > 1 else None, whole) if p]
 
 
 def read(rel, text):
@@ -308,9 +317,9 @@ def read(rel, text):
             # are named imports and clauses, and each of those carries the name
             # of a *symbol*: read as modules they filled the import graph with
             # class names, and a graph joined on class names joins nothing.
-            for text_ in _module_text(node):
+            for text_, line in _module_text(node):
                 for mod in _module(text_):
-                    calls.append((mod, "import", node.start_point[0] + 1))
+                    calls.append((mod, "import", line))
             continue
         stack.extend(node.children)
         if any(k in kind for k in CALLS) and not any(k in kind for k in NOT_CALLS):

@@ -436,13 +436,49 @@ def importers(repo=None):
         rel = path.relative_to(repo).as_posix()
         by_module[path.stem].add(rel)
         by_module[path.parent.name].add(rel)
+        # And every tail of the path it sits on, so that an import naming a
+        # place — a namespace, a package, a directory — reaches what is there
+        # rather than everything of that name anywhere.
+        parts = pathlib.PurePosixPath(rel).parts
+        for i in range(len(parts) - 1):
+            by_module["/".join(parts[i:-1])].add(rel)
+            by_module["/".join(parts[i:-1] + (path.stem,))].add(rel)
+    def resolve(name):
+        """The longest tail of a namespace that names somewhere here.
+
+        `using eShop.ClientApp.Models.Catalog` names a namespace whose root is
+        nowhere on disk — the directory is `src/ClientApp/Models/Catalog`. The
+        longest suffix that matches is the most specific place it can mean.
+        """
+        if name in by_module:
+            return by_module[name]
+        parts = name.split("/")
+        for i in range(1, len(parts)):
+            tail = "/".join(parts[i:])
+            if tail in by_module:
+                return by_module[tail]
+        return ()
+
+    # One import statement, one destination. A reader offers what the statement
+    # could mean — the last segment, the one before it, the whole path — and
+    # the most specific of those that names somewhere here is what it means.
+    # Taking them all made every namespace root match every directory sharing
+    # its last word.
     edges = defaultdict(set)
-    for rel, name, kind in index(repo)[1]:
-        if kind != "import":
-            continue
-        for target in by_module.get(name, ()):
-            if target != rel:
-                edges[target].add(rel)
+    index(repo)
+    for rel, spot in positions(repo).items():
+        by_line = defaultdict(list)
+        for name, kind, line in spot.get("calls", []):
+            if kind == "import":
+                by_line[line].append(name)
+        for line, names in by_line.items():
+            for name in sorted(names, key=lambda n: -n.count("/")):
+                targets = resolve(name)
+                if targets:
+                    for target in targets:
+                        if target != rel:
+                            edges[target].add(rel)
+                    break
     return edges
 
 
@@ -667,14 +703,26 @@ def named_in_text(repo, targets):
 
 
 def where_defined(name, repo=None):
-    """Every place a name is defined, with the lines it spans."""
+    """Every place a name is defined, with the lines it spans.
+
+    Places, not sightings. A Java class and its two constructors carry the same
+    name and sit inside each other, and the grammar's own query finds the class
+    a second time at the line it is named on: four entries, one definition, the
+    class quoted four times. What is inside something already listed is part of
+    it.
+    """
     repo = repo or ROOT
     out = []
     for rel, spot in positions(repo).items():
         for symbol, start, end in spot.get("symbols", []):
             if symbol == name:
                 out.append((rel, start, end))
-    return sorted(out)
+    kept = []
+    for rel, start, end in sorted(out, key=lambda t: (t[0], t[1], -t[2])):
+        if any(r == rel and s <= start and end <= e for r, s, e in kept):
+            continue
+        kept.append((rel, start, end))
+    return kept
 
 
 def excerpt(repo, rel, start, end, limit=120):
@@ -821,6 +869,20 @@ def context(target, repo=None, budget=40000, want_all=False):
     callers = call_sites(name, repo) if name else [
         {"file": r["file"], "line": 0, "kind": "name", "confidence": r["confidence"]}
         for r in affects([rel], repo)]
+    # Where a name is defined in several places, the import graph usually says
+    # which one a caller means: a file that can reach exactly one of them means
+    # that one. Without this every caller of an ambiguous name is reported as a
+    # guess, which on a .NET estate is every caller there is.
+    if len(subjects) > 1:
+        reach = {f: set(transitive({f}, repo)) for f, _s, _e in subjects}
+        for who in callers:
+            candidates = [f for f, files in reach.items() if who["file"] in files]
+            if len(candidates) == 1:
+                who["reaches"] = candidates[0]
+                if who["confidence"] == "low":
+                    who["confidence"] = "medium"
+        rank = {"high": 0, "medium": 1, "low": 2}
+        callers.sort(key=lambda r: (rank[r["confidence"]], r["file"], r["line"]))
     return {
         "target": text,
         "subjects": subjects,
@@ -1528,6 +1590,19 @@ def reachability(where, region, telemetry=None):
     return offers, unmatched
 
 
+def outline(repo, rel, start, end):
+    """What is inside something too long to quote: its parts, and where they are.
+
+    A class of fifteen hundred lines quoted from the top gives a page of
+    docstring. What a reader needs from something that size is the shape of it
+    and the line to jump to.
+    """
+    inner = [(name, line) for name, line, _e in
+             positions(repo).get(rel, {}).get("symbols", [])
+             if start < line <= end]
+    return sorted(inner, key=lambda t: t[1])
+
+
 def render_context(c, budget, every):
     """Print what was found, firmest first, and stop when the budget is gone.
 
@@ -1546,23 +1621,38 @@ def render_context(c, budget, every):
     if len(c["subjects"]) > 1:
         say(f"    ({len(c['subjects'])} places define this name; all of them are below, "
             f"because which one a caller means is not derivable from the name)")
+    limit = 400 if every else 120
     for rel, start, end in c["subjects"]:
         say(f"=== {rel}:{start}-{end}")
-        for n, line in excerpt(repo, rel, start, end, limit=400 if every else 120):
+        for n, line in excerpt(repo, rel, start, end, limit=limit):
             say(f"{n:>6}  {line}")
-    shown, skipped = 0, 0
+        if end - start + 1 > limit:
+            parts = outline(repo, rel, start, end)
+            say(f"    … {end - start + 1 - limit} more line(s) not quoted; what is in them:")
+            for name, line in parts:
+                say(f"      {rel}:{line}  {name}")
+    # Thirty call sites in one file say the same thing thirty times. A few from
+    # each of many files is the answer to "who uses this"; the rest is a count
+    # and the file to open.
+    per_file, skipped, crowded = defaultdict(int), 0, defaultdict(int)
     for who in c["callers"]:
-        if spent > budget * 0.75 and not every:
+        room = spent < budget * 0.75 or every
+        if not room or (per_file[who["file"]] >= (3 if not every else 10 ** 9)):
             skipped += 1
+            crowded[who["file"]] += 1
             continue
+        per_file[who["file"]] += 1
         where = "in the same file" if who.get("here") else who["confidence"]
+        if who.get("reaches"):
+            where += f", and of the {len(c['subjects'])} it can reach only {who['reaches']}"
         say(f"--- called from {who['file']}:{who['line']}  ({where})")
         for n, line in excerpt(repo, who["file"], who["line"] - 2, who["line"] + 2):
             say(f"{n:>6}  {line}")
-        shown += 1
     if skipped:
-        say(f"    … and {skipped} more call site(s) not shown at this budget "
-            f"(--all, or --budget=N)")
+        worst = ", ".join(f"{f} ({n} more)" for f, n in
+                          sorted(crowded.items(), key=lambda kv: -kv[1])[:5])
+        say(f"    … and {skipped} call site(s) not quoted, in {len(crowded)} file(s): "
+            f"{worst}{' …' if len(crowded) > 5 else ''}")
     firm_out = [r for r in c["calls out"] if r["confidence"] != "low"]
     loose_out = len(c["calls out"]) - len(firm_out)
     if firm_out or loose_out:
