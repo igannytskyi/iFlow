@@ -54,16 +54,13 @@ def head(repo):
 _TOUCHED = {}
 
 
-def touched_map(repo):
-    """When each file last moved, in one pass.
+def history(repo, prefix=""):
+    """One walk of one repository's history: path → the commit that last moved it.
 
     Asking git once per file cost forty-five seconds on a repository of three
     thousand — two thousand nine hundred and thirty-two separate processes to
-    answer one question. One walk of the history answers it for everything.
+    answer one question. One walk answers it for everything.
     """
-    key = str(repo)
-    if key in _TOUCHED:
-        return _TOUCHED[key]
     r = subprocess.run(["git", "-C", str(repo), "log", "--format=@%h %cs",
                         "--name-only", "--no-merges"], capture_output=True, text=True)
     seen, commit, when = {}, "unversioned", ""
@@ -71,8 +68,29 @@ def touched_map(repo):
         if line.startswith("@"):
             parts = line[1:].split()
             commit, when = (parts + ["", ""])[:2]
-        elif line.strip() and line not in seen:
-            seen[line] = (commit, when)
+        elif line.strip() and prefix + line not in seen:
+            seen[prefix + line] = (commit, when)
+    return seen
+
+
+def touched_map(repo):
+    """When each file last moved — across every repository under here.
+
+    An estate of nine services is nine repositories in one directory, and that
+    directory is not itself a repository. Walking only its own history found
+    none, gave every file the same non-answer, and the non-answer compared
+    equal to itself: the index reported all of it current against a history it
+    had never read, which is the corpus with a publication date this is meant
+    not to be.
+    """
+    key = str(repo)
+    if key in _TOUCHED:
+        return _TOUCHED[key]
+    seen = history(repo)
+    if not seen:
+        for child in sorted(repo.iterdir()) if repo.is_dir() else []:
+            if child.is_dir() and (child / ".git").exists():
+                seen.update(history(child, child.name + "/"))
     _TOUCHED[key] = seen
     return seen
 
@@ -109,7 +127,7 @@ def refresh(repo=None):
     for path in sources(repo):
         rel = path.relative_to(repo).as_posix()
         commit, when = last_touched(repo, rel)
-        if was.get(rel, {}).get("commit") == commit:
+        if was.get(rel, {}).get("commit") == commit and commit != "unversioned":
             now[rel] = was[rel]
             continue
         rederived.append(rel)
@@ -193,7 +211,8 @@ def index(repo, use_cache=True):
         rel = path.relative_to(repo).as_posix()
         commit, when = last_touched(repo, rel)
         keep = was.get(rel)
-        if keep and keep.get("commit") == commit and "calls" in keep:
+        if keep and keep.get("commit") == commit and "calls" in keep \
+                and commit != "unversioned":
             # Derived once, and the source has not moved since. A cache that the
             # queries do not read is decoration: this one is read here.
             for name in keep["symbols"]:
@@ -526,7 +545,8 @@ def freshness(region=None, repo=None):
         known = was.get(rel, {}).get("commit")
         rows.append({"region": rel, "derived from": known or "—", "last touched": commit,
                      "when": when,
-                     "state": "fresh" if known == commit else
+                     "state": "no history" if commit == "unversioned" else
+                              "fresh" if known == commit else
                               ("never derived" if known is None else "stale")})
     return rows
 
@@ -1063,7 +1083,12 @@ def main(argv):
                 print(f"  {r['state']:>13}  {r['region']}  last touched {r['last touched']} "
                       f"{r['when']}")
         fresh = sum(1 for r in rows if r["state"] == "fresh")
+        blind_hist = sum(1 for r in rows if r["state"] == "no history")
         print(f"  {fresh} of {len(rows)} region(s) current against what last touched them")
+        if blind_hist:
+            print(f"  {blind_hist} of them sit outside any history this can read, so "
+                  f"nothing here can say whether they moved: they are derived again "
+                  f"every time rather than trusted")
         print(coverage_note())
         return 0
     if cmd == "unknown":

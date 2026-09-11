@@ -4,6 +4,9 @@
 CR-015-01  freshness is answered per region, not per repository
 CR-015-02  only what moved is derived again
 CR-015-03  a consumer belonging to no repository is reported as beyond reach
+CR-015-04  an estate of several repositories takes each region's history from the
+           repository it belongs to, and a region no history covers is never
+           reported current
 """
 import pathlib
 import subprocess
@@ -18,6 +21,7 @@ TESTS = {
     "CR-015-01": "direct",
     "CR-015-02": "direct",
     "CR-015-03": "direct",
+    "CR-015-04": "direct",
 }
 
 
@@ -42,6 +46,30 @@ def build_repo(where):
     git(d, "add", "-A")
     git(d, "commit", "-q", "-m", "first")
     return d
+
+
+def cr_015_04():
+    """The estate is a directory of repositories, and is not one itself."""
+    with tempfile.TemporaryDirectory() as tmp:
+        estate = pathlib.Path(tmp) / "estate"
+        build_repo(str(estate / "one"))
+        build_repo(str(estate / "two"))
+        (estate / "loose.py").write_text("def loose():\n    return 0\n")
+        run(estate, "refresh")
+        out = run(estate, "freshness")
+        if "one/alpha.py" in out or "two/alpha.py" in out:
+            return "a region covered by a repository's history was not taken from it"
+        if "no history" not in out or "loose.py" not in out:
+            return "a region no history covers was not reported as such"
+        if "derived again every time rather than trusted" not in out:
+            return "a region with no history was left to be trusted as current"
+        (estate / "one" / "alpha.py").write_text("def alpha():\n    return 3\n")
+        git(estate / "one", "add", "-A")
+        git(estate / "one", "commit", "-q", "-m", "second")
+        after = run(estate, "freshness")
+        if "stale" not in after or "one/alpha.py" not in after:
+            return "a region that moved inside one repository of the estate was not stale"
+    return None
 
 
 def cr_015_01():
@@ -92,7 +120,7 @@ def cr_015_03():
 def main():
     failures = []
     for name, fn in (("CR-015-01", cr_015_01), ("CR-015-02", cr_015_02),
-                     ("CR-015-03", cr_015_03)):
+                     ("CR-015-03", cr_015_03), ("CR-015-04", cr_015_04)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:
