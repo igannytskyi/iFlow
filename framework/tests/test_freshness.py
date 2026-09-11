@@ -5,8 +5,8 @@ CR-015-01  freshness is answered per region, not per repository
 CR-015-02  only what moved is derived again
 CR-015-03  a consumer belonging to no repository is reported as beyond reach
 CR-015-04  an estate of several repositories takes each region's history from the
-           repository it belongs to, and a region no history covers is never
-           reported current
+           repository it belongs to, and a region no history covers is keyed on
+           its contents instead, so a change to it is still noticed
 CR-015-06  a region derived by one reader is derived again when the readers
            change, because the source not moving is only half the question
 CR-015-05  what is looked at is what it is pointed at: a repository kept under a
@@ -66,10 +66,18 @@ def cr_015_04():
         out = run(estate, "freshness")
         if "one/alpha.py" in out or "two/alpha.py" in out:
             return "a region covered by a repository's history was not taken from it"
-        if "no history" not in out or "loose.py" not in out:
+        if "sit outside any history this can read" not in out:
             return "a region no history covers was not reported as such"
-        if "derived again every time rather than trusted" not in out:
-            return "a region with no history was left to be trusted as current"
+        if "keyed on their contents" not in out:
+            return "a region outside history was not said to be keyed another way"
+        run(estate, "refresh")
+        after = run(estate, "freshness")
+        if "loose.py" in after:
+            return "a region outside history was reported as moved when it had not"
+        (estate / "loose.py").write_text("def loose():\n    return 1\n")
+        moved = run(estate, "freshness")
+        if "stale" not in moved or "loose.py" not in moved:
+            return "a change to a region outside history was not noticed"
         (estate / "one" / "alpha.py").write_text("def alpha():\n    return 3\n")
         git(estate / "one", "add", "-A")
         git(estate / "one", "commit", "-q", "-m", "second")
