@@ -343,11 +343,24 @@ def read(rel, text):
     # declarations peculiar to its language that no general rule catches.
     if query is not None:
         from tree_sitter import QueryCursor
+        referenced = []
         for _, caps in QueryCursor(query).matches(tree.root_node):
             names = caps.get("name") or []
             if not names:
                 continue
             name = names[0].text.decode("utf-8", "replace").strip('"\'`')
-            if any(k.startswith("definition.") for k in caps if k != "name"):
+            marks = [k for k in caps if k != "name"]
+            if any(k.startswith("definition.") for k in marks):
                 defines.append(name)
+            elif any(k.startswith("reference.") for k in marks):
+                referenced.append(name)
+        # A language where a call needs no brackets — `helper` in Ruby — is a
+        # bare identifier to any rule about node types, and indistinguishable
+        # from a variable. Its own grammar knows the difference and says so in
+        # the tags query, so what that query calls a reference is taken, at the
+        # weakest grade, and never for a name this file defines itself.
+        mine, seen = set(defines), {n for n, _ in calls}
+        for name in referenced:
+            if name not in mine and name not in seen:
+                calls.append((name, "attribute"))
     return list(dict.fromkeys(defines)), calls, unresolved
