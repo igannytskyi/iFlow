@@ -51,13 +51,36 @@ def head(repo):
     return r.stdout.strip() or "unversioned"
 
 
+_TOUCHED = {}
+
+
+def touched_map(repo):
+    """When each file last moved, in one pass.
+
+    Asking git once per file cost forty-five seconds on a repository of three
+    thousand — two thousand nine hundred and thirty-two separate processes to
+    answer one question. One walk of the history answers it for everything.
+    """
+    key = str(repo)
+    if key in _TOUCHED:
+        return _TOUCHED[key]
+    r = subprocess.run(["git", "-C", str(repo), "log", "--format=@%h %cs",
+                        "--name-only", "--no-merges"], capture_output=True, text=True)
+    seen, commit, when = {}, "unversioned", ""
+    for line in r.stdout.splitlines():
+        if line.startswith("@"):
+            parts = line[1:].split()
+            commit, when = (parts + ["", ""])[:2]
+        elif line.strip() and line not in seen:
+            seen[line] = (commit, when)
+    _TOUCHED[key] = seen
+    return seen
+
+
 def last_touched(repo, rel):
     """The commit that last moved this file. The invalidation key: a region is
     stale when what it was derived from is not what last touched it."""
-    r = subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%h %cs", "--", rel],
-                       capture_output=True, text=True)
-    parts = r.stdout.strip().split()
-    return (parts[0], parts[1]) if len(parts) == 2 else ("unversioned", "")
+    return touched_map(repo).get(rel, ("unversioned", ""))
 
 
 CACHE = ".estate"
@@ -90,17 +113,8 @@ def refresh(repo=None):
             now[rel] = was[rel]
             continue
         rederived.append(rel)
-        try:
-            tree = ast.parse(path.read_text())
-            symbols = sorted({n.name for n in ast.walk(tree)
-                              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
-                                                ast.ClassDef))})
-        except SyntaxError:
-            symbols = []
-        now[rel] = {"commit": commit, "when": when, "symbols": symbols}
-    (repo / CACHE).mkdir(exist_ok=True)
-    (repo / CACHE / "index.json").write_text(json.dumps(now, indent=1, sort_keys=True))
-    return rederived, len(now)
+    index(repo)          # derives what moved and writes the cache back
+    return rederived, sum(1 for _ in sources(repo))
 
 
 # What is not the estate. A boundary nobody draws is a boundary that includes
@@ -153,7 +167,7 @@ def sources(repo):
         yield p
 
 
-def index(repo):
+def index(repo, use_cache=True):
     """Symbols, the calls between them, and what could not be resolved.
 
     A definition is derived: the parser saw it. A call resolved to a unique name
@@ -162,8 +176,21 @@ def index(repo):
     resolved by nothing, and is counted rather than quietly dropped.
     """
     defines, calls, unresolved = defaultdict(list), [], []
+    was = cached(repo) if use_cache else {}
+    fresh = {}
     for path in sources(repo):
         rel = path.relative_to(repo).as_posix()
+        commit, when = last_touched(repo, rel)
+        keep = was.get(rel)
+        if keep and keep.get("commit") == commit and "calls" in keep:
+            # Derived once, and the source has not moved since. A cache that the
+            # queries do not read is decoration: this one is read here.
+            for name in keep["symbols"]:
+                defines[name].append(rel)
+            calls.extend((rel, n, k) for n, k in keep["calls"])
+            unresolved.extend((rel, w) for w in keep["unresolved"])
+            fresh[rel] = keep
+            continue
         try:
             tree = ast.parse(path.read_text())
         except SyntaxError:
@@ -197,6 +224,15 @@ def index(repo):
                     unresolved.append((rel, "a call through something with no name"))
         for name in imported:
             calls.append((rel, name, "import"))
+        fresh[rel] = {
+            "commit": commit, "when": when,
+            "symbols": sorted({n for n, w in defines.items() if rel in w}),
+            "calls": [(n, k) for r, n, k in calls if r == rel],
+            "unresolved": [w for r, w in unresolved if r == rel],
+        }
+    if use_cache and fresh:
+        (repo / CACHE).mkdir(exist_ok=True)
+        (repo / CACHE / "index.json").write_text(json.dumps(fresh, indent=1, sort_keys=True))
     return defines, calls, unresolved
 
 
@@ -623,18 +659,45 @@ def main(argv):
         return 2
     cmd, args = argv[1], argv[2:]
     if cmd == "affects" and args:
+        every = "--all" in args
+        args = [a for a in args if a != "--all"]
         out = affects(args)
-        for row in out:
+        # A list of two thousand files is not an area of effect. What a reader
+        # needs is the shape: how much is firm, how much is a halo, and where it
+        # concentrates. The full list is still there for anyone who wants it.
+        strong = [r for r in out if r["confidence"] != "low"]
+        shown = out if every else strong[:20]
+        for row in shown:
             names = ", ".join(row["through"][:3])
             more = "" if len(row["through"]) <= 3 else f" and {len(row['through']) - 3} more"
             print(f"  {row['confidence']:>6}  {row['file']}  through {names}{more}")
+        if not every and len(strong) > len(shown):
+            print(f"  … and {len(strong) - len(shown)} more of the same strength "
+                  f"(--all for every one)")
+        if out:
+            grades = {}
+            for r in out:
+                grades[r["confidence"]] = grades.get(r["confidence"], 0) + 1
+            where = {}
+            for r in out:
+                top = r["file"].split("/")[0] + ("/" + r["file"].split("/")[1]
+                                                 if "/" in r["file"][r["file"].find("/") + 1:]
+                                                 else "")
+                where[top] = where.get(top, 0) + 1
+            spread = ", ".join(f"{k} {v}" for k, v in
+                               sorted(where.items(), key=lambda kv: -kv[1])[:4])
+            print(f"  shape: " + ", ".join(f"{n} {g}" for g, n in
+                                           sorted(grades.items())) + f"; mostly in {spread}")
         named = named_by(args)
         for row in named:
             print(f"  {row['confidence']:>6}  {row['file']}  {row['how']}")
         direct = {r["file"] for r in out} | {r["file"] for r in named}
         far = transitive(direct | {pathlib.Path(a).as_posix() for a in args})
-        for f, hops in sorted(far.items(), key=lambda kv: (kv[1], kv[0])):
+        ordered = sorted(far.items(), key=lambda kv: (kv[1], kv[0]))
+        for f, hops in (ordered if every else ordered[:10]):
             print(f"     low  {f}  through {hops} import(s)")
+        if not every and len(ordered) > 10:
+            print(f"  … and {len(ordered) - 10} more through imports (--all for every one)")
         blind = sum(r["occurrences"] for r in unknown())
         print(f"  {len(out)} reached through code, {len(named)} that only name it as "
               f"text, {len(far)} further through imports.")
