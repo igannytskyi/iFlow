@@ -6,6 +6,9 @@ CR-008-02  a plan says what it was derived from
 CR-008-03  a change built from the current shapes passes the gate
 CR-008-04  a plan naming ground the change does not reach is refused: an area of
            effect is derived from the estate, and the estate can now be asked
+CR-008-05  a plan that observes none of an area the change reaches firmly, and
+           that nothing else watches, is refused; where something already
+           watches it, the plan is not asked to observe it again
 """
 import pathlib
 import sys
@@ -19,6 +22,7 @@ TESTS = {
                            "checked is whether it says what it was derived from"),
     "CR-008-03": ("proxy", "the criterion is about real work; a built change is run instead"),
     "CR-008-04": "direct",
+    "CR-008-05": "direct",
 }
 
 # Each criterion says whether this arbiter tests it or a
@@ -97,9 +101,45 @@ def cr_008_04():
     return None
 
 
+def cr_008_05():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp) / "estate"
+        (root / "subject").mkdir(parents=True)
+        (root / "subject" / "core.py").write_text("def alpha():\n    return 1\n")
+        # Reached firmly from the scope, and nothing names it in a test.
+        (root / "downstream").mkdir()
+        (root / "downstream" / "rider.py").write_text(
+            "from core import alpha\n\n\ndef beta():\n    return alpha()\n")
+        d = build_change(str(root / "changes" / "c"))
+        edit(d, "01-specification.md", "| subject/ |", "| subject/core.py |")
+        edit(d, "01-specification.md", "| not-required |", "| required |")
+        reseal(d)
+        edit(d, "03-admission.md", PLAN_HEAD,
+             PLAN_HEAD + "| CR-001-01 | subject/core.py | run it | no change | "
+                         "the area of effect of subject/core.py | 2026-09-11 |\n")
+        out = gate(d)
+        if "R16" not in out or "downstream" not in out:
+            return ("an area the change reaches firmly, watched by nothing and observed "
+                    f"by no plan, was accepted:\n{out}")
+        # Named by the plan: the question is answered.
+        edit(d, "03-admission.md", "| CR-001-01 | subject/core.py |",
+             "| CR-001-01 | subject/core.py and downstream/rider.py |")
+        if "R16" in gate(d):
+            return "an area the plan observes was still reported as unobserved"
+        # Watched by a test of its own: the plan is not asked to observe it again.
+        edit(d, "03-admission.md", "| CR-001-01 | subject/core.py and downstream/rider.py |",
+             "| CR-001-01 | subject/core.py |")
+        (root / "downstream" / "tests").mkdir()
+        (root / "downstream" / "tests" / "test_rider.py").write_text(
+            "from rider import beta\n\n\ndef test_beta():\n    assert beta()\n")
+        if "R16" in gate(d):
+            return "an area something already judges was demanded of the plan as well"
+    return None
+
+
 def main():
     failures = []
-    for name, fn in (("CR-008-01", cr_008_01), ("CR-008-02", cr_008_02), ("CR-008-03", cr_008_03), ("CR-008-04", cr_008_04)):
+    for name, fn in (("CR-008-01", cr_008_01), ("CR-008-02", cr_008_02), ("CR-008-03", cr_008_03), ("CR-008-04", cr_008_04), ("CR-008-05", cr_008_05)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:

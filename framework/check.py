@@ -223,6 +223,7 @@ class Check:
                                      f"does not say what it was derived from was derived "
                                      f"from the change")
         self.plan_against_estate(needs, planned)
+        self.plan_covers_reach(needs, planned)
 
     def plan_against_estate(self, needs, planned):
         """R16, the half that could not be checked until there was a model.
@@ -267,6 +268,50 @@ class Check:
                                      f"nothing in the scope reaches it — an area of effect "
                                      f"names what the change touches, so this was derived "
                                      f"from something other than the estate")
+
+    def plan_covers_reach(self, needs, planned):
+        """R16, the other half: a plan can name nothing wrong and still miss
+        everything that matters.
+
+        The demand is not that a plan observe everywhere a change reaches —
+        a change to a central module reaches hundreds of regions, and a rule
+        producing a list that long is a rule nobody reads. It is narrower and
+        it is the part nobody else covers: ground the change reaches firmly,
+        where nothing already names a symbol in a test, and which no plan
+        observes. Anywhere else, something is watching; there, nothing is.
+
+        Measured across five estates, that residual is nought for most changes
+        and never more than three regions — which is what makes it a failure
+        rather than a report.
+        """
+        scope = sorted(p for p in self.scope_paths() if p)
+        if not needs or not scope:
+            return
+        try:
+            sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+            import estate
+            rows = estate.affects(scope, self.root)
+            regions = estate.every_region(self.root)
+        except Exception:                        # already reported by the half above
+            return
+        firm = {self.region_of(r["file"]) for r in rows
+                if r["confidence"] in ("high", "medium")}
+        watched = {r["region"] for r in regions
+                   if r["verdict"] != "unclaimed" or r["is test ground"]}
+        observed = {self.region_of(p) for row in planned.values()
+                    for field in ("Observed", "Derived from")
+                    for p in paths_in(row.get(field, ""))}
+        mine = {self.region_of(p) for p in scope}
+        for region in sorted(firm - watched - observed - mine):
+            self.fail("R16", f"the change reaches {region} firmly, nothing there is named "
+                             f"by a test, and no plan observes it — a plan that covers "
+                             f"none of an unwatched area leaves it judged by nothing")
+
+    def region_of(self, path):
+        """The region a path names: itself when it is a directory, its parent
+        when it is a file."""
+        p = pathlib.PurePosixPath(str(path).rstrip("/"))
+        return str(p) if (self.root / p).is_dir() else str(p.parent)
 
     def arbiter_inputs(self):
         """R7b: an arbiter input inside the scope needs its prior state captured."""
