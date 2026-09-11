@@ -6,6 +6,7 @@ Usage: python3 framework/estate.py affects <path>...     what a change here reac
        python3 framework/estate.py freshness             what this was derived from, and when
        python3 framework/estate.py unknown               what it could not resolve
        python3 framework/estate.py contracts <dir>       what crosses between repositories
+       python3 framework/estate.py observe <path> <cmd>   run it and see what actually ran
 
 Every answer carries where it came from and how far it is to be trusted. Nothing
 here is maintained: it is derived on demand from the code as it stands, and a
@@ -22,7 +23,11 @@ import subprocess
 import sys
 from collections import defaultdict
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+# What is looked at is where this is run, not where this file happens to live.
+# The first version took its own location, which meant a tool for looking at
+# estates could only ever look at the one it was kept in.
+ROOT = pathlib.Path.cwd().resolve()
+SELF = pathlib.Path(__file__).resolve().parent.parent
 
 # How far a statement is to be trusted, and why.
 DERIVED_TOTAL = ("derived", "high")       # the parser saw it and could not be wrong
@@ -195,11 +200,13 @@ def affects(paths, repo=None):
 
 
 def observability(path, repo=None):
-    """How well behaviour in a region can be pinned down at all.
+    """How well behaviour in a region can be pinned down — as far as structure
+    can say, which is not far.
 
-    Answered from what exists, never guessed: an arbiter that reaches a symbol
-    defined here is evidence the region can be observed. Nothing here says the
-    observation is *good* — only that one exists.
+    A test that names a symbol defined here has *claimed* the region, and a
+    claim is not an observation. What settles it is running something and
+    seeing which lines execute, which is `observe` below. This half proposes;
+    that half confirms.
     """
     repo = repo or ROOT
     defines, calls, _ = index(repo)
@@ -211,9 +218,60 @@ def observability(path, repo=None):
         return {"region": path, "verdict": "unknown",
                 "why": "nothing is defined here that this index can see",
                 "provenance": "derived", "confidence": "low"}
-    return {"region": path, "symbols": len(here), "watched by": watchers,
-            "verdict": "observed" if watchers else "unobserved",
-            "provenance": "matched", "confidence": "medium"}
+    named = {s for s in here if any(rel for rel, n, _ in calls
+                                    if n == s and "/tests/" in rel)}
+    share = len(named) / len(here)
+    verdict = ("claimed" if share > 0.66 else
+               "partly claimed" if named else "unclaimed")
+    return {"region": path, "symbols": len(here), "named by a test": len(named),
+            "watched by": watchers, "verdict": verdict,
+            "means": {"claimed": "structure suggests it can be observed; run it to find out",
+                      "partly claimed": "some of it is spoken for and the rest is not",
+                      "unclaimed": "nothing names it, so a change here has nothing to be "
+                                   "judged against and needs characterising first"}[verdict],
+            "provenance": "matched", "confidence": "low",
+            "caveat": "a test naming a symbol is not a test exercising it"}
+
+
+def observe(path, command, repo=None):
+    """Run something and see which lines in the region actually executed.
+
+    This is the half that settles it. A region nothing executes cannot be
+    changed under any class that rests on comparing behaviour, and knowing
+    that before the work starts is the point of asking.
+    """
+    import trace as tracemod
+    repo = repo or ROOT
+    target = (repo / path).resolve()
+    lines = set()
+    if target.is_file():
+        src = target.read_text().splitlines()
+        for i, ln in enumerate(src, start=1):
+            t = ln.strip()
+            if t and not t.startswith("#") and not t.startswith('"""'):
+                lines.add(i)
+    tracer = tracemod.Trace(count=1, trace=0)
+    argv, old = list(command), sys.argv
+    try:
+        sys.argv = argv
+        tracer.run(compile(pathlib.Path(argv[0]).read_text(), argv[0], "exec"))
+    except SystemExit:
+        pass
+    finally:
+        sys.argv = old
+    executed = {ln for (f, ln), n in tracer.results().counts.items()
+                if pathlib.Path(f).resolve() == target and n}
+    if not lines:
+        return {"region": path, "verdict": "unknown",
+                "why": "nothing here that could execute"}
+    share = len(executed) / len(lines)
+    return {"region": path, "lines": len(lines), "executed": len(executed),
+            "share": round(share, 2),
+            "verdict": "observed" if share > 0.66 else
+                       "partly observed" if executed else "unobserved",
+            "by": " ".join(command),
+            "provenance": "derived", "confidence": "high",
+            "caveat": "what one run reached, not what could be reached"}
 
 
 def freshness():
@@ -370,6 +428,9 @@ def main(argv):
               f"text, {len(far)} further through imports.")
         print(f"  {blind} call(s) this index cannot resolve at all, so neither figure "
               f"is a floor or a ceiling — it is what one parser could see.")
+        return 0
+    if cmd == "observe" and len(args) >= 2:
+        print(json.dumps(observe(args[0], args[1:]), indent=2))
         return 0
     if cmd == "observability" and args:
         r = observability(args[0])

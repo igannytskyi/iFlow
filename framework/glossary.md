@@ -98,7 +98,7 @@ What every word in the method means, in a sentence or two. Grouped by kind, alph
 
 **Independence** — evidence is independent on one of two grounds: something other than the executor produced it, or it was fixed and accepted *before* the candidate existed. The second is the stronger, since a second executor may share the first's blind spots.
 
-**Observational adequacy** — how well behaviour in a region can be pinned down at all. It decides which class a change in that region can be, and whether a criterion there is settleable.
+**Observational adequacy** — how well behaviour in a region can be pinned down at all. It decides which class a change in that region can be, and whether a criterion there is settleable. It has two grades and they are not interchangeable: a region something *names* is claimed, which is a guess; a region something *executes* is observed, which is a measurement.
 
 **Predating** — an obligation added after a change was admitted does not apply to it. The gate distinguishes violating a rule from predating it and reports the second as a note.
 
@@ -148,6 +148,7 @@ estate.py observability <path> how well behaviour there can be pinned down
 estate.py freshness           what the answers were derived from, and when
 estate.py unknown             what the index cannot resolve at all
 estate.py contracts <dir>     what crosses between repositories, and on what basis
+estate.py observe <path> <cmd> run it and see which lines actually ran
 
 check.py changes/<slug>     one change, against every rule
 check.py --status [dir]     every change: how far it got, what holds it, what it owes
