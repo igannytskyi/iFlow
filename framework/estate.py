@@ -401,7 +401,12 @@ def observability(path, repo=None):
                       "unclaimed": "nothing names it, so a change here has nothing to be "
                                    "judged against and needs characterising first"}[verdict],
             "provenance": "matched", "confidence": "low",
-            "caveat": "a test naming a symbol is not a test exercising it"}
+            "caveat": "a test naming a symbol is not a test exercising it",
+            # A verdict of unclaimed is a claim about the whole estate, and the
+            # part of it this index cannot read may be exactly where the tests
+            # are: on a twelve-service estate every test is in Go or C#. Saying
+            # "nothing names this" without saying that is a confident zero.
+            "read": coverage_note(repo).strip()}
 
 
 def observe(path, command, repo=None):

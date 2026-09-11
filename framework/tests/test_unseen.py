@@ -4,6 +4,8 @@
 CR-016-01  a repository in a language this index cannot read is reported unread,
            not empty
 CR-016-02  every answer says how much of the estate it covers
+CR-016-03  a verdict that nothing watches a region says how much of the estate
+           it could not read before saying so
 """
 import json
 import pathlib
@@ -18,6 +20,7 @@ ESTATE = ROOT / "framework" / "estate.py"
 TESTS = {
     "CR-016-01": "direct",
     "CR-016-02": "direct",
+    "CR-016-03": "direct",
 }
 
 
@@ -31,6 +34,19 @@ def foreign(where):
     (d / "src").mkdir(parents=True)
     (d / "src" / "index.ts").write_text("export function alpha() { return 1 }\n")
     (d / "src" / "other.ts").write_text("export function beta() { return 2 }\n")
+    return d
+
+
+def mixed(where):
+    """A region this index can read, on an estate mostly written in one it
+    cannot — the shape of every polyglot estate, where the tests are as likely
+    to be on the unread side as anywhere else."""
+    d = pathlib.Path(where)
+    (d / "svc").mkdir(parents=True)
+    (d / "svc" / "handler.py").write_text("def alpha():\n    return 1\n")
+    (d / "other").mkdir(parents=True)
+    for i in range(3):
+        (d / "other" / f"svc{i}_test.go").write_text("package main\n")
     return d
 
 
@@ -57,9 +73,21 @@ def cr_016_02():
     return None
 
 
+def cr_016_03():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = mixed(tmp)
+        out = json.loads(run(d, "observability", "svc"))
+        if out.get("verdict") != "unclaimed":
+            return "a region nothing readable names was not reported unclaimed"
+        if "are not absent — they are unseen" not in out.get("read", ""):
+            return "a verdict of unclaimed did not say what it could not read"
+    return None
+
+
 def main():
     failures = []
-    for name, fn in (("CR-016-01", cr_016_01), ("CR-016-02", cr_016_02)):
+    for name, fn in (("CR-016-01", cr_016_01), ("CR-016-02", cr_016_02),
+                     ("CR-016-03", cr_016_03)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:
