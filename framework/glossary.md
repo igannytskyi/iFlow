@@ -141,6 +141,11 @@ Ordered by what settles them, from the strongest to none at all.
 ## What the gate is asked
 
 ```
+estate.py affects <path>      what a change there reaches, and how far to trust it
+estate.py observability <path> how well behaviour there can be pinned down
+estate.py freshness           what the answers were derived from, and when
+estate.py unknown             what the index cannot resolve at all
+
 check.py changes/<slug>     one change, against every rule
 check.py --status [dir]     every change: how far it got, what holds it, what it owes
 check.py --arbiters         run every arbiter in one action

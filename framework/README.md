@@ -10,6 +10,7 @@ Everything the method *is* lives here. What it is *about* is in `../docs/`. What
 | `rules.md` | Every rule, each naming the check that proves it — and, where a rule is not checked, why not |
 | `templates/` | The seven artefacts a change travels through, plus the append-only record |
 | `check.py` | The gate. Pure Python, no dependencies. Reads a change folder and says what is wrong |
+| `estate.py` | What the estate is, derived from it rather than described about it. Every answer carries where it came from and how far to trust it |
 | `tests/` | The arbiters. Each was written before the thing it judges and shown to fail for its stated reason |
 | `tests/harness.py` | Builds a valid change when one is needed and stores none. A fixture kept on disk drifts away from the templates in silence; one built at run time cannot |
 
