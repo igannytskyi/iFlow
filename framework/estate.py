@@ -167,6 +167,17 @@ def sources(repo):
         yield p
 
 
+def unread_sources(repo):
+    """Files in languages this index cannot parse, which is where most of an
+    estate's offers are declared."""
+    for p in sorted(repo.rglob("*")):
+        if not p.is_file() or p.suffix not in UNREADABLE:
+            continue
+        if any(part in OUTSIDE or part.startswith("_bmad") for part in p.parts):
+            continue
+        yield p
+
+
 def index(repo, use_cache=True):
     """Symbols, the calls between them, and what could not be resolved.
 
@@ -560,6 +571,32 @@ USES = [
 # Keys too generic to identify anything. A route of "/" is offered by most
 # services that offer anything, and joining on it says only that both sides
 # speak HTTP.
+# What an estate offers is usually declared in a language this index cannot
+# parse. Reading only Python meant that on a nine-repository estate every
+# consumer was reported as pointing outside it while the services they call
+# sat in the next directory — a correct statement about the index presented as
+# a statement about the estate. A route declaration is a shape a regular
+# expression can find without understanding the language around it, so the
+# offer side is read textually. It is weaker than a parse and is graded as
+# such: what it finds is a declaration that looks like a route, not a route
+# proven to exist.
+DECLARES_TEXT = [
+    # A route is rarely a bare literal: it is a base path joined to one. The
+    # first version of this required the string to sit right after the bracket,
+    # and on a real service every route was written `baseUrl+"/cart"`, so it
+    # found none of them and reported the estate as offering nothing.
+    (r'@(?:Request|Get|Post|Put|Patch|Delete)Mapping\(\s*(?:value\s*=\s*)?'
+     r'"([^"]+)"', "http"),                                  # Spring
+    (r'@Path\(\s*"([^"]+)"\s*\)', "http"),                   # JAX-RS
+    (r'\[(?:HttpGet|HttpPost|HttpPut|HttpDelete|Route)\(\s*"([^"]+)"', "http"),  # ASP.NET
+    (r'\.(?:HandleFunc|Handle|Path)\(\s*(?:[\w.()]+\s*\+\s*)?"(/[^"]*)"',
+     "http"),                                                # net/http, gorilla/mux
+    (r'\b(?:r|router|app|e|g)\.(?:GET|POST|PUT|PATCH|DELETE)\(\s*'
+     r'(?:[\w.()]+\s*\+\s*)?"(/[^"]*)"', "http"),            # gin, echo
+    (r'\b(?:app|router)\.(?:get|post|put|patch|delete|all)\(\s*'
+     r'["\'](/[^"\']*)["\']', "http"),                       # express
+]
+
 DEGENERATE = {"/", "", "/*", "/health", "/healthz", "/ping", "/metrics"}
 
 # Ways one service reaches another that this index does not read. Naming them
@@ -610,7 +647,7 @@ def normalise(kind, key):
 
 def facts(repo):
     """What this repository offers, and what it consumes from elsewhere."""
-    declares, uses = [], []
+    declares, uses, stands_in = [], [], []
     for path in sources(repo):
         rel = path.relative_to(repo).as_posix()
         text = path.read_text()
@@ -619,7 +656,16 @@ def facts(repo):
             for key in re.findall(pattern, text):
                 k, _ = normalise(kind, key)
                 if k not in DEGENERATE:
-                    declares.append({"kind": kind, "key": k, "file": rel})
+                    # A route declared inside test ground is a stand-in for a
+                    # service this repository talks to, not something this
+                    # repository offers. On a real estate the orders service
+                    # carries a fake of the users, carts, payment and shipping
+                    # services for its own tests; reading those as offers would
+                    # join every consumer of them to the wrong repository. An
+                    # edge to the wrong service is worse than no edge: it is
+                    # believed, and it points at people who cannot act on it.
+                    (stands_in if is_test(rel, repo) else declares).append(
+                        {"kind": kind, "key": k, "file": rel})
         for line in text.splitlines():
             if line.strip() in decorated:
                 continue
@@ -628,7 +674,21 @@ def facts(repo):
                     k, host = normalise(kind, key)
                     if k not in DEGENERATE:
                         uses.append({"kind": kind, "key": k, "file": rel, "host": host})
-    return {"repo": repo.name, "declares": declares, "uses": uses}
+    for path in unread_sources(repo):
+        rel = path.relative_to(repo).as_posix()
+        try:
+            text = path.read_text(errors="ignore")
+        except OSError:
+            continue
+        for pattern, kind in DECLARES_TEXT:
+            for key in re.findall(pattern, text):
+                k, _ = normalise(kind, key)
+                if k in DEGENERATE:
+                    continue
+                (stands_in if is_test(rel, repo) else declares).append(
+                    {"kind": kind, "key": k, "file": rel, "read": "text"})
+    return {"repo": repo.name, "declares": declares, "uses": uses,
+            "stands in for": stands_in}
 
 
 def observed(path):
@@ -660,34 +720,75 @@ def contracts(where, telemetry=None):
     for f in all_facts:
         for u in f["uses"]:
             k = (u["kind"], u["key"])
-            producers = [p for p in offered.get(k, []) if p[0] != f["repo"]]
+            # Two handlers for one route in one repository are one offer. Counting
+            # the declarations rather than the repositories made a service that
+            # answers GET and POST on the same path look like two services
+            # claiming it, and downgraded a sound edge to an ambiguous one.
+            producers = sorted({p[0] for p in offered.get(k, [])} - {f["repo"]})
             if not producers:
                 unmatched.append({"consumer": f["repo"], "file": u["file"], **u})
                 continue
             consumed.add(k)
             confirmed = (f["repo"], u["kind"], u["key"]) in seen
-            agrees = u.get("host") and u["host"] == producers[0][0]
+            agrees = u.get("host") and u["host"] == producers[0]
             if confirmed:
                 conf, how = "high", "seen in traffic"
             elif len(producers) > 1:
-                conf, how = "low", "several repositories offer this key"
+                conf, how = "low", ("this key is offered by " + ", ".join(producers)
+                                    + ", and which one it reaches is not derivable here")
             elif agrees:
                 conf, how = "medium", "the key matches and the address names the same repository"
             else:
                 conf, how = "medium", "one repository offers this key"
             edges.append({
-                "from": f["repo"], "to": producers[0][0], "kind": u["kind"], "key": u["key"],
+                "from": f["repo"], "to": producers[0], "kind": u["kind"], "key": u["key"],
+                # Which of several offerers a call reaches is not decidable from
+                # a key. Naming one and forgetting the rest makes every other
+                # offerer of it look untouched by a change nobody can rule out.
+                "among": producers,
                 "provenance": "observed" if confirmed else "matched",
                 "confidence": conf, "how": how})
+    # A stand-in is thrown away as an offer and kept as evidence of the reverse:
+    # nobody writes a fake of a service they do not call. It is the weakest
+    # ground for an edge and says so, but a dependency stated nowhere else is
+    # worth more reported weakly than dropped.
+    fakes = []
+    for f in all_facts:
+        for d in f["stands in for"]:
+            k = (d["kind"], d["key"])
+            producers = sorted({p[0] for p in offered.get(k, [])} - {f["repo"]})
+            row = {"repo": f["repo"], "to": producers[0] if producers else None, **d}
+            fakes.append(row)
+            if producers:
+                consumed.add(k)
+                edges.append({
+                    "from": f["repo"], "to": producers[0], "kind": d["kind"],
+                    "key": d["key"], "among": producers, "provenance": "matched",
+                    "confidence": "low",
+                    "how": "this repository keeps a stand-in for it in its own tests"})
     for k, where_offered in offered.items():
         if k not in consumed:
             unconsumed.append({"kind": k[0], "key": k[1],
                                "offered by": where_offered[0][0],
                                "file": where_offered[0][1]})
+    strength = {"high": 0, "medium": 1, "low": 2}
+    best = {}
+    for e in edges:
+        k = (e["from"], e["to"], e["kind"], e["key"])
+        if k not in best or strength[e["confidence"]] < strength[best[k]["confidence"]]:
+            best[k] = e
+    edges = list(best.values())
+    seen_un, once = set(), []
+    for u in unmatched:                      # the same call written twice is one gap
+        k = (u["consumer"], u["kind"], u["key"])
+        if k not in seen_un:
+            seen_un.add(k)
+            once.append(u)
+    unmatched = once
     surprises = [s for s in seen
                  if not any(e["from"] == s[0] and e["kind"] == s[1] and e["key"] == s[2]
                             for e in edges)]
-    return edges, unconsumed, unmatched, surprises
+    return edges, unconsumed, unmatched, surprises, fakes
 
 
 # ------------------------------------------------------------- in flight
@@ -765,19 +866,28 @@ def reachability(where, region, telemetry=None):
     base = pathlib.Path(where)
     reps = [r for r in sorted(base.iterdir()) if r.is_dir()]
     known = {r.name for r in reps}
-    edges, _, unmatched, surprises = contracts(where, telemetry)
+    edges, _, unmatched, surprises, _fakes = contracts(where, telemetry)
     offers = []
     for r in reps:
         if region and not (r.name == region or str(r).endswith(region)):
             continue
-        for d in facts(r)["declares"]:
-            takers = [e["from"] for e in edges
-                      if e["to"] == r.name and e["kind"] == d["kind"]
-                      and e["key"] == d["key"]]
+        declared, once = set(), []
+        for d in facts(r)["declares"]:       # one route declared by two handlers
+            if (d["kind"], d["key"]) in declared:
+                continue
+            declared.add((d["kind"], d["key"]))
+            once.append(d)
+        for d in once:
+            takers = sorted({e["from"] for e in edges
+                              if r.name in e.get("among", [e["to"]])
+                              and e["kind"] == d["kind"] and e["key"] == d["key"]})
+            shared = sorted({o for e in edges for o in e.get("among", [])
+                             if e["kind"] == d["kind"] and e["key"] == d["key"]
+                             and len(e.get("among", [])) > 1} - {r.name})
             outside = [s[0] for s in surprises
                        if s[1] == d["kind"] and s[2] == d["key"] and s[0] not in known]
             offers.append({"repo": r.name, **d, "taken by": takers,
-                           "beyond reach": outside})
+                           "also offered by": shared, "beyond reach": outside})
     return offers, unmatched
 
 
@@ -867,7 +977,7 @@ def main(argv):
         return 0
     if cmd == "contracts" and args:
         tel = args[1] if len(args) > 1 else None
-        edges, unconsumed, unmatched, surprises = contracts(args[0], tel)
+        edges, unconsumed, unmatched, surprises, fakes = contracts(args[0], tel)
         for e in edges:
             print(f"  {e['confidence']:>6}  {e['from']} → {e['to']}  "
                   f"{e['kind']} {e['key']}  ({e['how']})")
@@ -886,6 +996,16 @@ def main(argv):
                   f"by nothing — the estate does not know about one side")
         print(f"  {len(edges)} edge(s) joined, {len(unmatched)} consumer(s) pointing outside, "
               f"{len(unconsumed)} offer(s) nobody takes, {len(surprises)} surprise(s)")
+        loose = [f for f in fakes if not f["to"]]
+        for f in loose:
+            print(f"     low  {f['repo']} → ?  {f['kind']} {f['key']}  a stand-in for it is "
+                  f"kept in this repository's own tests, so it depends on it, and nothing "
+                  f"the index can read offers it")
+        if fakes:
+            byrepo = Counter(f["repo"] for f in fakes)
+            print(f"  {len(fakes)} route(s) declared inside test ground are stand-ins for "
+                  f"services these repositories talk to, not offers of their own ("
+                  + ", ".join(f"{r} {n}" for r, n in byrepo.most_common()) + ")")
         others = other_kinds(args[0])
         if others:
             named = ", ".join(f"{k} ({n} file(s))" for k, n in
@@ -921,7 +1041,10 @@ def main(argv):
         offers, unmatched = reachability(args[0], args[1], tel)
         for o in offers:
             takers = ", ".join(o["taken by"]) or "nobody in the estate"
-            print(f"  {o['repo']} offers {o['kind']} {o['key']} — taken by {takers}")
+            also = ("" if not o["also offered by"] else
+                    f"; {', '.join(o['also offered by'])} offer(s) the same key, so a "
+                    f"consumer of it may be reaching them instead")
+            print(f"  {o['repo']} offers {o['kind']} {o['key']} — taken by {takers}{also}")
             for who in o["beyond reach"]:
                 print(f"    beyond reach  {who}  belongs to no repository here, so no "
                       f"change reaches it")
