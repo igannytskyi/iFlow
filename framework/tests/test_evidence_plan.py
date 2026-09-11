@@ -4,7 +4,10 @@
 CR-008-01  a criterion needing an evidence plan has one before it is executed against
 CR-008-02  a plan says what it was derived from
 CR-008-03  a change built from the current shapes passes the gate
+CR-008-04  a plan naming ground the change does not reach is refused: an area of
+           effect is derived from the estate, and the estate can now be asked
 """
+import pathlib
 import sys
 import tempfile
 
@@ -15,6 +18,7 @@ TESTS = {
     "CR-008-02": ("proxy", "the criterion is whether a plan follows from the estate; what is "
                            "checked is whether it says what it was derived from"),
     "CR-008-03": ("proxy", "the criterion is about real work; a built change is run instead"),
+    "CR-008-04": "direct",
 }
 
 # Each criterion says whether this arbiter tests it or a
@@ -57,9 +61,45 @@ def cr_008_03():
         return "FAIL" in out and f"a change built from the current shapes does not pass:\n{out}" or None
 
 
+def estate_with_change(tmp):
+    """A small estate, and a change carried inside it — because what a plan is
+    derived from is the estate the change lives in, not the change folder."""
+    root = pathlib.Path(tmp) / "estate"
+    (root / "subject").mkdir(parents=True)
+    (root / "subject" / "core.py").write_text("def alpha():\n    return 1\n")
+    (root / "subject" / "user.py").write_text(
+        "from core import alpha\n\n\ndef beta():\n    return alpha()\n")
+    (root / "elsewhere").mkdir()
+    (root / "elsewhere" / "stranger.py").write_text("def unrelated():\n    return 0\n")
+    d = build_change(str(root / "changes" / "c"))
+    edit(d, "01-specification.md", "| subject/ |", "| subject/core.py |")
+    edit(d, "01-specification.md", "| not-required |", "| required |")
+    reseal(d)
+    return d
+
+
+def cr_008_04():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = estate_with_change(tmp)
+        edit(d, "03-admission.md", PLAN_HEAD,
+             PLAN_HEAD + "| CR-001-01 | subject/user.py | run it | no change | "
+                         "the area of effect of subject/core.py | 2026-09-11 |\n")
+        out = gate(d)
+        if "R16" in out:
+            return f"a plan naming ground the change reaches was refused:\n{out}"
+        edit(d, "03-admission.md", "| CR-001-01 | subject/user.py |",
+             "| CR-001-01 | elsewhere/stranger.py |")
+        out = gate(d)
+        if "R16" not in out:
+            return "a plan naming ground nothing in the scope reaches was accepted"
+        if "elsewhere/stranger.py" not in out:
+            return "the ground the plan names wrongly was not named back"
+    return None
+
+
 def main():
     failures = []
-    for name, fn in (("CR-008-01", cr_008_01), ("CR-008-02", cr_008_02), ("CR-008-03", cr_008_03)):
+    for name, fn in (("CR-008-01", cr_008_01), ("CR-008-02", cr_008_02), ("CR-008-03", cr_008_03), ("CR-008-04", cr_008_04)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:

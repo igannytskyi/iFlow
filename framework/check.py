@@ -61,6 +61,15 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
+PATHISH = re.compile(r"[A-Za-z0-9_.\-/]+/[A-Za-z0-9_.\-/]*")
+
+
+def paths_in(text):
+    """Every path-shaped word in a cell. Prose around it is prose; what can be
+    checked is what names ground."""
+    return {m.rstrip("/.,;:") for m in PATHISH.findall(text or "")}
+
+
 def tables(text):
     """Every markdown table as (headers, [row dicts]). Placeholder rows dropped."""
     out, rows, headers = [], None, None
@@ -121,8 +130,11 @@ def col(rows, *names):
 
 
 class Check:
-    def __init__(self, folder):
+    def __init__(self, folder, root=None):
         self.folder = pathlib.Path(folder)
+        # The estate a change is carried against is the repository it lives in,
+        # which is not the folder the change lives in.
+        self.root = pathlib.Path(root) if root else self.folder.resolve().parent.parent
         self.problems = []
         self.notes = []
         self.text = {}
@@ -210,6 +222,51 @@ class Check:
                     self.fail("R16", f"the plan for {c} leaves {field!r} empty; a plan that "
                                      f"does not say what it was derived from was derived "
                                      f"from the change")
+        self.plan_against_estate(needs, planned)
+
+    def plan_against_estate(self, needs, planned):
+        """R16, the half that could not be checked until there was a model.
+
+        The gate could see that a plan named an area of effect and never that
+        the area was real: a plan derived from the candidate names whatever the
+        author had in mind, and reads exactly like one derived from the estate.
+        Now the estate can be asked. Ground the change provably does not reach
+        is not an area of effect, and a plan that names it was derived from
+        something else.
+
+        Where the estate cannot answer — it is not this repository, or nothing
+        here reads that language — the check is not silently skipped: it says
+        so, because an unasked question and an answered one look the same in a
+        log otherwise.
+        """
+        scope = sorted(p for p in self.scope_paths() if p)
+        if not needs or not scope:
+            return
+        try:
+            sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+            import estate
+            reach = {r["file"] for r in estate.affects(scope, self.root)}
+            named_as_text = {r["file"] for r in estate.named_by(scope, self.root)}
+        except Exception as e:                       # noqa: BLE001 — reported, not raised
+            self.notes.append(f"R16: the estate could not be asked about this scope "
+                              f"({type(e).__name__}), so what the plan names is recorded "
+                              f"and not verified")
+            return
+        known = reach | named_as_text | set(scope)
+        for c in sorted(needs):
+            row = planned.get(c)
+            if row is None:
+                continue
+            for field in ("Observed", "Derived from"):
+                for path in paths_in(row.get(field, "")):
+                    if path in known or any(k.startswith(path) for k in known):
+                        continue
+                    if not (self.root / path).exists():
+                        continue                     # not a path, or not here to judge
+                    self.fail("R16", f"the plan for {c} names {path} under {field!r}, and "
+                                     f"nothing in the scope reaches it — an area of effect "
+                                     f"names what the change touches, so this was derived "
+                                     f"from something other than the estate")
 
     def arbiter_inputs(self):
         """R7b: an arbiter input inside the scope needs its prior state captured."""
