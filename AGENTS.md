@@ -13,7 +13,7 @@ A method for accepting change: a person states what is to be achieved and what w
 | `framework/` | The method itself: the vocabulary, the rules, the artefact shapes, the gate, the arbiters |
 | `changes/` | What the method has produced. `clock-instant/` is a worked example; the rest are real |
 
-Read `framework/conventions.md` before writing any artefact. Every code is defined there and nowhere else.
+Read [`framework/glossary.md`](framework/glossary.md) to learn what the words mean, and `framework/conventions.md` before writing any artefact. Every code is defined there and nowhere else.
 
 ## How a change is carried
 

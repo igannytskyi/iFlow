@@ -4,7 +4,8 @@ Everything the method *is* lives here. What it is *about* is in `../docs/`. What
 
 | | |
 |---|---|
-| `conventions.md` | Every code, defined once. Nothing anywhere may use a value this file does not define |
+| `glossary.md` | What every word means, in a sentence or two. For a person |
+| `conventions.md` | Every code, defined once. For the gate — nothing anywhere may use a value this file does not define |
 | `criteria.md` | How to arrive at a criterion — seven probes, one of them mechanical and six of them questions |
 | `rules.md` | Every rule, each naming the check that proves it — and, where a rule is not checked, why not |
 | `templates/` | The seven artefacts a change travels through, plus the append-only record |
