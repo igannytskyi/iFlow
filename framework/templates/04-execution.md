@@ -1,8 +1,8 @@
 # Execution — <name>
 
-| Unit | Executor | Version | Terminal state | Candidate | Trace |
-|---|---|---|---|---|---|
-| WU-<nnn>-01 | <deterministic transformation, or agent> | | candidate · terminated · exhausted · failed-substrate · failed-task · cancelled | CA-<nnn>-01 | trace/<id>.md |
+| Unit | Executor | Version | Terminal state | Candidate |
+|---|---|---|---|---|
+| WU-<nnn>-01 | <deterministic transformation, or agent> | | candidate · terminated · exhausted · failed-substrate · failed-task · cancelled | CA-<nnn>-01 |
 
 Where the class admits a deterministic transformation, using an agent is a defect: it makes a reproducible result unreproducible and costs more.
 

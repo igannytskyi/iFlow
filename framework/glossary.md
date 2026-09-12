@@ -162,7 +162,7 @@ estate.py inflight <dir>      what unfinished work already holds
 estate.py conflicts <dir> <p> who already holds this ground, and on what footing
 estate.py refresh             derive again only what moved
 estate.py readers             which languages are read here, and which are not
-estate.py coverage            the share of this estate something else here reaches
+estate.py coverage            what share of it the index reaches — for comparing indexes, not for judging this one
 estate.py context <symbol>    the code to change, who calls it, and what judges it
 estate.py reachability <d> <r> who consumes this, and who no change reaches
 

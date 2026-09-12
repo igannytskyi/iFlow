@@ -52,7 +52,7 @@ python3 framework/estate.py reachability <dir> <repo>   # who consumes this, who
 python3 framework/estate.py freshness             # what the answers were derived from
 python3 framework/estate.py refresh               # derive again only what moved
 python3 framework/estate.py readers               # which languages are read here
-python3 framework/estate.py coverage              # how much of this the index reaches
+python3 framework/estate.py coverage              # what share of this the index reaches — an instrument for comparing two indexes, not a measure of the model: this representation is never complete, and what it is measured by is freshness
 python3 framework/estate.py context <symbol|path> # the code to change, and what it touches
 ```
 

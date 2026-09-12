@@ -42,10 +42,3 @@ Where a criterion could only ever be evidenced by the artefact being changed, it
 |---|---|---|
 | CR-<nnn>-01 | | baseline/<name> |
 
-## Grants
-
-| Id | Unit | Permitted operations | Targets | Expires |
-|---|---|---|---|---|
-| GR-<nnn>-01 | WU-<nnn>-01 | read · write · execute | | with the run |
-
-A grant is the narrowest set sufficient for the unit's scope. Anything wider is refused, not warned about.
