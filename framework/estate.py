@@ -747,7 +747,11 @@ def where_defined(name, repo=None):
 def excerpt(repo, rel, start, end, limit=120):
     """The lines themselves, numbered as they are in the file."""
     try:
-        lines = (repo / rel).read_text(errors="replace").splitlines()
+        # Split on newlines and nothing else. Python counts a paragraph
+        # separator, a vertical tab and a form feed as line breaks; no parser
+        # does, and one U+2029 in one Rust file put every quotation after it on
+        # the line above the one it named.
+        lines = (repo / rel).read_text(errors="replace").split("\n")
     except OSError:
         return []
     start = max(1, start)

@@ -62,6 +62,20 @@ SAMPLES = {
     ".swift": "import Other\n\nclass Thing { func run() { helper() } }\n",
     ".sh": "source ./other.sh\n\nrun() { helper; }\n",
     ".ps1": '. "$PSScriptRoot\\other.ps1"\n\nfunction Run-Thing { Invoke-Helper }\n',
+    # The aliases. Each is a different extension mapped to a grammar another
+    # extension already uses, and a mapping to the wrong one reads as silence:
+    # the file parses, yields nothing, and nothing says it was misread.
+    ".cc": '#include "other.h"\n\nclass Thing { public: int run() { return helper(); } };\n',
+    ".cxx": '#include "other.h"\n\nclass Thing { public: int run() { return helper(); } };\n',
+    ".hpp": '#include "other.h"\n\nclass Thing { public: int run() { return helper(); } };\n',
+    ".hh": '#include "other.h"\n\nclass Thing { public: int run() { return helper(); } };\n',
+    ".h": '#include "other.h"\n\nint run(void) { return helper(); }\n',
+    ".mjs": 'import { Other } from "./other.mjs";\n\nexport function thing() { return helper(Other); }\n',
+    ".cjs": 'const other = require("./other.cjs");\n\nfunction thing() { return helper(other); }\n',
+    ".bash": "source ./other.sh\n\nrun() { helper; }\n",
+    ".zsh": "source ./other.sh\n\nrun() { helper; }\n",
+    ".psm1": '. "$PSScriptRoot\\other.ps1"\n\nfunction Run-Thing { Invoke-Helper }\n',
+    ".psd1": '. "$PSScriptRoot\\other.ps1"\n\nfunction Run-Thing { Invoke-Helper }\n',
 }
 
 

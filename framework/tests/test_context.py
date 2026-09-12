@@ -4,7 +4,8 @@
 CR-019-01  the answer carries the code, quoted verbatim with the lines it sits
            on, rather than a list of places to go and read
 CR-019-02  a quoted line is the line: what is shown as a call site contains the
-           call, so what is read is what is there
+           call, so what is read is what is there — counted the way a parser
+           counts lines, not the way a string library does
 CR-019-03  what is firm comes first, and what is a coincidence of vocabulary is
            counted rather than quoted among it
 CR-019-04  the answer is cut to a budget, and says what it left out
@@ -53,6 +54,10 @@ def estate_with(tmp):
     that shares a method name and imports nothing."""
     d = pathlib.Path(tmp)
     (d / "core.py").write_text(
+        # A paragraph separator is a line break to a string library and to no
+        # parser on earth. One of them in one file put every quotation after it
+        # on the line above the one it named.
+        "# a separator lives on this line: \u2029\n"
         "class Engine:\n"
         "    def start(self):\n"
         "        return 1\n"
@@ -88,10 +93,10 @@ def cr_019_01():
         out = run(d, "context", "Engine")
         if "class Engine:" not in out:
             return "the definition was not quoted"
-        if "core.py:1-" not in out:
+        if "core.py:2-" not in out:
             return "the quotation did not say where it came from"
-        if "     1  class Engine:" not in out:
-            return "the quoted code carries no line numbers"
+        if "     2  class Engine:" not in out:
+            return "the quoted code carries no line numbers, or counts them another way"
     return None
 
 
