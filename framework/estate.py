@@ -6,6 +6,8 @@ Usage: python3 framework/estate.py affects <path>...     what a change here reac
        python3 framework/estate.py freshness             what this was derived from, and when
        python3 framework/estate.py unknown               what it could not resolve
        python3 framework/estate.py readers               which languages are read here
+       python3 framework/estate.py corrections           what landings taught that reading cannot
+       python3 framework/estate.py correct <from> <to>...  --by=<change> --why="..."
        python3 framework/estate.py coverage              how much of this the index reaches
        python3 framework/estate.py context <symbol|path>  the code to change, and what it touches
        python3 framework/estate.py context --task "..."   where a task's words land, to choose from
@@ -551,7 +553,12 @@ def affects(paths, repo=None):
         reached[rel].append((name, grade))
     rank = {"high": 0, "medium": 1, "low": 2}
     out = []
+    # What a landing showed goes in first and cannot be outranked: it happened.
+    taught = {r["file"]: r for r in learned(paths, repo) if r["file"] not in wanted}
+    out.extend(taught.values())
     for rel in sorted(reached):
+        if rel in taught:
+            continue
         names = sorted({n for n, _ in reached[rel]})
         best = min((g for _, g in reached[rel]), key=lambda g: rank[g[1]])
         out.append({"file": rel, "through": names, "provenance": best[0],
@@ -1040,6 +1047,72 @@ def context(target, repo=None, budget=120000, want_all=False):
         "caveat": "what is firm is marked; the rest is a name that matched, and a name "
                   "can belong to something else",
     }
+
+
+# ---------------------------------------------------- what landings taught
+#
+# Everything above is derived, and derivation has a blind spot it cannot see
+# from the inside: a dependency nothing writes down. Reflection, a framework
+# loading a file by name, a path assembled at run time — the index reports
+# none of them and has no way to know it is wrong.
+#
+# What does know is a landing. Where work had to touch something the model
+# never connected to its scope, reality has just said an edge exists. That is
+# the one correction this representation can take, and it is the only way a
+# blind spot is ever closed: not by looking harder at the source, which
+# already said everything it says, but from outside.
+#
+# So this is the one thing here that is kept rather than derived, and it is
+# kept apart for that reason. The cache beside it is disposable — delete it
+# and the next query rebuilds it. These are not: delete them and what the
+# estate learned from its own history is gone.
+
+
+def corrections_file(repo=None):
+    return home(repo or ROOT) / "corrections.json"
+
+
+def corrections(repo=None):
+    """Edges a landing showed, which no reading of the source finds."""
+    p = corrections_file(repo)
+    if not p.exists():
+        return []
+    try:
+        return json.loads(p.read_text())
+    except json.JSONDecodeError:
+        return []
+
+
+def correct(scope, reached, by, why, repo=None):
+    """Record that work on this ground had to touch that, though nothing here
+    says so. Stated as what it is: observed, not derived."""
+    repo = repo or ROOT
+    held = corrections(repo)
+    entry = {"from": sorted(scope), "to": sorted(reached), "by": by, "why": why,
+             "provenance": "observed", "confidence": "high",
+             "at": subprocess.run(["date", "+%Y-%m-%d"], capture_output=True,
+                                  text=True).stdout.strip()}
+    if any(c["from"] == entry["from"] and c["to"] == entry["to"] and c["by"] == by
+           for c in held):
+        return held
+    held.append(entry)
+    corrections_file(repo).parent.mkdir(parents=True, exist_ok=True)
+    corrections_file(repo).write_text(json.dumps(held, indent=1, sort_keys=True))
+    return held
+
+
+def learned(paths, repo=None):
+    """What landings have shown a change to these paths reaches."""
+    repo = repo or ROOT
+    wanted = {pathlib.Path(p).as_posix() for p in paths}
+    out = []
+    for c in corrections(repo):
+        if any(f in wanted or f.startswith(tuple(wanted)) for f in c["from"]):
+            for target in c["to"]:
+                out.append({"file": target, "through": [f"landed with {c['by']}"],
+                            "provenance": "observed", "confidence": "high",
+                            "imports it": True, "why": c["why"]})
+    return out
 
 
 def coverage(repo=None):
@@ -2101,6 +2174,29 @@ def main(argv):
               + (f", over {len(rest)} target(s)" if len(rest) > 1 else "")
               + f"; {c['caveat']}")
         print(coverage_note())
+        return 0
+    if cmd == "corrections":
+        held = corrections()
+        for c in held:
+            print(f"  {', '.join(c['from'])} → {', '.join(c['to'])}  "
+                  f"({c['provenance']}, {c['confidence']}, with {c['by']} on {c['at']})")
+            print(f"      {c['why']}")
+        print(f"  {len(held)} edge(s) no reading of the source finds, and a landing did")
+        print("  these are kept, not derived: the cache beside them is rebuilt on demand "
+              "and these are what the estate learned from its own history")
+        return 0
+    if cmd == "correct" and len(args) >= 3:
+        scope = [a for a in args if not a.startswith("--")]
+        by = next((a.split("=", 1)[1] for a in args if a.startswith("--by=")), "")
+        why = next((a.split("=", 1)[1] for a in args if a.startswith("--why=")), "")
+        if not by or not why:
+            print("  a correction says which change taught it and what the reading "
+                  "missed: --by=<change> --why=\"...\"")
+            return 2
+        held = correct([scope[0]], scope[1:], by, why)
+        print(f"  recorded: a change to {scope[0]} reaches {', '.join(scope[1:])}, "
+              f"observed with {by}")
+        print(f"  {len(held)} correction(s) held")
         return 0
     if cmd == "readers":
         for who, exts in sorted(readers.who().items()):

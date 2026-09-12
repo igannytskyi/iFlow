@@ -14,6 +14,7 @@ Usage: python3 framework/check.py changes/<slug>     one change
 Exit status is 0 when nothing failed.
 """
 import hashlib
+import collections
 import pathlib
 import re
 import subprocess
@@ -268,6 +269,70 @@ class Check:
                                      f"nothing in the scope reaches it — an area of effect "
                                      f"names what the change touches, so this was derived "
                                      f"from something other than the estate")
+
+    def landing_taught(self):
+        """R21: work that had to touch ground the model never connected to its
+        scope is evidence against the model, and is owed back to it.
+
+        The area this rule belongs to says it plainly: being wrong is not
+        detectable from the source, and is corrected only from outside. A
+        landing is that outside. Where a unit's candidate contains a file the
+        estate does not reach from that unit's scope, no amount of re-reading
+        finds the edge — reflection, a framework loading by name, a path built
+        at run time — and the one thing that closes the blind spot is saying
+        so where the next query will see it.
+
+        Not an incident to be handled: a correction to be recorded.
+        """
+        if "06-landing" not in self.text or "02-plan" not in self.text:
+            return
+        entered = set()
+        for headers, rows in tables(self.text["06-landing"]):
+            if "Unit" in headers and "Entered at" in headers:
+                for r in real(rows):
+                    if r.get("Entered at"):
+                        entered.add(r.get("Unit", ""))
+        if not entered:
+            return
+        scope_of = {}
+        for headers, rows in tables(self.text["02-plan"]):
+            if "Scope" in headers and "Id" in headers:
+                for r in real(rows):
+                    scope_of[r.get("Id", "")] = [p for p in r.get("Scope", "").split()
+                                                 if p and (self.root / p).exists()]
+        touched = collections.defaultdict(set)
+        for headers, rows in tables(self.text.get("04-execution", "")):
+            if "Stored at" in headers and "Unit" in headers:
+                for r in real(rows):
+                    where = self.folder / r.get("Stored at", "")
+                    if not where.is_dir():
+                        continue
+                    for f in where.rglob("*"):
+                        if f.is_file() and f.suffix not in (".patch", ".diff", ".md"):
+                            touched[r.get("Unit", "")].add(f.name)
+        if not touched:
+            return
+        try:
+            sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+            import estate
+        except Exception:
+            return
+        known = {c["by"] for c in estate.corrections(self.root)}
+        for unit in sorted(entered):
+            scope = scope_of.get(unit, [])
+            if not scope or unit not in touched:
+                continue
+            reach = {pathlib.PurePosixPath(r["file"]).name
+                     for r in estate.affects(scope, self.root)}
+            reach |= {pathlib.PurePosixPath(p).name for p in scope}
+            unforeseen = sorted(touched[unit] - reach)
+            if unforeseen and self.folder.name not in known:
+                self.fail("R21", f"{unit} landed having touched {', '.join(unforeseen)}, "
+                                 f"which nothing reaches from {', '.join(scope)} — the "
+                                 f"model did not see that edge and cannot find it by "
+                                 f"reading again; record it with `estate.py correct "
+                                 f"<scope> <what it reached> --by={self.folder.name} "
+                                 f"--why=...`")
 
     def plan_covers_reach(self, needs, planned):
         """R16, the other half: a plan can name nothing wrong and still miss
@@ -744,7 +809,8 @@ class Check:
                   self.refusals, self.criteria_review,
                   self.repeatability, self.deferred_complete, self.verdict_coverage,
                   self.landing_backed, self.record_append_only,
-                  self.arbiter_changes_separate, self.record_complete):
+                  self.arbiter_changes_separate, self.record_complete,
+                  self.landing_taught):
             m()
         return self.problems, self.notes
 

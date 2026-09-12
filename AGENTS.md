@@ -56,6 +56,7 @@ python3 framework/estate.py contracts <dir>       # what crosses between reposit
 python3 framework/estate.py reachability <dir> <repo>   # who consumes this, who cannot be reached
 python3 framework/estate.py freshness             # what the answers were derived from
 python3 framework/estate.py refresh               # derive again only what moved
+python3 framework/estate.py corrections           # what landings taught that reading cannot find
 python3 framework/estate.py readers               # which languages are read here
 python3 framework/estate.py coverage              # what share of this the index reaches — an instrument for comparing two indexes, not a measure of the model: this representation is never complete, and what it is measured by is freshness
 python3 framework/estate.py context <symbol|path> # the code to change, and what it touches
@@ -84,7 +85,7 @@ export IFLOW_ESTATE_ROOT=changes/<slug>/estate/repos
 | `<home>/cache/` | One index per repository, keyed by the commit each region was last touched by |
 | `<home>/answers/` | What the tooling said, and from which commit — read afterwards to see whether the model was right |
 
-The cache is disposable; the answers are not.
+The cache is disposable; the answers are not, and neither are the corrections. Being wrong is not detectable from the source: where work had to touch ground nothing connects to its scope, the edge is real and no re-reading finds it. The gate refuses such a landing until it is recorded, and from then on it is answered with as observed rather than derived.
 
 ## What binds you
 
