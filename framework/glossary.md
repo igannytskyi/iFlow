@@ -166,6 +166,9 @@ estate.py coverage            what share of it the index reaches — for compari
 estate.py context <symbol>    the code to change, who calls it, and what judges it
 estate.py reachability <d> <r> who consumes this, and who no change reaches
 
+plan.py changes/<slug>      what the estate answers before a plan is written
+plan.py changes/<slug> --draft  the derivable half of a plan, in the shape the gate reads
+
 check.py changes/<slug>     one change, against every rule
 check.py --status [dir]     every change: how far it got, what holds it, what it owes
 check.py --arbiters         run every arbiter in one action

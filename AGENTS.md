@@ -38,7 +38,12 @@ python3 framework/check.py --mutate           # break each rule, see who notices
 python3 framework/check.py --repeat <slug>    # run what claims to repeat, twice
 python3 framework/check.py --unused           # fields nobody reads, codes nobody checks
 python3 framework/check.py --escalations      # what the method still owes itself
+
+python3 framework/plan.py changes/<slug>      # what the estate says about this specification
+python3 framework/plan.py changes/<slug> --draft   # the derivable half of its plan
 ```
+
+Before a plan is written, ask the estate what it already answers about the specification: what the scope reaches, what could judge a change there, which consumers no change here reaches, and what unfinished work holds the same ground. A region nothing judges makes a criterion about behaviour there undecidable as it stands, and calls for a preparatory unit before the work itself. How the work divides, what each unit is called and which class it falls in are judgement, are left blank, and are said to be.
 
 ## What the estate is
 
