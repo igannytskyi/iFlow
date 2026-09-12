@@ -8,6 +8,7 @@ Usage: python3 framework/estate.py affects <path>...     what a change here reac
        python3 framework/estate.py readers               which languages are read here
        python3 framework/estate.py coverage              how much of this the index reaches
        python3 framework/estate.py context <symbol|path>  the code to change, and what it touches
+       python3 framework/estate.py context --task "..."   where a task's words land, to choose from
        python3 framework/estate.py contracts <dir>       what crosses between repositories
        python3 framework/estate.py observe <path> <cmd>   run it and see what actually ran
        python3 framework/estate.py inflight <dir>         what unfinished work already holds
@@ -847,6 +848,139 @@ def judged_by(rel, name=None, repo=None):
             if called in mine:
                 out[other].add(called)
     return {k: sorted(v) for k, v in sorted(out.items())}
+
+
+# A task is not a query. What a person says about a bug names the behaviour —
+# "the cart ignores the currency" — and the code may call none of it that. So
+# what is done here is deliberately shallow and deliberately loud: the words of
+# the task are matched against what the estate defines, the matches are offered
+# as a place to start, and every word that placed nothing is named. A word that
+# names nothing means one of two things, and both are worth saying: the code
+# calls it something else, or the ground it names is not read here.
+#
+# Understanding the task is not this thing's job. It has no model and cannot
+# have one; whoever asked has both. What it owes is a faithful expansion of
+# whatever it is pointed at, and an honest account of what it could not place.
+
+STOPWORDS = {
+    "the", "a", "an", "and", "or", "not", "but", "if", "then", "when", "where",
+    "this", "that", "these", "those", "it", "its", "is", "are", "was", "were",
+    "be", "been", "being", "to", "of", "in", "on", "for", "with", "from", "by",
+    "as", "at", "into", "about", "after", "before", "should", "must", "can",
+    "will", "would", "we", "i", "you", "they", "he", "she", "our", "my",
+    "fix", "bug", "issue", "problem", "add", "make", "change", "update",
+    "support", "feature", "need", "needs", "want", "please", "instead",
+    "does", "do", "did", "doing", "have", "has", "had", "get", "gets", "set",
+    "new", "old", "use", "used", "using", "so", "now", "also", "only", "some",
+    "all", "any", "every", "there", "here", "out", "up", "down", "over",
+}
+
+
+def words_of(statement):
+    """The words in a task that could name something in an estate.
+
+    Anything quoted, anything shaped like a path or a dotted name, and every
+    other word that is not grammar. Longer words first, because a long word
+    that matches is worth more than a short one that matches often.
+    """
+    strong = set(re.findall(r'"([^"]+)"|`([^`]+)`', statement))
+    strong = {a or b for a, b in strong}
+    strong |= {m for m in re.findall(r"[A-Za-z_][\w./-]*[./][\w./-]+", statement)}
+    plain = [w for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", statement)
+             if len(w) >= 3 and w.lower() not in STOPWORDS]
+    ordered = sorted(strong, key=len, reverse=True) + \
+        sorted({w for w in plain if w not in strong}, key=len, reverse=True)
+    return ordered
+
+
+def stem(word):
+    """A word with its ending taken off, roughly.
+
+    A task says `streamed` and the code says `stream_with_context`. This is not
+    morphology, it is four suffixes, and what it finds is reported as a stem
+    match rather than as a name — a weaker thing, said to be weaker.
+    """
+    low = word.lower()
+    for suffix in ("ing", "ed", "es", "s"):
+        if low.endswith(suffix) and len(low) - len(suffix) >= 3:
+            return low[: -len(suffix)]
+    return low
+
+
+def split_name(name):
+    """A symbol as the words it is made of: CamelCase, snake_case, kebab."""
+    parts = re.findall(r"[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+", name)
+    return {p.lower() for p in parts if len(p) >= 3}
+
+
+def placed(statement, repo=None):
+    """Where each word of a task lands, and which words land nowhere.
+
+    Three ways to land, and each says which it was: the word is a symbol's
+    name, it is one of the words a symbol's name is made of, or it is part of
+    a path. Nothing here weighs one word against another by meaning — that is
+    not derivable from text, and pretending otherwise would put a guess where
+    the answer says "derived".
+    """
+    repo = repo or ROOT
+    defines, _, _ = index(repo)
+    spots = positions(repo)
+    by_word = defaultdict(set)
+    for name in defines:
+        for part in split_name(name):
+            by_word[part].add(name)
+    found, missing = [], []
+    for word in words_of(statement):
+        low = word.lower()
+        exact = [n for n in defines if n.lower() == low]
+        partial = sorted(by_word.get(low, set()) - set(exact))
+        inpath = sorted(rel for rel in spots if low in rel.lower())
+        by_stem = sorted(by_word.get(stem(low), set())) if stem(low) != low else []
+        if exact:
+            found.append({"word": word, "how": "is the name of", "symbols": sorted(exact),
+                          "files": [], "weight": 3})
+        elif partial:
+            found.append({"word": word, "how": "is part of the name of",
+                          "symbols": partial[:40], "files": [], "weight": 2})
+        elif inpath:
+            found.append({"word": word, "how": "is part of the path of", "symbols": [],
+                          "files": inpath[:40], "weight": 1})
+        elif by_stem:
+            found.append({"word": word, "how": "shares a stem with the name of",
+                          "symbols": by_stem[:40], "files": [], "weight": 1})
+        else:
+            missing.append(word)
+    return found, missing
+
+
+def survey(statement, repo=None, repo_limit=40):
+    """Everywhere the words of a task land, and everywhere they do not.
+
+    This used to rank the places and offer the best of them. It was wrong, and
+    it was wrong in a way no tuning reaches: on one estate three words of a
+    task fell on a local method in an admin filter and it outscored the class
+    the task was plainly about. Choosing between them means understanding the
+    sentence, and nothing here understands anything.
+
+    What is derivable is where each word lands and how — and that is what this
+    returns, in full. Whoever asked has a model and can choose; this hands them
+    the material to choose from, and expands whatever they choose.
+    """
+    repo = repo or ROOT
+    found, missing = placed(statement, repo)
+    out = []
+    for hit in found:
+        places = []
+        for name in hit["symbols"]:
+            for rel, start, end in where_defined(name, repo):
+                places.append({"file": rel, "name": name, "line": start,
+                               "test ground": is_test(rel, repo)})
+        for rel in hit["files"]:
+            places.append({"file": rel, "name": None, "line": 1,
+                           "test ground": is_test(rel, repo)})
+        out.append({"word": hit["word"], "how": hit["how"],
+                    "places": places[:repo_limit], "more": max(0, len(places) - repo_limit)})
+    return out, missing
 
 
 def context(target, repo=None, budget=120000, want_all=False):
@@ -1917,14 +2051,55 @@ def main(argv):
     if cmd == "context" and args:
         every = "--all" in args
         rest = [a for a in args if a != "--all"]
-        budget = 120000
-        for a in list(rest):
+        budget, task, kept = 120000, None, []
+        skip = False
+        for i, a in enumerate(rest):
+            if skip:
+                skip = False
+                continue
             if a.startswith("--budget="):
-                budget, rest = int(a.split("=", 1)[1]), [r for r in rest if r != a]
-        c = context(rest[0], budget=budget, want_all=every)
-        spent = render_context(c, budget, every)
-        print(f"  — {spent} character(s) of a {budget} budget; "
-              f"{c['caveat']}")
+                budget = int(a.split("=", 1)[1])
+            elif a.startswith("--task="):
+                task = a.split("=", 1)[1]
+            elif a == "--task" and i + 1 < len(rest):
+                task, skip = rest[i + 1], True
+            else:
+                kept.append(a)
+        rest = kept
+        if task is None and rest and " " in rest[0]:
+            task, rest = rest[0], rest[1:]      # a sentence is a task, not a symbol
+        if task is not None:
+            found, missing = survey(task)
+            print("=== where the words of this task land")
+            for hit in found:
+                print(f"    {hit['word']}  {hit['how']}:")
+                for place in hit["places"]:
+                    mark = "  (test ground)" if place["test ground"] else ""
+                    named = f":{place['name']}" if place["name"] else ""
+                    print(f"        {place['file']}{named}  line {place['line']}{mark}")
+                if hit["more"]:
+                    print(f"        … and {hit['more']} more place(s)")
+            if missing:
+                print(f"    placed nothing: {', '.join(missing)} — either this estate "
+                      f"calls them something else, or the ground they name is not read "
+                      f"here")
+            if not found:
+                print("    nothing in this task names anything here: it is about ground "
+                      "this index cannot see, or about behaviour nobody named after it")
+            print("  — these are places, not an answer. Which of them the task is about "
+                  "is not derivable from the words, and choosing wrongly here costs more "
+                  "than choosing slowly: ask again naming the ones you mean, as "
+                  "`context <file>:<symbol> …`, and each will be expanded in full.")
+            print(coverage_note())
+            return 0
+        share = budget // max(len(rest), 1)
+        spent = 0
+        for one in rest:
+            c = context(one, budget=share, want_all=every)
+            spent += render_context(c, share, every)
+        print(f"  — {spent} character(s) of a {budget} budget"
+              + (f", over {len(rest)} target(s)" if len(rest) > 1 else "")
+              + f"; {c['caveat']}")
         print(coverage_note())
         return 0
     if cmd == "readers":

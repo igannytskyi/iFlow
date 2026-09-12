@@ -10,6 +10,16 @@ CR-019-03  what is firm comes first, and what is a coincidence of vocabulary is
 CR-019-04  the answer is cut to a budget, and says what it left out
 CR-019-05  what would judge a change is named, and where nothing would, that is
            said rather than left blank
+CR-019-06  a task statement is answered with where its words land, in full, and
+           how each of them landed
+CR-019-07  a word that names nothing here is reported as such: the estate calls
+           it something else, or that ground is unread, and both are worth
+           saying
+CR-019-08  a task is answered with places and never with a choice between them:
+           which place a sentence means is not derivable from its words, and
+           the answer says so instead of guessing
+CR-019-09  several targets are expanded in one answer, because whoever chose
+           them chose more than one
 """
 import pathlib
 import subprocess
@@ -26,6 +36,10 @@ TESTS = {
     "CR-019-03": "direct",
     "CR-019-04": "direct",
     "CR-019-05": "direct",
+    "CR-019-06": "direct",
+    "CR-019-07": "direct",
+    "CR-019-08": "direct",
+    "CR-019-09": "direct",
 }
 
 
@@ -62,6 +76,9 @@ def estate_with(tmp):
         "\n"
         "def test_start():\n"
         "    assert Engine().start() == 1\n")
+    (d / "tests" / "helpers.py").write_text(
+        "def drive():\n"
+        "    return None\n")
     return d
 
 
@@ -139,11 +156,69 @@ def cr_019_05():
     return None
 
 
+def cr_019_06():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = estate_with(tmp)
+        out = run(d, "context", "--task", "the engine does not start after a restart")
+        if "engine" not in out or "is the name of" not in out:
+            return f"a word naming a class was not reported as naming it:\n{out}"
+        if "core.py:Engine" not in out:
+            return "a word that names something here did not say where it is"
+        if "core.py:start" not in out or "stranger.py:start" not in out:
+            return "a word that names two places was answered with fewer than two"
+        both = run(d, "context", "--task", "drive is broken")
+        if "user.py:drive" not in both or "tests/helpers.py:drive" not in both:
+            return "a word landing in two places, one of them test ground, lost one"
+        marked = [ln for ln in both.splitlines() if "tests/helpers.py:drive" in ln]
+        if not marked or "(test ground)" not in marked[0]:
+            return "a place that is test ground was not marked as one"
+    return None
+
+
+def cr_019_07():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = estate_with(tmp)
+        out = run(d, "context", "--task", "the carburettor floods when the engine starts")
+        if "placed nothing" not in out or "carburettor" not in out:
+            return "a word that names nothing here was dropped rather than reported"
+        if "calls them something else" not in out:
+            return "an unplaced word was not said to mean a different vocabulary or unread ground"
+    return None
+
+
+def cr_019_08():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = estate_with(tmp)
+        out = run(d, "context", "--task", "the engine does not start after a restart")
+        if "--- called from" in out or "     1  class Engine:" in out:
+            return ("a task was expanded into code, which means something chose which "
+                    "place it meant, and nothing here can choose that")
+        if "not derivable from the words" not in out:
+            return "the answer did not say that choosing between the places is not its to do"
+        empty = run(d, "context", "--task", "the carburettor floods at altitude")
+        if "nothing in this task names anything here" not in empty:
+            return "a task naming nothing here was answered as though something landed"
+    return None
+
+
+def cr_019_09():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = estate_with(tmp)
+        out = run(d, "context", "core.py:Engine", "user.py:drive")
+        if "class Engine:" not in out or "def drive():" not in out:
+            return "two targets were asked for and fewer than two were quoted"
+        if "over 2 target(s)" not in out:
+            return "an answer over several targets did not say how many it covered"
+    return None
+
+
 def main():
     failures = []
     for name, fn in (("CR-019-01", cr_019_01), ("CR-019-02", cr_019_02),
                      ("CR-019-03", cr_019_03), ("CR-019-04", cr_019_04),
-                     ("CR-019-05", cr_019_05)):
+                     ("CR-019-05", cr_019_05), ("CR-019-06", cr_019_06),
+                     ("CR-019-07", cr_019_07), ("CR-019-08", cr_019_08),
+                     ("CR-019-09", cr_019_09)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:
