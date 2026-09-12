@@ -420,7 +420,7 @@ def named_by(paths, repo=None):
     return out
 
 
-def importers(repo=None):
+def importers(repo=None, graded=False):
     """Which file imports which, as a map. Derived: an import is written down.
 
     Read from the index rather than parsed again here, which is what lets reach
@@ -444,27 +444,30 @@ def importers(repo=None):
             by_module["/".join(parts[i:-1])].add(rel)
             by_module["/".join(parts[i:-1] + (path.stem,))].add(rel)
     def resolve(name):
-        """The longest tail of a namespace that names somewhere here.
+        """Everywhere a name could mean, longest tail first.
 
         `using eShop.ClientApp.Models.Catalog` names a namespace whose root is
         nowhere on disk — the directory is `src/ClientApp/Models/Catalog`. The
-        longest suffix that matches is the most specific place it can mean.
+        longest suffix that matches is the most specific place it can mean, and
+        the shorter ones are the places it might.
         """
+        out = []
         if name in by_module:
-            return by_module[name]
+            out.append((name, by_module[name]))
         parts = name.split("/")
         for i in range(1, len(parts)):
             tail = "/".join(parts[i:])
             if tail in by_module:
-                return by_module[tail]
-        return ()
+                out.append((tail, by_module[tail]))
+        return out
 
-    # One import statement, one destination. A reader offers what the statement
-    # could mean — the last segment, the one before it, the whole path — and
-    # the most specific of those that names somewhere here is what it means.
-    # Taking them all made every namespace root match every directory sharing
-    # its last word.
-    edges = defaultdict(set)
+    # An import statement is one destination and several guesses at it. Both go
+    # into the graph: the most specific tail that names somewhere here is the
+    # firm edge, the coarser ones are weak, and which of them an answer uses is
+    # the answer's business. Dropping the weak ones here — as this did for one
+    # release — narrows the graph itself to make one query tidier, and a graph
+    # narrowed to suit a query is no longer a graph of the estate.
+    edges, firm = defaultdict(set), defaultdict(set)
     index(repo)
     for rel, spot in positions(repo).items():
         by_line = defaultdict(list)
@@ -472,21 +475,29 @@ def importers(repo=None):
             if kind == "import":
                 by_line[line].append(name)
         for line, names in by_line.items():
+            best = None
             for name in sorted(names, key=lambda n: -n.count("/")):
-                targets = resolve(name)
-                if targets:
+                for matched, targets in resolve(name):
                     for target in targets:
-                        if target != rel:
-                            edges[target].add(rel)
-                    break
-    return edges
+                        if target == rel:
+                            continue
+                        edges[target].add(rel)
+                        if best is None or matched == best:
+                            best = matched
+                            firm[target].add(rel)
+    return (edges, firm) if graded else edges
 
 
-def transitive(seeds, repo=None):
+def transitive(seeds, repo=None, edges=None):
     """Reach is not one hop. Reporting only the files that touch a change
     directly understates the blast radius, and understating it is the dangerous
-    direction: what is not reported is what nobody re-tests."""
-    edges = importers(repo)
+    direction: what is not reported is what nobody re-tests.
+
+    Asked over the firm half of the import graph instead, the same walk answers
+    a narrower question — where a caller certainly reaches — which is what
+    telling two same-named definitions apart needs.
+    """
+    edges = importers(repo) if edges is None else edges
     seen, frontier, hops = set(seeds), list(seeds), {s: 0 for s in seeds}
     while frontier:
         cur = frontier.pop()
@@ -838,7 +849,7 @@ def judged_by(rel, name=None, repo=None):
     return {k: sorted(v) for k, v in sorted(out.items())}
 
 
-def context(target, repo=None, budget=40000, want_all=False):
+def context(target, repo=None, budget=120000, want_all=False):
     """What an agent needs to change one thing, in one answer.
 
     The target is a symbol, a file, or a file and a symbol in it. What comes
@@ -874,7 +885,8 @@ def context(target, repo=None, budget=40000, want_all=False):
     # that one. Without this every caller of an ambiguous name is reported as a
     # guess, which on a .NET estate is every caller there is.
     if len(subjects) > 1:
-        reach = {f: set(transitive({f}, repo)) for f, _s, _e in subjects}
+        _all, firm = importers(repo, graded=True)
+        reach = {f: set(transitive({f}, repo, edges=firm)) for f, _s, _e in subjects}
         for who in callers:
             candidates = [f for f, files in reach.items() if who["file"] in files]
             if len(candidates) == 1:
@@ -1621,7 +1633,10 @@ def render_context(c, budget, every):
     if len(c["subjects"]) > 1:
         say(f"    ({len(c['subjects'])} places define this name; all of them are below, "
             f"because which one a caller means is not derivable from the name)")
-    limit = 400 if every else 120
+    # The budget, not a constant, decides how much of anything is quoted: what
+    # an answer should contain follows from the work it is for, and a figure
+    # picked here to keep answers tidy is a filter nobody asked for.
+    limit = 10 ** 9 if every else max(120, budget // 400)
     for rel, start, end in c["subjects"]:
         say(f"=== {rel}:{start}-{end}")
         for n, line in excerpt(repo, rel, start, end, limit=limit):
@@ -1637,7 +1652,8 @@ def render_context(c, budget, every):
     per_file, skipped, crowded = defaultdict(int), 0, defaultdict(int)
     for who in c["callers"]:
         room = spent < budget * 0.75 or every
-        if not room or (per_file[who["file"]] >= (3 if not every else 10 ** 9)):
+        per_file_cap = 10 ** 9 if every else max(3, budget // 20000)
+        if not room or per_file[who["file"]] >= per_file_cap:
             skipped += 1
             crowded[who["file"]] += 1
             continue
@@ -1657,7 +1673,7 @@ def render_context(c, budget, every):
     loose_out = len(c["calls out"]) - len(firm_out)
     if firm_out or loose_out:
         say("--- what it calls that lives here")
-        for r in (c["calls out"] if every else firm_out)[:40]:
+        for r in (c["calls out"] if every else firm_out)[:max(40, budget // 2000)]:
             say(f"    {r['confidence']:>6}  {r['file']}  {r['name']} (line {r['line']})")
         if loose_out and not every:
             say(f"    … and {loose_out} more that share a name with something here and "
@@ -1901,7 +1917,7 @@ def main(argv):
     if cmd == "context" and args:
         every = "--all" in args
         rest = [a for a in args if a != "--all"]
-        budget = 40000
+        budget = 120000
         for a in list(rest):
             if a.startswith("--budget="):
                 budget, rest = int(a.split("=", 1)[1]), [r for r in rest if r != a]

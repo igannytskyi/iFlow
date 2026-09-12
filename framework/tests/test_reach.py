@@ -19,6 +19,9 @@ CR-017-06  where a file states the type of what it calls into, the call is read
            as reaching that type
 CR-017-07  an import statement is read whole: every module it names, and the
            module rather than the symbols it brings in
+CR-017-08  where an import could mean several places, every one of them is an
+           edge and the most specific is marked firm — the graph is not
+           narrowed to make one query's answer tidier
 """
 import pathlib
 import subprocess
@@ -37,6 +40,7 @@ TESTS = {
     "CR-017-05": "direct",
     "CR-017-06": "direct",
     "CR-017-07": "direct",
+    "CR-017-08": "direct",
 }
 
 
@@ -177,12 +181,48 @@ def cr_017_07():
     return None
 
 
+def cr_017_08():
+    """Two places whose paths end in the same word, and one import naming one.
+
+    The specific match tells the two apart; the coarse one is still a way the
+    estate might be wired, and dropping it to tidy an answer takes reach out of
+    the graph that no query can put back.
+    """
+    if not reads(".cs"):
+        return None
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp)
+        for place in ("src/App/Models/Catalog", "src/Web/Catalog"):
+            (d / place).mkdir(parents=True)
+            (d / place / "Item.cs").write_text("public class Item { public int Id; }\n")
+        (d / "src" / "App" / "Use.cs").write_text(
+            "using shop.App.Models.Catalog;\n\npublic class Use { Item one; }\n")
+        sys.path.insert(0, str(ROOT / "framework"))
+        import estate
+        estate.ROOT = d.resolve()
+        estate._TOUCHED.clear()
+        estate._WHERE.clear()
+        every, firm = estate.importers(d.resolve(), graded=True)
+        user = "src/App/Use.cs"
+        specific, coarse = "src/App/Models/Catalog/Item.cs", "src/Web/Catalog/Item.cs"
+        if user not in every.get(specific, ()):
+            return "the place an import names most specifically was not an edge"
+        if user not in every.get(coarse, ()):
+            return ("a place the import could also mean was left out of the graph: "
+                    "reach a query might narrow is not the graph's to drop")
+        if user not in firm.get(specific, ()):
+            return "the most specific match was not marked firm"
+        if user in firm.get(coarse, ()):
+            return "a coarser match was marked as firm as the specific one"
+    return None
+
+
 def main():
     failures = []
     for name, fn in (("CR-017-01", cr_017_01), ("CR-017-02", cr_017_02),
                      ("CR-017-03", cr_017_03), ("CR-017-04", cr_017_04),
                      ("CR-017-05", cr_017_05), ("CR-017-06", cr_017_06),
-                     ("CR-017-07", cr_017_07)):
+                     ("CR-017-07", cr_017_07), ("CR-017-08", cr_017_08)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:
