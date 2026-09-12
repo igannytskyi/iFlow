@@ -8,6 +8,8 @@
 
 Evidence about a `transformation` carries that transformation's digest and is amortized across every application. `not-independent` evidence cannot support a `met` outcome, and neither can evidence whose run cannot be produced again.
 
+A row that says `yes` names its command in backticks — `framework/tests/test_x.py`, or the tool with the argument that decides what it does. The gate re-runs exactly what is written there and compares; a sentence describing a run is not a command, and a tool named without its argument is a different run from the one that produced the evidence.
+
 ## Verdicts
 
 | Id | Unit | Criterion | Outcome | Evidence | State | Window | Baseline |

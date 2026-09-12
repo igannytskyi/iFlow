@@ -16,6 +16,7 @@ TESTS = {
     "CR-006-01": "direct",
     "CR-006-02": "direct",
     "CR-006-04": "direct",
+    "CR-006-05": "direct",
     "CR-006-03": ("proxy", "the criterion is about real work; a built change is run instead"),
 }
 
@@ -46,10 +47,15 @@ def cr_006_02():
 
 
 def cr_006_04():
-    """A claim to repeat must name what to re-run, and must survive re-running."""
+    """A claim to repeat must name what to re-run, and must survive re-running.
+
+    Naming the path alone is not naming the run: a tool whose argument decides
+    everything it does, re-run without it, prints its own usage twice and the
+    claim passes on a comparison of two help screens.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         d = build_change(tmp + "/c")
-        edit(d, "05-assurance.md", "| framework/tests/test_row_filter.py |",
+        edit(d, "05-assurance.md", "| `framework/tests/test_row_filter.py` |",
              "| somebody ran something |")
         if "R13" not in gate(d):
             return "a claim to repeat that names nothing to re-run was not detected"
@@ -57,7 +63,8 @@ def cr_006_04():
         d = build_change(tmp + "/c")
         wobbly = pathlib.Path(tmp) / "wobbly.py"
         wobbly.write_text("import random\nprint(random.random())\n")
-        edit(d, "05-assurance.md", "| framework/tests/test_row_filter.py |", f"| {wobbly} |")
+        edit(d, "05-assurance.md", "| `framework/tests/test_row_filter.py` |",
+             f"| `{wobbly}` |")
         r = subprocess.run([sys.executable, str(GATE), "--repeat", str(d)],
                            capture_output=True, text=True, cwd=ROOT)
         if "R13" not in r.stdout:
@@ -71,9 +78,33 @@ def cr_006_03():
         return "FAIL" in out and f"a change built from the current shapes does not pass:\n{out}" or None
 
 
+def repeat(folder):
+    """`--repeat` takes the folder after the flag, not before it."""
+    import subprocess
+    r = subprocess.run([sys.executable, str(GATE), "--repeat", str(folder)],
+                       capture_output=True, text=True, cwd=ROOT)
+    return r.stdout + r.stderr
+
+
+def cr_006_05():
+    """What is re-run is what the row names, arguments and all."""
+    with tempfile.TemporaryDirectory() as tmp:
+        d = build_change(tmp + "/c")
+        teller = pathlib.Path(tmp) / "teller.py"
+        teller.write_text(
+            "import sys\n"
+            "print('with an argument' if len(sys.argv) > 1 else 'without one')\n")
+        edit(d, "05-assurance.md", "| `framework/tests/test_row_filter.py` |",
+             f"| `{teller} --the-argument` |")
+        out = repeat(d)
+        if "--the-argument" not in out:
+            return f"the argument the row named was not re-run with it:\n{out}"
+    return None
+
+
 def main():
     failures = []
-    for name, fn in (("CR-006-01", cr_006_01), ("CR-006-02", cr_006_02), ("CR-006-04", cr_006_04), ("CR-006-03", cr_006_03)):
+    for name, fn in (("CR-006-01", cr_006_01), ("CR-006-02", cr_006_02), ("CR-006-04", cr_006_04), ("CR-006-05", cr_006_05), ("CR-006-03", cr_006_03)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:

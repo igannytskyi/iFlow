@@ -675,12 +675,23 @@ class Check:
         return out
 
     def producer_command(self, eid):
-        """A path inside the repository that could be run again, or nothing."""
+        """The command a row names, as something that can be run.
+
+        Named in backticks, because a sentence is not a command and guessing
+        which of its words were arguments got it wrong both ways: reading only
+        the path ran the gate without the flag that decides everything it does
+        — twice, identically, comparing two help screens — and reading the
+        words after it would have run the gate against a baseline file as
+        though that were a change folder.
+        """
         said = self.producers().get(eid, "")
-        for token in re.findall(r"[\w./-]+\.py", said):
+        for quoted in re.findall(r"`([^`]+)`", said):
+            parts = [w for w in quoted.split() if w not in ("python3", "python")]
+            if not parts:
+                continue
             for base in (pathlib.Path("."), self.folder):
-                if (base / token).is_file():
-                    return base / token
+                if (base / parts[0]).is_file():
+                    return [base / parts[0], *parts[1:]]
         return None
 
     def deferred_complete(self):
@@ -1011,12 +1022,14 @@ def main(argv):
                 print(f"  FAIL    {'R13'}: {eid} claims to repeat and names nothing to re-run")
                 bad += 1
                 continue
-            runs = [subprocess.run([sys.executable, str(cmd)], capture_output=True,
-                                   text=True).stdout for _ in range(2)]
+            shown = " ".join(str(part) for part in cmd)
+            runs = [subprocess.run([sys.executable, *[str(p) for p in cmd]],
+                                   capture_output=True, text=True).stdout
+                    for _ in range(2)]
             if runs[0] == runs[1]:
-                print(f"  ok      {eid}  {cmd} gave the same result twice")
+                print(f"  ok      {eid}  {shown} gave the same result twice")
             else:
-                print(f"  FAIL    {'R13'}: {eid} claims to repeat and {cmd} gave two "
+                print(f"  FAIL    {'R13'}: {eid} claims to repeat and {shown} gave two "
                       f"different results")
                 bad += 1
         print(f"  {'passed' if not bad else str(bad) + ' problem(s)'}")
