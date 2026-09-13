@@ -2,6 +2,8 @@
 """Area 13 — the present way of working, measured on a real estate.
 
 Usage: python3 framework/baseline.py <estate> [--since YYYY-MM-DD] [--json]
+       python3 framework/baseline.py <estate> --method      what the same work cost
+                                                            carried through the method
 
 Without this nothing else means anything: a figure about the method is a
 figure about nothing until there is something for it to be better than.
@@ -205,6 +207,42 @@ def arbiter_strength(repo):
             "caveat": "a test naming a symbol is not a test exercising it"}
 
 
+def through_method(repo):
+    """What the same work cost when it was carried through the method.
+
+    A touchpoint is an occasion on which a person had to act, counted the same
+    way on both sides so that the two figures can be put beside each other:
+    stating the intent, reading the criteria before admission, every escalation
+    raised for a person to settle, and every verdict left undecided or deferred
+    for one to decide later.
+
+    What an agent did in between is not counted on either side, exactly as
+    review comments on a pull request count and the author's own typing does
+    not.
+    """
+    out = []
+    for folder in sorted((pathlib.Path(repo) / "changes").iterdir()
+                         if (pathlib.Path(repo) / "changes").is_dir() else []):
+        if not (folder / "00-intent.md").exists():
+            continue
+        text = {f.stem: f.read_text() for f in folder.glob("*.md")}
+        spec = text.get("01-specification", "")
+        klass = "unclassified"
+        m = re.search(r"\| Default class \| (C\d[PT]?) \|", spec)
+        if m:
+            klass = m.group(1)[:2]
+        raised = len(re.findall(r"^\| \d+ \| (open|closed) \|",
+                                text.get("05-assurance", ""), re.M))
+        undecided = len(re.findall(r"\| (undecided|deferred) \|",
+                                   text.get("05-assurance", "")))
+        read = 1 if re.search(r"\| yes \|.*\|", text.get("03-admission", "")) else 0
+        out.append({"intent": folder.name, "class": klass,
+                    "touchpoints": 1 + read + raised + undecided,
+                    "of which": {"stating it": 1, "reading the criteria": read,
+                                 "escalations": raised, "left for a person": undecided}})
+    return out
+
+
 def measure(repo, since=None):
     rows = list(commits(repo, since))
     prs, forge_note = forge(repo, since)
@@ -303,6 +341,19 @@ def main(argv):
     if not paths:
         print(__doc__.strip())
         return 2
+    if "--method" in argv:
+        rows = through_method(paths[0])
+        if not rows:
+            print("  nothing here has been carried through the method")
+            return 1
+        print(f"{'intent':<22}{'class':>7}{'touchpoints':>13}   made of")
+        for r in rows:
+            made = ", ".join(f"{k} {v}" for k, v in r["of which"].items() if v)
+            print(f"{r['intent']:<22}{r['class']:>7}{r['touchpoints']:>13}   {made}")
+        print("  a touchpoint is an occasion on which a person had to act, counted the "
+              "same way as in the baseline: what an agent did in between counts on "
+              "neither side")
+        return 0
     since = next((a.split("=", 1)[1] if "=" in a else None
                   for a in argv if a.startswith("--since")), None)
     if "--since" in argv:

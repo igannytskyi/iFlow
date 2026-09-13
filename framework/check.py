@@ -135,6 +135,24 @@ def col(rows, *names):
 HERE = pathlib.Path(__file__).resolve().parent.parent
 
 
+# What is not a result. A run that takes 0.79 seconds and then 0.80 is the same
+# run, and a temporary directory named afresh each time is not a difference in
+# what happened. Everything else counts: this masks two things and no more,
+# because the point of re-running is to find what did change.
+NOT_A_RESULT = [
+    (re.compile(r"\b\d+\.\d+\s*s\b"), "<duration>"),
+    (re.compile(r"\b\d+(\.\d+)?\s*(ms|seconds?|minutes?)\b"), "<duration>"),
+    (re.compile(r"/(?:tmp|var/folders)/[\w./-]+"), "<a temporary place>"),
+    (re.compile(r"0x[0-9a-f]{6,}"), "<an address>"),
+]
+
+
+def same_result(text):
+    for pattern, instead in NOT_A_RESULT:
+        text = pattern.sub(instead, text)
+    return text
+
+
 def _framework_state(root=None):
     """One name for the state of everything that judges a change here."""
     h = hashlib.sha256()
@@ -476,8 +494,13 @@ class Check:
             regions = estate.every_region(self.root)
         except Exception:                        # already reported by the half above
             return
+        # Only somewhere that defines something can be left judged by nothing.
+        # A directory holding a file that defines nothing — a package marker, a
+        # fixture application's empty init — is reached and is not an area of
+        # effect, and reporting it as unwatched asks for a test of nothing.
+        defining = {r["region"] for r in regions}
         firm = {self.region_of(r["file"]) for r in rows
-                if r["confidence"] in ("high", "medium")}
+                if r["confidence"] in ("high", "medium")} & defining
         watched = {r["region"] for r in regions
                    if r["verdict"] != "unclaimed" or r["is test ground"]}
         observed = {self.region_of(p) for row in planned.values()
@@ -806,7 +829,10 @@ class Check:
             parts = [w for w in quoted.split() if w not in ("python3", "python")]
             if not parts:
                 continue
-            for base in (pathlib.Path("."), self.folder):
+            # The first word is what runs, and it need not be a Python file: an
+            # estate is judged by whatever it is judged by, and on most of them
+            # that is a test runner in an environment of its own.
+            for base in (pathlib.Path("."), self.folder, self.root):
                 if (base / parts[0]).is_file():
                     return [base / parts[0], *parts[1:]]
         return None
@@ -1143,9 +1169,13 @@ def main(argv):
                 bad += 1
                 continue
             shown = " ".join(str(part) for part in cmd)
-            runs = [subprocess.run([sys.executable, *[str(p) for p in cmd]],
-                                   capture_output=True, text=True).stdout
-                    for _ in range(2)]
+            first = pathlib.Path(str(cmd[0]))
+            argv = ([str(p) for p in cmd] if first.suffix != ".py"
+                    else [sys.executable, *[str(p) for p in cmd]])
+            runs = []
+            for _ in range(2):
+                got = subprocess.run(argv, capture_output=True, text=True, cwd=c.root)
+                runs.append((got.returncode, same_result(got.stdout + got.stderr)))
             if runs[0] == runs[1]:
                 note_verified(c.root, f"repeat:{c.command_key(cmd)}",
                               f"{shown} gave the same result twice")
