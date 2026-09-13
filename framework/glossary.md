@@ -177,5 +177,6 @@ check.py --repeat <slug>    run what claims it can be repeated, twice, and compa
 check.py --escalations      what the method still owes itself
 
 measure.py <estate>...      reach and quotation, as a command rather than a sampling, grouped by what it names
+baseline.py <estate>        touchpoints per intent, class mix, what was taken back — the present way of working
 check.py --unused           columns nobody reads and codes nobody validates
 ```

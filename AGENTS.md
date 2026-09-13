@@ -41,6 +41,7 @@ python3 framework/check.py --repeat <slug>    # run what claims to repeat, twice
 python3 framework/check.py --unused           # fields nobody reads, codes nobody checks
 python3 framework/check.py --escalations      # what the method still owes itself
 python3 framework/measure.py <estate>...      # what the model is worth, measured: reach and quotation
+python3 framework/baseline.py <estate>        # the present way of working, reconstructed from its history
 
 python3 framework/plan.py changes/<slug>      # what the estate says about this specification
 python3 framework/plan.py changes/<slug> --draft   # the derivable half of its plan
