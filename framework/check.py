@@ -13,12 +13,14 @@ Usage: python3 framework/check.py changes/<slug>     one change
        python3 framework/check.py --escalations       what the method owes itself
 Exit status is 0 when nothing failed.
 """
-import hashlib
 import collections
+import hashlib
+import json
 import pathlib
 import re
 import subprocess
 import sys
+import time
 
 STAGES = ["00-intent", "01-specification", "02-plan", "03-admission",
           "04-execution", "05-assurance", "06-landing"]
@@ -128,6 +130,53 @@ def col(rows, *names):
         for n in names:
             if n in r and r[n]:
                 yield r[n]
+
+
+HERE = pathlib.Path(__file__).resolve().parent.parent
+
+
+def _framework_state(root=None):
+    """One name for the state of everything that judges a change here."""
+    h = hashlib.sha256()
+    for f in sorted((HERE / "framework").rglob("*.py")):
+        if "_lib" in f.parts or "__pycache__" in f.parts:
+            continue
+        h.update(f.relative_to(HERE).as_posix().encode())
+        h.update(f.read_bytes())
+    return h.hexdigest()[:16]
+
+
+def _verified_file(_root=None):
+    """Where the notes live: beside the framework that judges, not beside the
+    change being judged. What was run is a fact about the framework and about
+    commands inside it, and a change carried in a directory of its own — or in
+    a temporary one, as every built fixture is — asks the same question of the
+    same answer."""
+    return HERE / ".estate" / "verified.json"
+
+
+def verified(root):
+    """What has been run and agreed with itself, against which state.
+
+    Derived and disposable, like the index beside it: delete it and the runs
+    must happen again, which is the point. Nothing here is a record of a past
+    run to be believed — it is a note that the run has just been made against
+    exactly this content, and any edit to that content voids it.
+    """
+    p = _verified_file(root)
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except json.JSONDecodeError:
+        return {}
+
+
+def note_verified(root, key, what):
+    held = verified(root)
+    held[key] = {"what": what, "at": time.strftime("%Y-%m-%d %H:%M")}
+    _verified_file(root).parent.mkdir(parents=True, exist_ok=True)
+    _verified_file(root).write_text(json.dumps(held, indent=1, sort_keys=True))
 
 
 class Check:
@@ -269,6 +318,74 @@ class Check:
                                      f"nothing in the scope reaches it — an area of effect "
                                      f"names what the change touches, so this was derived "
                                      f"from something other than the estate")
+
+    def verified_before_entry(self):
+        """R22: nothing enters on a run nobody made.
+
+        Two escalations said the same thing from different ends. A claim that a
+        run repeats was checked for a value being present and never by running
+        it; and entry happened before the whole set of arbiters had been run,
+        so an invalidated verdict was found after the fact rather than before.
+
+        Both are the same gap: the record of a run was trusted where the run
+        itself was available. So a landing requires that the arbiters have been
+        run against exactly this framework, and that every claim to repeat has
+        been repeated against exactly this command — not recorded as having
+        been, which is the thing this method exists not to do, but noted in a
+        derived, disposable place that any edit voids.
+        """
+        if "06-landing" not in self.text:
+            return
+        entered = False
+        for headers, rows in tables(self.text["06-landing"]):
+            if "Unit" in headers and "Entered at" in headers:
+                entered = entered or any(r.get("Entered at") for r in real(rows))
+        if not entered:
+            return
+        if not (self.root / "framework" / "check.py").exists():
+            # A change folder checked away from the framework that judges it —
+            # a fixture in a temporary directory is the usual case — cannot be
+            # asked whether that framework's arbiters were run, because there
+            # is no framework there to have run them.
+            self.notes.append("R22: this change is checked outside the framework that "
+                              "judges it, so whether the arbiters were run against it "
+                              "cannot be asked here")
+            return
+        held = verified(self.root)
+        state = _framework_state(self.root)
+        if held.get(f"arbiters:{state}") is None:
+            self.fail("R22", "this entered before the arbiters were run against this "
+                             "framework, so nothing here knows whether what judges it "
+                             "still passes; run `check.py --arbiters`")
+        for eid, value in self.repeatable().items():
+            if value != "yes":
+                continue
+            cmd = self.producer_command(eid)
+            if cmd is None:
+                continue                      # R13 says this one already
+            if held.get(f"repeat:{self.command_key(cmd)}") is None:
+                self.fail("R22", f"{eid} claims a run repeats and it has not been "
+                                 f"repeated against this command; run "
+                                 f"`check.py --repeat {self.folder}`")
+
+    def repeatable(self):
+        """Every evidence row and what it says about repeating."""
+        out = {}
+        for headers, rows in tables(self.text.get("05-assurance", "")):
+            if "Repeatable" in headers:
+                for r in real(rows):
+                    out[r.get("Id", "")] = r.get("Repeatable", "")
+        return out
+
+    def command_key(self, cmd):
+        """A command and the content of what it runs, as one name."""
+        first = pathlib.Path(str(cmd[0]))
+        try:
+            body = first.read_bytes()
+        except OSError:
+            body = b""
+        return hashlib.sha256(
+            (" ".join(str(c) for c in cmd)).encode() + body).hexdigest()[:16]
 
     def landing_taught(self):
         """R21: work that had to touch ground the model never connected to its
@@ -821,7 +938,7 @@ class Check:
                   self.repeatability, self.deferred_complete, self.verdict_coverage,
                   self.landing_backed, self.record_append_only,
                   self.arbiter_changes_separate, self.record_complete,
-                  self.landing_taught):
+                  self.landing_taught, self.verified_before_entry):
             m()
         return self.problems, self.notes
 
@@ -1008,6 +1125,9 @@ def main(argv):
             print(f"  FAIL    {p}")
         bad = sum(1 for _, _, c in results if c) + len(problems)
         print(f"  {'passed' if not bad else str(bad) + ' problem(s)'}")
+        if not bad:
+            note_verified(root, f"arbiters:{_framework_state()}",
+                          "every arbiter passed against this framework")
         return 1 if bad else 0
     if len(argv) == 3 and argv[1] == "--repeat":
         c = Check(argv[2])
@@ -1027,6 +1147,8 @@ def main(argv):
                                    capture_output=True, text=True).stdout
                     for _ in range(2)]
             if runs[0] == runs[1]:
+                note_verified(c.root, f"repeat:{c.command_key(cmd)}",
+                              f"{shown} gave the same result twice")
                 print(f"  ok      {eid}  {shown} gave the same result twice")
             else:
                 print(f"  FAIL    {'R13'}: {eid} claims to repeat and {shown} gave two "

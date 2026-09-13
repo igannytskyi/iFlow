@@ -71,9 +71,10 @@ def read(rel, text):
     """One file: what it defines, what it calls, what it imports, and what this
     could not resolve at all.
 
-    Each definition carries the lines it spans and each call the line it sits
-    on, because an answer that names a file sends a reader to look for the
-    thing, and an answer that names the lines hands it over.
+    Each definition and each call carries the lines it spans, because an answer
+    that names a file sends a reader to look for the thing, an answer that names
+    the line hands it over, and a call written across five lines is one of them
+    and not the first.
     """
     defines, calls, unresolved = [], [], []
     try:
@@ -99,13 +100,14 @@ def read(rel, text):
                 # What a class inherits from is a dependency written down, and
                 # in framework code it is often the only one there is.
                 if isinstance(base, ast.Name):
-                    calls.append((base.id, "name", base.lineno))
+                    calls.append((base.id, "name", base.lineno, base.lineno))
                 elif isinstance(base, ast.Attribute):
-                    calls.append((base.attr, "name", base.lineno))
+                    calls.append((base.attr, "name", base.lineno, base.lineno))
         elif isinstance(node, ast.Call):
             f = node.func
+            end = getattr(node, "end_lineno", None) or node.lineno
             if isinstance(f, ast.Name):
-                calls.append((f.id, "name", node.lineno))
+                calls.append((f.id, "name", node.lineno, end))
             elif isinstance(f, ast.Attribute):
                 receiver = f.value
                 kind = None
@@ -123,8 +125,8 @@ def read(rel, text):
                     # in another file is reached by the name and by nothing
                     # else, and deleting evidence to raise a figure is the one
                     # move this whole method exists to prevent.
-                    calls.append((kind, "typed", node.lineno))
-                    calls.append((f.attr, "attribute", node.lineno))
+                    calls.append((kind, "typed", node.lineno, end))
+                    calls.append((f.attr, "attribute", node.lineno, end))
                 else:
                     # A call on a receiver whose type is unknown. Discarding
                     # these was worse than the over-claiming it replaced: on a
@@ -133,8 +135,8 @@ def read(rel, text):
                     # it. They are kept and weighed instead — a weak edge
                     # reported is safer than a strong edge omitted, because
                     # what is not reported is what nobody re-tests.
-                    calls.append((f.attr, "attribute", node.lineno))
+                    calls.append((f.attr, "attribute", node.lineno, end))
             else:
                 unresolved.append("a call through something with no name")
-    calls.extend((n, "import", line) for n, line in sorted(imported.items()))
+    calls.extend((n, "import", line, line) for n, line in sorted(imported.items()))
     return defines, calls, unresolved

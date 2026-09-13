@@ -2,9 +2,9 @@
 """Arbiter for the readers — what a file is read as, in every language.
 
 CR-018-01  every reader answers in one shape, whatever the language — what is
-           defined and where it spans, what is called and on which line — so
-           that one language's answer can be graded, and quoted, beside
-           another's
+           defined and where it spans, what is called and the lines it spans —
+           so that one language's answer can be graded, and quoted whole,
+           beside another's
 CR-018-02  a language this install claims to read yields what an index needs
            from it: what the file defines, what it imports, and what it calls.
            A language claimed and not checked here is named rather than assumed
@@ -100,9 +100,13 @@ def cr_018_01():
                 return f"{ext} placed a definition at lines {start}-{end}"
         lines = len(src.splitlines())
         for entry in calls:
-            if not (isinstance(entry, tuple) and len(entry) == 3):
+            if not (isinstance(entry, tuple) and len(entry) == 4):
                 return f"{ext} reported a call in a shape the index cannot read"
-            name, kind, line = entry
+            name, kind, line, ends = entry
+            if not isinstance(ends, int) or ends < line:
+                return (f"{ext} put a call to {name!r} on lines {line}-{ends}: a call "
+                        f"written across several lines is quoted whole, and cannot end "
+                        f"before it begins")
             if kind not in KINDS:
                 return f"{ext} reported a call of kind {kind!r}, which is not one of {KINDS}"
             if not isinstance(line, int) or not 1 <= line <= lines:
@@ -116,7 +120,7 @@ def cr_018_02():
     unchecked = sorted(read_here - set(SAMPLES))
     for ext in sorted(read_here & set(SAMPLES)):
         defines, calls, _ = readers.read("sample" + ext, SAMPLES[ext])
-        kinds = {k for _n, k, _l in calls}
+        kinds = {k for _n, k, _l, _e in calls}
         if not defines:
             return f"{ext} is claimed and a file written in it defines nothing"
         if "import" not in kinds:
@@ -194,7 +198,8 @@ def cr_018_06():
     if not reads(".go"):
         return None
     grouped = 'package m\n\nimport (\n\t"fmt"\n\t"x/one"\n\t"x/two"\n)\n\nfunc Go() {}\n'
-    modules = {n for n, kind, _l in treesitter.read("x.go", grouped)[1] if kind == "import"}
+    modules = {n for n, kind, _l, _e in treesitter.read("x.go", grouped)[1]
+               if kind == "import"}
     for want in ("fmt", "one", "two"):
         if want not in modules:
             return f"a grouped import naming three modules yielded {sorted(modules)}"

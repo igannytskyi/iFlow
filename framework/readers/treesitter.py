@@ -319,17 +319,19 @@ def read(rel, text):
             # class names, and a graph joined on class names joins nothing.
             for text_, line in _module_text(node):
                 for mod in _module(text_):
-                    calls.append((mod, "import", line))
+                    calls.append((mod, "import", line, line))
             continue
         stack.extend(node.children)
         if any(k in kind for k in CALLS) and not any(k in kind for k in NOT_CALLS):
             name, how, raw = _callee(node)
             if (name or "").lower() in IMPORTING_CALLS or raw in IMPORTING_CALLS:
                 for mod in _module(_argument(node, raw)):
-                    calls.append((mod, "import", node.start_point[0] + 1))
+                    calls.append((mod, "import", node.start_point[0] + 1,
+                                  node.start_point[0] + 1))
                 continue
             if name:
-                calls.append((name, how, node.start_point[0] + 1))
+                calls.append((name, how, node.start_point[0] + 1,
+                              node.end_point[0] + 1))
             else:
                 unresolved.append("a call through something with no name")
         elif any(k in kind for k in INHERITS):
@@ -342,7 +344,8 @@ def read(rel, text):
             for word in re.findall(r"[A-Za-z_][A-Za-z0-9_]*",
                                    head.decode("utf-8", "replace")):
                 if word not in KEYWORDS and word not in INHERIT_WORDS:
-                    calls.append((word, "name", node.start_point[0] + 1))
+                    calls.append((word, "name", node.start_point[0] + 1,
+                                  node.start_point[0] + 1))
 
         elif any(k in kind for k in DEFINES) and not any(k in kind for k in NOT_DEFINES):
             name = _name_of(node)
@@ -369,10 +372,10 @@ def read(rel, text):
         # from a variable. Its own grammar knows the difference and says so in
         # the tags query, so what that query calls a reference is taken, at the
         # weakest grade, and never for a name this file defines itself.
-        mine, seen = {n for n, _, _ in defines}, {n for n, _, _ in calls}
+        mine, seen = {n for n, _, _ in defines}, {n for n, _, _, _ in calls}
         for name, line in referenced:
             if name not in mine and name not in seen:
-                calls.append((name, "attribute", line))
+                calls.append((name, "attribute", line, line))
     # One definition, one entry: a grammar's own query and the general rule
     # both find the same class, and the second sighting adds nothing.
     first = {}

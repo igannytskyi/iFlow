@@ -353,7 +353,7 @@ def index(repo, use_cache=True):
             # queries do not read is decoration: this one is read here.
             for name, _start, _end in keep["symbols"]:
                 defines[name].append(rel)
-            calls.extend((rel, n, k) for n, k, _line in keep["calls"])
+            calls.extend((rel, n, k) for n, k, _line, _end in keep["calls"])
             unresolved.extend((rel, w) for w in keep["unresolved"])
             fresh[rel] = keep
             continue
@@ -365,7 +365,7 @@ def index(repo, use_cache=True):
         got, refs, could_not = readers.read(rel, text)
         for name, _start, _end in got:
             defines[name].append(rel)
-        calls.extend((rel, n, k) for n, k, _line in refs)
+        calls.extend((rel, n, k) for n, k, _line, _end in refs)
         unresolved.extend((rel, w) for w in could_not)
         # What this file holds is what the reader just returned. Asking the
         # whole index for it instead — every symbol, every call, filtered by
@@ -474,7 +474,7 @@ def importers(repo=None, graded=False):
     index(repo)
     for rel, spot in positions(repo).items():
         by_line = defaultdict(list)
-        for name, kind, line in spot.get("calls", []):
+        for name, kind, line, _end in spot.get("calls", []):
             if kind == "import":
                 by_line[line].append(name)
         for line, names in by_line.items():
@@ -768,7 +768,7 @@ def call_sites(name, repo=None):
     where = defines.get(name, [])
     out = []
     for rel, spot in positions(repo).items():
-        for called, kind, line in spot.get("calls", []):
+        for called, kind, line, end in spot.get("calls", []):
             if called != name:
                 continue
             if rel in where:
@@ -783,14 +783,14 @@ def call_sites(name, repo=None):
                 # reads it.
                 if kind == "typed":
                     continue
-                out.append({"file": rel, "line": line, "kind": kind,
+                out.append({"file": rel, "line": line, "ends": end, "kind": kind,
                             "confidence": "high", "here": True})
                 continue
             firm = ("high" if kind == "typed" and len(where) == 1 else
                     "medium" if kind == "import" or (kind == "name" and len(where) == 1)
                     else "low")
-            out.append({"file": rel, "line": line, "kind": kind, "confidence": firm,
-                        "here": False})
+            out.append({"file": rel, "line": line, "ends": end, "kind": kind,
+                        "confidence": firm, "here": False})
     rank = {"high": 0, "medium": 1, "low": 2}
     # One line is one place to look, however many times the name appears on it.
     best = {}
@@ -824,7 +824,7 @@ def callees(rel, span=None, repo=None):
                 seen.add(nxt)
                 frontier.append(nxt)
     out = {}
-    for called, kind, line in positions(repo).get(rel, {}).get("calls", []):
+    for called, kind, line, _end in positions(repo).get(rel, {}).get("calls", []):
         if span and not (span[0] <= line <= span[1]):
             continue
         for target in defines.get(called, ()):
@@ -855,7 +855,7 @@ def judged_by(rel, name=None, repo=None):
     for other, spot in spots.items():
         if other == rel or not is_test(other, repo):
             continue
-        for called, _kind, line in spot.get("calls", []):
+        for called, _kind, line, _end in spot.get("calls", []):
             if called in mine:
                 out[other].add(called)
     return {k: sorted(v) for k, v in sorted(out.items())}
@@ -1873,7 +1873,10 @@ def render_context(c, budget, every):
         if who.get("reaches"):
             where += f", and of the {len(c['subjects'])} it can reach only {who['reaches']}"
         say(f"--- called from {who['file']}:{who['line']}  ({where})")
-        for n, line in excerpt(repo, who["file"], who["line"] - 2, who["line"] + 2):
+        # A call written across several lines is quoted whole: showing the line
+        # it begins on and two after it cuts the arguments off in the middle.
+        last = max(who.get("ends") or who["line"], who["line"])
+        for n, line in excerpt(repo, who["file"], who["line"] - 2, last + 2):
             say(f"{n:>6}  {line}")
     if skipped:
         worst = ", ".join(f"{f} ({n} more)" for f, n in

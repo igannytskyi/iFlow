@@ -21,6 +21,8 @@ CR-019-08  a task is answered with places and never with a choice between them:
            the answer says so instead of guessing
 CR-019-09  several targets are expanded in one answer, because whoever chose
            them chose more than one
+CR-019-10  a call written across several lines is quoted whole, not from the
+           line it begins on
 """
 import pathlib
 import subprocess
@@ -41,6 +43,7 @@ TESTS = {
     "CR-019-07": "direct",
     "CR-019-08": "direct",
     "CR-019-09": "direct",
+    "CR-019-10": "direct",
 }
 
 
@@ -217,13 +220,34 @@ def cr_019_09():
     return None
 
 
+def cr_019_10():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = estate_with(tmp)
+        (d / "wide.py").write_text(
+            "from core import Engine\n"
+            "\n"
+            "\n"
+            "def drive_slowly():\n"
+            "    return Engine(\n"
+            "        first=1,\n"
+            "        second=2,\n"
+            "        third=3,\n"
+            "    )\n")
+        out = run(d, "context", "Engine")
+        if "third=3," not in out:
+            return ("a call written across several lines was quoted from the line it "
+                    f"begins on, and the rest of it was cut off:\n{out}")
+    return None
+
+
 def main():
     failures = []
     for name, fn in (("CR-019-01", cr_019_01), ("CR-019-02", cr_019_02),
                      ("CR-019-03", cr_019_03), ("CR-019-04", cr_019_04),
                      ("CR-019-05", cr_019_05), ("CR-019-06", cr_019_06),
                      ("CR-019-07", cr_019_07), ("CR-019-08", cr_019_08),
-                     ("CR-019-09", cr_019_09)):
+                     ("CR-019-09", cr_019_09),
+                     ("CR-019-10", cr_019_10)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:

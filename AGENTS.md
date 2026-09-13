@@ -30,6 +30,8 @@ One change lives in `changes/<slug>/` as seven files written in order, plus an a
 
 Every step appends its crossing to `record.md`. A step present without its line fails the check.
 
+Nothing enters on a run nobody made. Before a landing stands, the arbiters must have been run against this framework and every claim that a run repeats must have been repeated against exactly that command — `--arbiters` and `--repeat <slug>` do both and leave a note beside the framework, derived and disposable, which any edit to what was run voids. In a repository whose changes are to the framework itself, that means running them again after each one.
+
 ```bash
 python3 framework/check.py changes/<slug>     # one change
 python3 framework/check.py --status [dir]     # every change, at a glance
@@ -38,6 +40,7 @@ python3 framework/check.py --mutate           # break each rule, see who notices
 python3 framework/check.py --repeat <slug>    # run what claims to repeat, twice
 python3 framework/check.py --unused           # fields nobody reads, codes nobody checks
 python3 framework/check.py --escalations      # what the method still owes itself
+python3 framework/measure.py <estate>...      # what the model is worth, measured: reach and quotation
 
 python3 framework/plan.py changes/<slug>      # what the estate says about this specification
 python3 framework/plan.py changes/<slug> --draft   # the derivable half of its plan

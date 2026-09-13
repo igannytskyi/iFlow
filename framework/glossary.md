@@ -174,6 +174,8 @@ check.py --status [dir]     every change: how far it got, what holds it, what it
 check.py --arbiters         run every arbiter in one action
 check.py --mutate           remove each rule in turn and see whether anyone notices
 check.py --repeat <slug>    run what claims it can be repeated, twice, and compare
-check.py --escalations      what the method still owes itself, grouped by what it names
+check.py --escalations      what the method still owes itself
+
+measure.py <estate>...      reach and quotation, as a command rather than a sampling, grouped by what it names
 check.py --unused           columns nobody reads and codes nobody validates
 ```
