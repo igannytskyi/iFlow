@@ -845,7 +845,16 @@ def callees(rel, span=None, repo=None):
 
 
 def judged_by(rel, name=None, repo=None):
-    """What would judge a change here: the tests that name what it defines."""
+    """What would judge a change here: the tests that name what it defines,
+    and the test ground a landing showed reaches it.
+
+    The second half is the one that cannot be read. A test that takes the name
+    of what it exercises from a list and reaches it at run time names nothing
+    a reader can see, and the answer given without it says a change here is
+    judged by nothing — which is the most expensive thing this can say wrongly.
+    What a landing taught is answered with as observed, and outranks what
+    reading found.
+    """
     repo = repo or ROOT
     spots = positions(repo)
     mine = {n for n, _s, _e in spots.get(rel, {}).get("symbols", [])}
@@ -858,7 +867,12 @@ def judged_by(rel, name=None, repo=None):
         for called, _kind, line, _end in spot.get("calls", []):
             if called in mine:
                 out[other].add(called)
-    return {k: sorted(v) for k, v in sorted(out.items())}
+    taught = {}
+    for r in learned([rel], repo):
+        if r["file"] == rel or not is_test(r["file"], repo):
+            continue
+        taught[r["file"]] = r["why"]
+    return ({k: sorted(v) for k, v in sorted(out.items())}, taught)
 
 
 # A task is not a query. What a person says about a bug names the behaviour —
@@ -1040,13 +1054,16 @@ def context(target, repo=None, budget=120000, want_all=False):
                     who["confidence"] = "medium"
         rank = {"high": 0, "medium": 1, "low": 2}
         callers.sort(key=lambda r: (rank[r["confidence"]], r["file"], r["line"]))
+    read_judges, taught_judges = (judged_by(subjects[0][0], name, repo)
+                                 if subjects else ({}, {}))
     return {
         "target": text,
         "subjects": subjects,
         "callers": callers,
         "calls out": (callees(subjects[0][0], (subjects[0][1], subjects[0][2]), repo)
                       if subjects else []),
-        "judged by": judged_by(subjects[0][0], name, repo) if subjects else {},
+        "judged by": read_judges,
+        "judged by, taught": taught_judges,
         "provenance": "derived", "confidence": "medium",
         "caveat": "what is firm is marked; the rest is a name that matched, and a name "
                   "can belong to something else",
@@ -1892,13 +1909,17 @@ def render_context(c, budget, every):
         if loose_out and not every:
             say(f"    … and {loose_out} more that share a name with something here and "
                 f"import nothing that leads to it (--all to see them)")
-    if c["judged by"]:
+    taught = c.get("judged by, taught") or {}
+    if c["judged by"] or taught:
         say("--- what would judge a change here")
         for test, names in list(c["judged by"].items())[:10]:
             say(f"    {test}  names {', '.join(names[:4])}")
+        for test, why in list(taught.items())[:10]:
+            say(f"    {test}  observed, not read: {why}")
     else:
-        say("--- nothing here names what this defines: a change to it is judged by "
-            "nothing that can be found by reading")
+        say("--- nothing here names what this defines, and no landing has shown "
+            "otherwise: a change to it is judged by nothing that can be found by "
+            "reading")
     print("\n".join(out))
     return spent
 

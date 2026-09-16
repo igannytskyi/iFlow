@@ -23,6 +23,9 @@ CR-019-09  several targets are expanded in one answer, because whoever chose
            them chose more than one
 CR-019-10  a call written across several lines is quoted whole, not from the
            line it begins on
+CR-028-01  test ground a landing showed reaches this is named among what would
+           judge a change here, as observed rather than read, and a symbol is
+           said to be judged by nothing only when no landing has shown otherwise
 """
 import pathlib
 import subprocess
@@ -34,6 +37,7 @@ from harness import ROOT
 ESTATE = ROOT / "framework" / "estate.py"
 
 TESTS = {
+    "CR-028-01": "direct",
     "CR-019-01": "direct",
     "CR-019-02": "direct",
     "CR-019-03": "direct",
@@ -240,9 +244,32 @@ def cr_019_10():
     return None
 
 
+def cr_028_01():
+    """The expensive thing to say wrongly. A test that takes the name of what
+    it exercises from a list and reaches it at run time names nothing a reader
+    can see, and the answer without it says a change here is judged by nothing
+    at all."""
+    with tempfile.TemporaryDirectory() as tmp:
+        d = estate_with(tmp)
+        before = run(d, "context", "core.py:stop")
+        if "judged by nothing" not in before:
+            return "a symbol nothing names was not said to be judged by nothing"
+        run(d, "correct", "core.py", "tests/test_core.py",
+            "--by=c", "--why=reached by a name built at run time")
+        after = run(d, "context", "core.py:stop")
+        judged = after.split("what would judge")[-1]
+        if "tests/test_core.py" not in judged:
+            return f"what a landing taught is not in the answer:\n{after}"
+        if "observed" not in judged:
+            return "what was observed is answered with as though it had been read"
+        if "judged by nothing" in after:
+            return "the answer still says nothing judges it"
+    return None
+
+
 def main():
     failures = []
-    for name, fn in (("CR-019-01", cr_019_01), ("CR-019-02", cr_019_02),
+    for name, fn in (("CR-028-01", cr_028_01), ("CR-019-01", cr_019_01), ("CR-019-02", cr_019_02),
                      ("CR-019-03", cr_019_03), ("CR-019-04", cr_019_04),
                      ("CR-019-05", cr_019_05), ("CR-019-06", cr_019_06),
                      ("CR-019-07", cr_019_07), ("CR-019-08", cr_019_08),
