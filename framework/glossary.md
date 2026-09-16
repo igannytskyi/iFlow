@@ -178,5 +178,6 @@ check.py --escalations      what the method still owes itself
 
 measure.py <estate>...      reach and quotation, as a command rather than a sampling, grouped by what it names
 baseline.py <estate>        touchpoints per intent, class mix, what was taken back — the present way of working
+baseline.py <estate>... --method  what each intent carried through the method cost, beside what the intent it carried cost upstream
 check.py --unused           columns nobody reads and codes nobody validates
 ```

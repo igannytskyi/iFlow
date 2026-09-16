@@ -93,6 +93,30 @@ def called(commit):
     return "unclassified"
 
 
+def forge_name(repo, hops=3):
+    """Which project on the forge this estate is a copy of.
+
+    A clone of a clone — a worktree taken to carry one intent, a mirror kept
+    locally — has a remote that is a path on disk. The question is about the
+    work, not about where the bytes came from last, so the chain is followed
+    to the first remote that names a project.
+    """
+    seen = set()
+    for _ in range(hops):
+        remote = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"],
+                                capture_output=True, text=True).stdout.strip()
+        if not remote or remote in seen:
+            return None
+        seen.add(remote)
+        m = re.search(r"github\.com[/:]([^/]+/[^/.]+)", remote)
+        if m:
+            return m.group(1)
+        if not pathlib.Path(remote).is_dir():
+            return None
+        repo = remote
+    return None
+
+
 def forge(repo, since, limit=400, page=30):
     """What the forge kept, where there is one and it can be asked.
 
@@ -101,17 +125,15 @@ def forge(repo, since, limit=400, page=30):
     part of a baseline for that reason. Where the forge cannot be asked, the
     figure taken from history alone is a floor and is reported as one.
     """
-    remote = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"],
-                            capture_output=True, text=True).stdout.strip()
-    m = re.search(r"github\.com[/:]([^/]+/[^/.]+)", remote)
-    if not m:
+    name = forge_name(repo)
+    if not name:
         return None, "no github remote, so no review records to read"
     # Asked thirty at a time. The forge counts the nodes a query would have to
     # traverse and refuses anything larger, so the page size is not a taste: it
     # is the largest this particular question fits into.
     rows, seen, cursor = [], set(), None
     while len(rows) < limit:
-        args = ["gh", "pr", "list", "--repo", m.group(1), "--state", "merged",
+        args = ["gh", "pr", "list", "--repo", name, "--state", "merged",
                 "--limit", str(page), "--json",
                 "number,title,createdAt,mergedAt,comments,reviews,commits"]
         if cursor:
@@ -131,7 +153,7 @@ def forge(repo, since, limit=400, page=30):
         if since and cursor < since:
             break
     rows = [r for r in rows if not since or r.get("mergedAt", "")[:10] >= since]
-    return rows, f"{len(rows)} merged pull request(s) read from {m.group(1)}"
+    return rows, f"{len(rows)} merged pull request(s) read from {name}"
 
 
 def called_pr(pr):
@@ -243,11 +265,59 @@ def through_method(repo):
         undecided = len(re.findall(r"\| (undecided|deferred) \|",
                                    text.get("05-assurance", "")))
         read = 1 if re.search(r"\| yes \|.*\|", text.get("03-admission", "")) else 0
+        # Which intent upstream this carried, where the intent says so. It is
+        # the only thing that makes the two figures comparable at all, and it
+        # is already written where an intent says who stated it.
+        up = re.search(r"pull request #?(\d+)", text.get("00-intent", ""))
+        issue = re.search(r"issue #?(\d+)", text.get("00-intent", ""))
         out.append({"intent": folder.name, "class": klass,
+                    "carried": int(up.group(1)) if up else None,
+                    "reported as issue": int(issue.group(1)) if issue else None,
                     "touchpoints": 1 + read + raised + undecided,
                     "of which": {"stating it": 1, "reading the criteria": read,
                                  "escalations": raised, "left for a person": undecided}})
     return out
+
+
+def answered_by(repo, issue):
+    """Which pull request closed an issue, where an intent names the report
+    rather than the work. The link is the forge's own record of it: nothing
+    here decides which change answered which report."""
+    name = forge_name(repo)
+    if not name:
+        return None
+    got = subprocess.run(["gh", "issue", "view", str(issue), "--repo", name,
+                          "--json", "closedByPullRequestsReferences"],
+                         capture_output=True, text=True)
+    if got.returncode:
+        return None
+    refs = (json.loads(got.stdout or "{}") or {}).get(
+        "closedByPullRequestsReferences") or []
+    refs = [r for r in refs if (r.get("repository") or {}).get("name")
+            == name.split("/")[-1]]
+    return refs[0]["number"] if len(refs) == 1 else None
+
+
+def upstream(repo, number):
+    """What one named pull request cost, counted by the rule the baseline uses.
+
+    The figure a comparison needs is about one intent and not about a class.
+    Asking the forge for it costs one request and removes the need to write it
+    down anywhere.
+    """
+    name = forge_name(repo)
+    if not name:
+        return None, None
+    got = subprocess.run(["gh", "pr", "view", str(number), "--repo", name,
+                          "--json", "number,title,comments,reviews,commits"],
+                         capture_output=True, text=True)
+    if got.returncode:
+        return None, None
+    pr = json.loads(got.stdout or "{}")
+    if not pr:
+        return None, None
+    return (1 + len(pr.get("reviews") or []) + len(pr.get("comments") or [])
+            + max(0, len(pr.get("commits") or []) - 1)), called_pr(pr)
 
 
 def head(repo):
@@ -367,17 +437,47 @@ def main(argv):
         print(__doc__.strip())
         return 2
     if "--method" in argv:
-        rows = through_method(paths[0])
+        # Several estates at once: one intent is carried in one clone, and a
+        # series is what several of them are. Asking one at a time and adding
+        # the figures up by hand is the record this removes.
+        rows = []
+        for where in paths:
+            for r in through_method(where):
+                r["estate"] = pathlib.Path(where).resolve().name
+                r["read from"] = where
+                rows.append(r)
         if not rows:
             print("  nothing here has been carried through the method")
             return 1
-        print(f"{'intent':<22}{'class':>7}{'touchpoints':>13}   made of")
+        print(f"{'intent':<22}{'class':>7}{'method':>8}{'upstream':>10}   made of")
         for r in rows:
             made = ", ".join(f"{k} {v}" for k, v in r["of which"].items() if v)
-            print(f"{r['intent']:<22}{r['class']:>7}{r['touchpoints']:>13}   {made}")
+            where = r["read from"]
+            number = r["carried"] or (answered_by(where, r["reported as issue"])
+                                      if r["reported as issue"] else None)
+            r["carried"] = number
+            cost, said = (upstream(where, number) if number else (None, None))
+            r["upstream"], r["upstream called it"] = cost, said
+            against = (f"{cost:>10}" if cost is not None else
+                       f"{'—':>10}")
+            print(f"{r['intent']:<22}{r['class']:>7}{r['touchpoints']:>8}{against}"
+                  f"   {made}")
         print("  a touchpoint is an occasion on which a person had to act, counted the "
               "same way as in the baseline: what an agent did in between counts on "
               "neither side")
+        carried = [r for r in rows if r.get("upstream") is not None]
+        if carried:
+            mine = sum(r["touchpoints"] for r in carried)
+            theirs = sum(r["upstream"] for r in carried)
+            print(f"  over {len(carried)} intent(s) carried and named: {mine} through "
+                  f"the method, {theirs} upstream. Neither is a rate, and the class "
+                  f"average each belongs to is in the baseline for this estate")
+        unnamed = [r["intent"] for r in rows if r["carried"] is None]
+        if unnamed:
+            print(f"  no upstream intent is named by: {', '.join(unnamed)} — nothing "
+                  f"is put beside a figure that names nothing")
+        if "--json" in argv:
+            print(json.dumps(rows, indent=1, sort_keys=True))
         return 0
     since = next((a.split("=", 1)[1] if "=" in a else None
                   for a in argv if a.startswith("--since")), None)
