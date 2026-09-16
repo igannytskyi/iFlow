@@ -22,6 +22,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import readers                                       # noqa: E402
+
 STAGES = ["00-intent", "01-specification", "02-plan", "03-admission",
           "04-execution", "05-assurance", "06-landing"]
 
@@ -443,7 +446,12 @@ class Check:
                     if not where.is_dir():
                         continue
                     for f in where.rglob("*"):
-                        if f.is_file() and f.suffix not in (".patch", ".diff", ".md"):
+                        # Only what the estate can read. A candidate folder also
+                        # holds a patch, a note, the output of a run recorded
+                        # while the work was done — none of that is ground the
+                        # model could reach or fail to reach, and asking about
+                        # it turned every recorded run into a missing edge.
+                        if f.is_file() and readers.readable(f):
                             touched[r.get("Unit", "")].add(f.name)
         if not touched:
             return

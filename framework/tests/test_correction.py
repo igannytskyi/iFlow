@@ -8,6 +8,8 @@ CR-021-02  a recorded correction is answered with, as observed rather than
            derived, and outranks what reading found
 CR-021-03  corrections are kept where the cache is not: rebuilding the index
            loses nothing a landing taught
+CR-024-02  the question is asked of ground and not of paperwork: a recorded run
+           kept beside a candidate is not ground, and is not asked about
 """
 import json
 import pathlib
@@ -24,6 +26,7 @@ TESTS = {
     "CR-021-01": "direct",
     "CR-021-02": "direct",
     "CR-021-03": "direct",
+    "CR-024-02": "direct",
 }
 
 
@@ -122,10 +125,27 @@ def cr_021_03():
     return None
 
 
+def cr_024_02():
+    """A candidate folder holds what was recorded while the work was done —
+    a patch, a note, the output of the run that failed before the repair. No
+    reader reads any of it, nothing can reach it, and no correction could
+    teach an edge to it. Asking about it made every recorded run a refusal."""
+    with tempfile.TemporaryDirectory() as tmp:
+        d, c = estate_with_landing(tmp)
+        (c / "candidates" / "CA-001-01" / "failing-before.txt").write_text(
+            "7 failed, 9 passed\n")
+        out = run(d, GATE, str(c))
+        if "failing-before.txt" in out:
+            return f"the gate asked what reaches a recorded run:\n{out}"
+        if "R21" not in out or "plugin_alpha.py" not in out:
+            return f"asking only about ground silenced the rule entirely:\n{out}"
+    return None
+
+
 def main():
     failures = []
     for name, fn in (("CR-021-01", cr_021_01), ("CR-021-02", cr_021_02),
-                     ("CR-021-03", cr_021_03)):
+                     ("CR-021-03", cr_021_03), ("CR-024-02", cr_024_02)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:
