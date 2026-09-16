@@ -43,12 +43,19 @@ import estate                                        # noqa: E402
 # a class is defined by how acceptance is decided, and a subject line says only
 # what its author called the work.
 SAYS = [
-    ("C1", r"\b(bump|upgrade|update deps|dependenc|refactor|rename|move|typo|"
-           r"format|lint|style|cleanup|remove unused|dead code|drop support)\b"),
+    # C1* is the family and not a class: the vocabulary distinguishes a
+    # behaviour-preserving change that is proved from one that is tested, and
+    # which of the two a change was is not in its subject line.
+    ("C1*", r"\b(bump|upgrade|update deps|dependenc|refactor|rename|move|typo|"
+            r"format|lint|style|cleanup|remove unused|dead code|drop support)\b"),
     ("C2", r"\b(fix|bug|regression|broken|crash|error|fault|repair|correct)\b"),
+    # An addition belongs here and not with work a person settles: what is
+    # added is accepted against criteria stated for it, which is what this
+    # class means. C4 and C5 are absent on purpose — both are defined by how
+    # acceptance is decided, and no title says that.
     ("C3", r"\b(deprecat|api|interface|schema|contract|signature|protocol|"
-           r"compat|breaking)\b"),
-    ("C5", r"\b(add|new|support|feature|implement|introduce|allow)\b"),
+           r"compat|breaking|add|new|support|feature|implement|introduce|"
+           r"allow)\b"),
 ]
 REVERT = re.compile(r"^revert\b|\brevert(s|ing)? commit ([0-9a-f]{7,40})", re.I)
 FIXES = re.compile(r"\b(fix(?:es|ed)?|close[sd]?|resolve[sd]?)\s+#(\d+)", re.I)
@@ -243,7 +250,20 @@ def through_method(repo):
     return out
 
 
+def head(repo):
+    """Which state of the estate a figure was read from. Without it, a figure
+    taken twice on a clone that was re-made in between cannot be told from an
+    instrument that changed its answer."""
+    out = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                         capture_output=True, text=True)
+    return out.stdout.strip() or None
+
+
 def measure(repo, since=None):
+    if head(repo) is None:
+        raise SystemExit(f"  {repo} is not a repository that can be read here — "
+                         f"nothing was measured, and a figure over nothing would "
+                         f"read the same as a figure over an estate with no history")
     rows = list(commits(repo, since))
     prs, forge_note = forge(repo, since)
     mix = collections.Counter()
@@ -272,6 +292,7 @@ def measure(repo, since=None):
     days = lag(undone)
     return {
         "estate": pathlib.Path(repo).name,
+        "read at": head(repo),
         "since": since or (rows[-1]["when"] if rows else None),
         "until": rows[0]["when"] if rows else None,
         "commits": len(rows),
@@ -292,12 +313,16 @@ def measure(repo, since=None):
 def report(m):
     print(f"=== {m['estate']}, {m['since']} to {m['until']}: "
           f"{m['commits']} commit(s) over {m['intents']} intent(s)")
+    print(f"    read at {m['read at']}, which is what makes this figure one that "
+          f"can be taken again")
     print("=== class mix — every figure below is read per class, and the mix is why")
     for k, v in m["class mix"].items():
         share = 100.0 * v / max(m["intents"], 1)
         print(f"    {k:<14} {v:>6} intent(s)  {share:>5.1f}%")
     print("    the class is what the message called the work, which is a proxy: a class "
           "is defined by how acceptance is decided, and a subject line does not say that")
+    print("    C1* is a family rather than a class, and the two classes decided by a "
+          "person or by production are not guessed here at all")
     print("=== human touchpoints per intent — the primary claim")
     for k, v in m["touchpoints per intent"].items():
         print(f"    {k:<14} {v}")

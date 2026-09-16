@@ -5,6 +5,9 @@ CR-003-01  every rule the framework says it enforces mechanically is enforced
 CR-003-02  a violation of a newly enforced rule is actually detected
 CR-003-03  every rule not enforced mechanically says why it cannot be
 CR-003-04  a change built from the current shapes passes the gate
+CR-026-01  a scope naming several paths is read as all of them, however the
+           list is separated
+CR-026-02  a scope entry naming nothing here is said aloud, not dropped
 """
 import re
 import sys
@@ -19,6 +22,8 @@ TESTS = {
     "CR-003-03": ("proxy", "the criterion is whether a reason is given; what is checked "
                            "is whether the column is non-empty"),
     "CR-003-04": ("proxy", "the criterion is about real work; a built change is run instead"),
+    "CR-026-01": "direct",
+    "CR-026-02": "direct",
 }
 
 # Each criterion says whether this arbiter tests it or a
@@ -114,10 +119,52 @@ def cr_003_04():
         return "FAIL" in out and f"a change built from the current shapes does not pass:\n{out}" or None
 
 
+def scoped(tmp, scope, holds=("beta.py", "gamma.py")):
+    """A built change whose unit is scoped to what is given, in an estate of
+    three files where one names another and the third stands alone."""
+    import pathlib as _p
+    root = _p.Path(tmp)
+    d = build_change(str(root / "changes" / "c"))
+    (root / "alpha.py").write_text("def a():\n    return 1\n")
+    (root / "beta.py").write_text("import alpha\n\n\ndef b():\n    return alpha.a()\n")
+    (root / "gamma.py").write_text("def g():\n    return 3\n")
+    for name in holds:
+        (d / "candidates" / "CA-001-01" / name).write_text("def x():\n    return 4\n")
+    edit(d, "02-plan.md", "| subject/ |", f"| {scope} |")
+    return d
+
+
+def cr_026_01():
+    """Scoped to both files the candidate holds, nothing is unreached. The two
+    are named the way every other list in these tables is written. Read as one
+    path, the other becomes ground nothing reaches."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = gate(scoped(tmp, "beta.py, gamma.py"))
+        if "R21" in out:
+            return f"a scope of two paths was read as one:\n{out}"
+    with tempfile.TemporaryDirectory() as tmp:          # and the rule still fires
+        out = gate(scoped(tmp, "beta.py", holds=("gamma.py",)))
+        if "R21" not in out or "gamma.py" not in out:
+            return f"reading the whole scope silenced the rule:\n{out}"
+    return None
+
+
+def cr_026_02():
+    with tempfile.TemporaryDirectory() as tmp:
+        out = gate(scoped(tmp, "beta.py, gamma.py, delta.py"))
+        if "delta.py" not in out:
+            return f"a scope entry naming nothing here was dropped in silence:\n{out}"
+        if any("delta.py" in line and line.strip().startswith("FAIL")
+               for line in out.splitlines()):
+            return "naming nothing here was treated as a refusal"
+    return None
+
+
 def main():
     failures = []
     for name, fn in (("CR-003-01", cr_003_01), ("CR-003-02", cr_003_02),
-                     ("CR-003-03", cr_003_03), ("CR-003-04", cr_003_04)):
+                     ("CR-003-03", cr_003_03), ("CR-003-04", cr_003_04),
+                     ("CR-026-01", cr_026_01), ("CR-026-02", cr_026_02)):
         problem = fn()
         print(f"  {'FAIL' if problem else 'ok  '}  {name}" + (f"  — {problem}" if problem else ""))
         if problem:

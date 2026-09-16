@@ -436,8 +436,23 @@ class Check:
         for headers, rows in tables(self.text["02-plan"]):
             if "Scope" in headers and "Id" in headers:
                 for r in real(rows):
-                    scope_of[r.get("Id", "")] = [p for p in r.get("Scope", "").split()
-                                                 if p and (self.root / p).exists()]
+                    named = [p.strip(" ,") for p in
+                             re.split(r"[,\s]+", r.get("Scope", "")) if p.strip(" ,")]
+                    here = [p for p in named if (self.root / p).exists()]
+                    for p in named:
+                        if p not in here:
+                            # Dropping it silently made the rule ask about the
+                            # reach of half a scope and call the other half
+                            # unreachable. It is not a refusal — a scope may
+                            # name ground this estate does not hold — but what
+                            # was not read is said, because a check that read
+                            # half a value and reported on the half is worse
+                            # than one that did not run.
+                            self.notes.append(
+                                f"R21: {r.get('Id', '')} is scoped to {p}, which "
+                                f"names nothing here, so what it reaches is not "
+                                f"asked")
+                    scope_of[r.get("Id", "")] = here
         touched = collections.defaultdict(set)
         for headers, rows in tables(self.text.get("04-execution", "")):
             if "Stored at" in headers and "Unit" in headers:
