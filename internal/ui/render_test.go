@@ -132,6 +132,8 @@ func TestHistoryRenders(t *testing.T) {
 		{"task-area", func() { p.area = 5 }},
 		{"task-object", func() { p.item = old.Item("VE-001-01") }},
 		{"new-intent", func() { p.selected = newKey }},
+		{"foundation-economy", func() { p.selected, p.foundation = "", 9 }},
+		{"foundation-estate", func() { p.foundation = 7 }},
 		{"settings", func() { u.preferring = true }},
 	} {
 		s.set()

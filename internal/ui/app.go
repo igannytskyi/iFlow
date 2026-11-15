@@ -348,7 +348,7 @@ func (u *UI) projectRow(p *project) W {
 		btn := u.clicks.of("project/" + p.path)
 		if u.clicked(gtx, btn) {
 			u.select_(p)
-			p.selected, p.item = "", nil
+			p.selected, p.item, p.foundation = "", nil, 0
 		}
 		state := p.state()
 		line := state

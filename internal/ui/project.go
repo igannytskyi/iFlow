@@ -38,6 +38,8 @@ type project struct {
 	estate  atomic.Pointer[estateFacts]
 	// showDone shows the tasks that landed, which are folded away.
 	showDone bool
+	// foundation is one of areas 7 to 13 opened from the overview, or 0.
+	foundation int
 	// filter is which tasks the overview lists: "", "active" or "landed".
 	filter  string
 	stale   atomic.Bool // the workspace is to be read again

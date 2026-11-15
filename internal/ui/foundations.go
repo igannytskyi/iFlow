@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,10 @@ type estateFacts struct {
 	indexedAt           time.Time
 	corrections         int
 	err                 string
+	// What the detail of areas 7 and 10 lists.
+	regionRows []estate.RegionRow
+	fileNames  [][2]string // file, the names it defines
+	learned    []estate.CorrectionRecord
 }
 
 func readEstate(l *estate.Local, root string) *estateFacts {
@@ -36,18 +41,30 @@ func readEstate(l *estate.Local, root string) *estateFacts {
 		return f
 	}
 	f.files, f.names, f.calls = len(ix.Files), len(ix.Names), len(ix.Refs)
+	for _, rel := range repo.Sources() {
+		var names []string
+		if rec := ix.Files[rel]; rec != nil {
+			for _, s := range rec.Symbols {
+				if !slices.Contains(names, s.Name) {
+					names = append(names, s.Name)
+				}
+			}
+		}
+		f.fileNames = append(f.fileNames, [2]string{rel, strings.Join(names, ", ")})
+	}
 	if st, err := os.Stat(filepath.Join(repo.Home(), "index.json")); err == nil {
 		f.indexedAt = st.ModTime()
 	}
 	if regions, err := repo.EveryRegion(); err == nil {
-		f.regions = len(regions)
+		f.regions, f.regionRows = len(regions), regions
 		for _, g := range regions {
 			if g.Verdict == "unclaimed" && !g.TestGround {
 				f.unwatched++
 			}
 		}
 	}
-	f.corrections = len(repo.Corrections())
+	f.learned = repo.Corrections()
+	f.corrections = len(f.learned)
 	return f
 }
 

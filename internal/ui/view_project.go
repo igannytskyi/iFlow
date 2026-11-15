@@ -16,6 +16,9 @@ import (
 // stand, and the foundations — areas 7 to 13 — that hold for every task
 // rather than for one.
 func (u *UI) projectView(gtx C, p *project) D {
+	if p.foundation != 0 {
+		return u.foundationView(gtx, p)
+	}
 	t := tallyOf(p.ws)
 	active := 0
 	for _, c := range p.order {
@@ -73,7 +76,7 @@ func (u *UI) projectView(gtx C, p *project) D {
 	var cards []func(int) W
 	e := p.estate.Load()
 	for _, f := range memo(u.docs, "foundations|"+p.path, func() []foundation { return foundationsOf(p, e) }) {
-		cards = append(cards, u.foundationCard(f))
+		cards = append(cards, u.openable(p, f.n, u.foundationCard(f)))
 	}
 	body = append(body, u.grid(280, 10, cards))
 	body = append(body, u.hairline, u.escalations(p))
@@ -228,5 +231,18 @@ func (u *UI) grid(minW, gap unit.Dp, cards []func(minH int) W) W {
 			y += tallest + g
 		}
 		return D{Size: image.Pt(total, max(0, y-g))}
+	}
+}
+
+// openable is a card that opens the foundation it sums up.
+func (u *UI) openable(p *project, n int, card func(minH int) W) func(minH int) W {
+	return func(minH int) W {
+		return func(gtx C) D {
+			btn := u.clicks.of(fmt.Sprintf("foundation/open/%s/%d", p.path, n))
+			if u.clicked(gtx, btn) {
+				p.foundation = n
+			}
+			return btn.Layout(gtx, card(minH))
+		}
 	}
 }
