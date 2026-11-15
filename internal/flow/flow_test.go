@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,6 +69,9 @@ type stubExecutor struct {
 	files map[string]string
 	packs *[]string
 	goals *[]string
+	// meanwhile, where set, is written into the estate itself while a code
+	// unit runs: another change landing on the same ground.
+	meanwhile func()
 }
 
 func (s stubExecutor) Name() string    { return "stub" }
@@ -78,6 +82,9 @@ func (s stubExecutor) Run(_ context.Context, t harness.Task, emit func(harness.E
 	}
 	if s.goals != nil {
 		*s.goals = append(*s.goals, t.Goal)
+	}
+	if s.meanwhile != nil && !strings.HasSuffix(t.Scope[0], "_test.go") {
+		s.meanwhile()
 	}
 	for _, p := range t.Scope {
 		emit(harness.Event{At: time.Now(), Kind: harness.Called, Tool: "write_file", Detail: p})
@@ -314,5 +321,71 @@ func TestSendingBackRewritesTheSpecification(t *testing.T) {
 	defer mu.Unlock()
 	if asked < 2 {
 		t.Errorf("the person was asked %d time(s), not again after sending it back", asked)
+	}
+}
+
+// Two changes in flight on the same ground: when another lands on a file
+// while this one is carried out, this one's landing stops rather than undo
+// it, and says why.
+func TestALandingDoesNotUndoAnotherChange(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	other := "package greet\n\n// changed by another change\nfunc Greet(n string) string { return \"Hi, \" + n }\n"
+	cfg := Config{
+		Model: stubModel{answer: spec},
+		Executor: stubExecutor{files: map[string]string{
+			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+		}, meanwhile: func() { _ = os.WriteFile(filepath.Join(repo, "greet.go"), []byte(other), 0o644) }},
+		Estate: est, Gate: gate.New(est), Person: "a test",
+	}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	err := run.Start(context.Background())
+	if err == nil {
+		t.Fatal("the change landed on ground that moved under it")
+	}
+	if v := run.View(); v.Areas[6] != Failed {
+		t.Errorf("areas: %v", v.Areas)
+	}
+	if b, _ := os.ReadFile(filepath.Join(repo, "greet.go")); string(b) != other {
+		t.Errorf("the other change was undone:\n%s", b)
+	}
+	if !strings.Contains(err.Error(), "greet.go was changed") && !strings.Contains(fmt.Sprint(run.View().Steps), "greet.go was changed") {
+		t.Errorf("the landing does not say what moved: %v", err)
+	}
+}
+
+// Admission names every other change in flight whose scope meets this one's.
+func TestAdmissionNamesChangesInFlight(t *testing.T) {
+	repo := estateFixture(t)
+	in := filepath.Join(repo, "changes", "louder")
+	if err := os.MkdirAll(in, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other := artifact.SpecDoc{Name: "louder", ID: "SPEC-009", Intent: "INT-009", Class: "C3", Included: []string{"greet.go"},
+		Criteria: []artifact.CriterionRow{{ID: "CR-009-01", Criterion: "c", When: "w", Then: "t", Plan: "not-required", Procedure: "machine", Evidence: "test-run"}}}
+	if err := artifact.Write(in, artifact.Specification, other.Markdown()); err != nil {
+		t.Fatal(err)
+	}
+	est := estate.NewLocal()
+	cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "shout", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	_ = run.Start(context.Background())
+	b, _ := os.ReadFile(filepath.Join(run.View().Dir, "03-admission.md"))
+	if !strings.Contains(string(b), "louder") || !strings.Contains(string(b), "greet.go") {
+		t.Errorf("admission does not name the change in flight on the same ground:\n%s", b)
 	}
 }

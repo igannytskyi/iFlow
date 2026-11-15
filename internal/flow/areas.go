@@ -465,6 +465,14 @@ func (r *Run) admit(ctx context.Context) error {
 		}
 		doc.Conflicts = append(doc.Conflicts, [4]string{joinIDs(ids), "none", "none", "ordering"})
 	}
+	// Other changes in flight in the same estate whose scope meets this
+	// one's: whichever lands second finds the ground moved under it, and the
+	// landing says so rather than undoing the first.
+	for _, other := range r.inFlight() {
+		doc.Conflicts = append(doc.Conflicts, [4]string{r.id("SPEC") + ", " + other.name, strings.Join(other.shared, ", "),
+			"the evidence of whichever lands second", "ordering: the second landing re-checks the ground and stops if it moved"})
+		r.say(3, "", "in flight beside it: %s, which may also change %s; whichever lands second checks the ground first", other.name, strings.Join(other.shared, ", "))
+	}
 	observed, err := r.observed()
 	if err != nil {
 		return r.fail(3, "the estate could not be asked: %v", err)
@@ -901,6 +909,13 @@ func (r *Run) keepOutput(ev, out string) {
 func (r *Run) land(ctx context.Context) error {
 	r.set(6, Working)
 	doc := artifact.LandingDoc{Name: r.slug}
+	// The estate may have moved since admission: another change landed on
+	// the same ground. Entering whole files now would undo it, and the
+	// evidence was gathered against ground that is no longer there.
+	if moved := r.moved(); len(moved) > 0 {
+		_ = r.record("landing", r.id("SPEC"), "stopped: the estate moved under it — "+strings.Join(moved, "; "))
+		return r.fail(6, "the estate moved since this change was admitted, so its evidence no longer holds and entering it would undo another change: %s. Carry it again from the estate as it is now", strings.Join(moved, "; "))
+	}
 	for i, u := range r.units {
 		if err := copyInto(r.cands[u.id], r.repo); err != nil {
 			return r.fail(6, "%s could not be entered: %v", u.id, err)
@@ -1004,6 +1019,81 @@ func terms(d draft) []string {
 	var out []string
 	for _, t := range d.Termination {
 		out = append(out, t.Action+" when "+t.Condition)
+	}
+	return out
+}
+
+// flight is another change in flight in the same estate, and the paths it
+// may change that this one may too.
+type flight struct {
+	name   string
+	shared []string
+}
+
+// inFlight is every other change of the estate not yet landed nor closed
+// whose scope meets this one's.
+func (r *Run) inFlight() []flight {
+	dirs, _ := filepath.Glob(filepath.Join(r.repo, "changes", "*", string(artifact.Specification)+".md"))
+	var out []flight
+	for _, spec := range dirs {
+		dir := filepath.Dir(spec)
+		if dir == r.dir || fileExists(filepath.Join(dir, string(artifact.Landing)+".md")) || closedChange(dir) {
+			continue
+		}
+		c, err := artifact.Load(dir)
+		if err != nil || c.Doc(artifact.Specification) == nil {
+			continue
+		}
+		var shared []string
+		for _, row := range c.Doc(artifact.Specification).Rows("Included") {
+			if p := strings.TrimSpace(row.Cell("Included")); p != "" && inScope(p, r.spec.Scope) {
+				shared = append(shared, p)
+			}
+		}
+		if len(shared) > 0 {
+			out = append(out, flight{filepath.Base(dir), shared})
+		}
+	}
+	return out
+}
+
+func closedChange(dir string) bool {
+	b, err := os.ReadFile(filepath.Join(dir, "record.md"))
+	return err == nil && strings.Contains(string(b), "| closed |")
+}
+
+// moved is every file this change would enter that is no longer what it
+// was when the change was admitted: changed, created or removed by
+// something else since.
+func (r *Run) moved() []string {
+	var out []string
+	for _, u := range r.units {
+		dir := r.cands[u.id]
+		_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() || d.Name() == "CHANGES" {
+				return err
+			}
+			rel, _ := filepath.Rel(dir, p)
+			if u.tests || !slices.Contains(r.spec.Scope, filepath.ToSlash(rel)) {
+				return nil // what no baseline holds is the change's own
+			}
+			base := filepath.Join(r.dir, "baseline", path.Base(filepath.ToSlash(rel)))
+			now, err := os.ReadFile(filepath.Join(r.repo, rel))
+			switch {
+			case fileExists(base + ".before"):
+				was, _ := os.ReadFile(base + ".before")
+				if err != nil {
+					out = append(out, rel+" was removed")
+				} else if !bytes.Equal(was, now) {
+					out = append(out, rel+" was changed")
+				}
+			case fileExists(base + ".absent"):
+				if err == nil {
+					out = append(out, rel+" was created by something else")
+				}
+			}
+			return nil
+		})
 	}
 	return out
 }
