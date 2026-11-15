@@ -1,0 +1,1 @@
+All tests pass. I added `strings.TrimSpace(name)` before the empty-check in `Greet`, so whitespace-padded names are trimmed and whitespace-only names fall through to the existing "world" default.

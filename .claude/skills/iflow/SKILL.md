@@ -7,9 +7,9 @@ description: Carry a change through iFlow — intent, specification, plan, admis
 
 Carry one change through the path: intent, specification, plan, admission, execution, assurance, landing.
 
-**The rules that bind you are in [AGENTS.md](../../../AGENTS.md), and they are not repeated here.** Read it before writing anything. Read `framework/conventions.md` for every code, and `framework/rules.md` for what will be checked and what deliberately will not.
+**The rules that bind you are in [AGENTS.md](../../../AGENTS.md), and they are not repeated here.** Read it before writing anything. Read `docs/method/conventions.md` for every code, and `docs/method/rules.md` for what will be checked and what deliberately will not.
 
-One change lives in `changes/<slug>/` as seven files written in order. Copy the matching file from `framework/templates/` and fill it. Never invent a column.
+One change lives in `changes/<slug>/` as seven files written in order. Copy the matching file from `docs/templates/` and fill it. Never invent a column.
 
 ## Verbs
 
@@ -22,7 +22,7 @@ One change lives in `changes/<slug>/` as seven files written in order. Copy the 
 | `verify` | `05-assurance.md` |
 | `land` | `06-landing.md` |
 | `status` | — reads the folder and reports where the change stands and what blocks it |
-| `check` | — runs `python3 framework/check.py changes/<slug>` and reports it verbatim |
+| `check` | — runs `iflow check changes/<slug>` and reports it verbatim |
 
 Every verb appends its crossing to `record.md`.
 

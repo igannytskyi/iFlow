@@ -1,0 +1,15 @@
+--- FAIL: TestGreetTrimsSurroundingWhitespaceFromName (0.00s)
+    greeting_trim_test.go:18: Greet(" Ada") = "Hello,  Ada!", want "Hello, Ada!"
+    greeting_trim_test.go:18: Greet("Ada ") = "Hello, Ada !", want "Hello, Ada!"
+    greeting_trim_test.go:18: Greet(" Ada ") = "Hello,  Ada !", want "Hello, Ada!"
+    greeting_trim_test.go:18: Greet("  Grace Hopper  ") = "Hello,   Grace Hopper  !", want "Hello, Grace Hopper!"
+    greeting_trim_test.go:18: Greet("\tLinus\n") = "Hello, \tLinus\n!", want "Hello, Linus!"
+--- FAIL: TestGreetTreatsWhitespaceOnlyNameAsAbsent (0.00s)
+    greeting_trim_test.go:26: Greet(" ") = "Hello,  !", want "Hello, world!"
+    greeting_trim_test.go:26: Greet("   ") = "Hello,    !", want "Hello, world!"
+    greeting_trim_test.go:26: Greet("\t") = "Hello, \t!", want "Hello, world!"
+    greeting_trim_test.go:26: Greet("\n") = "Hello, \n!", want "Hello, world!"
+    greeting_trim_test.go:26: Greet(" \t\n ") = "Hello,  \t\n !", want "Hello, world!"
+FAIL
+FAIL	example.com/greeting	0.212s
+FAIL

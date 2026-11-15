@@ -1,21 +1,16 @@
 # Everything under .claude is local state, except the iflow skill, which is part
-# of the framework and must travel with it. BMAD's skills stay local.
+# of the framework and must travel with it.
 .claude/*
 !.claude/skills/
 .claude/skills/*
 !.claude/skills/iflow/
 
-_bmad/
-_bmad-output/
 .DS_Store
 
-__pycache__/
-*.pyc
-
-# The framework is what is versioned here. Changes carried through it are the
-# output of using it on one estate, not part of it — every adopter has their
-# own, and nothing in the method requires this folder name.
-changes/
+# The framework is what is versioned here. Changes carried through it on this
+# repository are the output of using it, not part of it — every adopter has
+# their own. The example's changes are versioned: they are what it shows.
+/changes/
 
 # The author's own notes, which are not documentation of the framework and do
 # not belong under a share-alike licence.
@@ -29,6 +24,3 @@ BACKLOG.md
 
 # Derived state, rebuilt from the code whenever the code moves.
 .estate/
-
-# Grammars installed beside the readers: binaries belonging to one machine.
-framework/readers/_lib/

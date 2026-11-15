@@ -8,16 +8,15 @@ A method for accepting change: a person states what is to be achieved and what w
 
 | | |
 |---|---|
-| `docs/iflow.md` | Why any of this is shaped the way it is |
-| `docs/process.md` | The same, drawn — the path, the artefacts, where a person touches it |
-| `framework/` | The method itself: the vocabulary, the rules, the artefact shapes, the gate, the arbiters |
-| `changes/` | What the method has produced. `clock-instant/` is a worked example; the rest are real |
+| `docs/` | Everything written: the research, the process drawn, the vocabulary, the codes, the rules, the artefact shapes |
+| `cmd/iflow`, `internal/` | The program: the gate and its rules, the estate, the harness, the flow through the areas, the workbench |
+| `examples/greeting` | A small estate with changes carried through the method |
 
-Read [`framework/glossary.md`](framework/glossary.md) to learn what the words mean, and `framework/conventions.md` before writing any artefact. Every code is defined there and nowhere else.
+Read [`docs/method/glossary.md`](docs/method/glossary.md) to learn what the words mean, and [`docs/method/conventions.md`](docs/method/conventions.md) before writing any artefact. Every code is defined there and nowhere else.
 
 ## How a change is carried
 
-One change lives in `changes/<slug>/` as seven files written in order, plus an append-only `record.md`. Copy the matching file from `framework/templates/` and fill it. Never invent a column.
+One change lives in `changes/<slug>/` as seven files written in order, plus an append-only `record.md`. Copy the matching file from `docs/templates/` and fill it. Never invent a column.
 
 | Step | Writes | What it does |
 |---|---|---|
@@ -30,21 +29,23 @@ One change lives in `changes/<slug>/` as seven files written in order, plus an a
 
 Every step appends its crossing to `record.md`. A step present without its line fails the check.
 
-Nothing enters on a run nobody made. Before a landing stands, the arbiters must have been run against this framework and every claim that a run repeats must have been repeated against exactly that command — `--arbiters` and `--repeat <slug>` do both and leave a note beside the framework, derived and disposable, which any edit to what was run voids. In a repository whose changes are to the framework itself, that means running them again after each one.
+A task can also be carried by the program itself: `iflow run <estate> "<task>"`, or typed into `iflow desk`. A model states the intent and criteria, a person accepts them, and the plan, the admission, the execution by an agent in a copy of the estate, the evidence and the landing follow on their own, each written as the artefact above and checked by the gate at its boundary. What each piece of work cost is kept beside the change in `costs.jsonl`, and what each agent did, step by step, beside its candidate.
+
+Nothing enters on a run nobody made. Before a landing stands, the arbiters must have been run against this framework and every claim that a run repeats must have been repeated against exactly that command — `iflow check --arbiters` and `iflow check --repeat <slug>` do both and leave a note beside the framework, derived and disposable, which any edit to what was run voids. In a repository whose changes are to the framework itself, that means running them again after each one.
 
 ```bash
-python3 framework/check.py changes/<slug>     # one change
-python3 framework/check.py --status [dir]     # every change, at a glance
-python3 framework/check.py --arbiters         # run every arbiter
-python3 framework/check.py --mutate           # break each rule, see who notices
-python3 framework/check.py --repeat <slug>    # run what claims to repeat, twice
-python3 framework/check.py --unused           # fields nobody reads, codes nobody checks
-python3 framework/check.py --escalations      # what the method still owes itself
-python3 framework/measure.py <estate>...      # what the model is worth, measured: reach and quotation
-python3 framework/baseline.py <estate>        # the present way of working, reconstructed from its history
+iflow check <changes/slug>              # one change
+iflow check --status [dir]              # every change, at a glance
+iflow check --arbiters                  # run every arbiter
+iflow check --mutate                    # break each rule, see who notices
+iflow check --repeat <slug>             # run what claims to repeat, twice
+iflow check --unused                    # fields nobody reads, codes nobody checks
+iflow check --escalations               # what the method still owes itself
+iflow measure <estate>...               # what the model is worth, measured: reach and quotation
+iflow baseline <estate>                 # the present way of working, reconstructed from its history
 
-python3 framework/plan.py changes/<slug>      # what the estate says about this specification
-python3 framework/plan.py changes/<slug> --draft   # the derivable half of its plan
+iflow plan <changes/slug>               # what the estate says about this specification
+iflow plan <changes/slug> --draft       # the derivable half of its plan
 ```
 
 Before a plan is written, ask the estate what it already answers about the specification: what the scope reaches, what could judge a change there, which consumers no change here reaches, and what unfinished work holds the same ground. A region nothing judges makes a criterion about behaviour there undecidable as it stands, and calls for a preparatory unit before the work itself. How the work divides, what each unit is called and which class it falls in are judgement, are left blank, and are said to be.
@@ -54,50 +55,43 @@ Before a plan is written, ask the estate what it already answers about the speci
 Before a change is planned, what the system is now is derived from it rather than described about it: what a change here reaches, how well behaviour there is pinned down, what crosses between repositories, and how far each of those answers is to be trusted. Nothing here is maintained — the index is a cache with an invalidation rule, never a corpus with a publication date.
 
 ```bash
-python3 framework/estate.py affects <path>...     # what a change here reaches
-python3 framework/estate.py observability         # every region, worst first
-python3 framework/estate.py contracts <dir>       # what crosses between repositories
-python3 framework/estate.py reachability <dir> <repo>   # who consumes this, who cannot be reached
-python3 framework/estate.py freshness             # what the answers were derived from
-python3 framework/estate.py refresh               # derive again only what moved
-python3 framework/estate.py corrections           # what landings taught that reading cannot find
-python3 framework/estate.py readers               # which languages are read here
-python3 framework/estate.py coverage              # what share of this the index reaches — an instrument for comparing two indexes, not a measure of the model: this representation is never complete, and what it is measured by is freshness
-python3 framework/estate.py context <symbol|path> # the code to change, and what it touches
+iflow estate affects <path>...          # what a change here reaches
+iflow estate observability              # every region, worst first
+iflow estate contracts <dir>            # what crosses between repositories
+iflow estate reachability <dir> <repo>  # who consumes this, who cannot be reached
+iflow estate freshness                  # what the answers were derived from
+iflow estate refresh                    # derive again only what moved
+iflow estate corrections                # what landings taught that reading cannot find
+iflow estate readers                    # which languages are read here
+iflow estate coverage                   # what share of this the index reaches — an instrument for comparing two indexes, not a measure of the model: this representation is never complete, and what it is measured by is freshness
+iflow estate context <symbol|path>      # the code to change, and what it touches
 ```
 
-Python is read by the parser that ships with Python, so an estate written in it needs nothing installed. Every other language is read through its own tree-sitter grammar, installed beside the readers and never committed:
-
-```bash
-python3 -m pip install --target framework/readers/_lib -r framework/readers/requirements.txt
-```
-
-What is unread is derived from what is installed, not declared: install a grammar and those files move out of the unseen count; remove it and they move back. A language nothing reads is reported unseen, never absent.
+Every language is read through its own tree-sitter grammar, built into the program: Python, Go, TypeScript, JavaScript, Java, C#, Rust, Ruby, PHP, C, C++, Kotlin, Scala and shell. A language nothing reads is reported unseen, never absent — `iflow estate readers` says which are read.
 
 `context` is the one shaped for doing the work rather than deciding about it: it answers with the code itself — the definition quoted with its line numbers, the call sites with the lines around them, what the subject calls that lives here, and what would judge a change to it — firmest first, cut to a budget it names. The others answer with paths, confidences and areas, which is what a decision needs and not what a change needs.
 
 Run it from the repository or the estate it is asked about, not from here. Derived material goes beside that repository in `.estate/`; to keep an estate's material together instead, name one directory:
 
 ```bash
-export IFLOW_ESTATE=changes/<slug>/estate        # cache/ and answers/ go here
+export IFLOW_ESTATE=changes/<slug>/estate        # cache/ goes here
 export IFLOW_ESTATE_ROOT=changes/<slug>/estate/repos
 ```
 
 | | |
 |---|---|
 | `<home>/repos/` | The repositories the change is decided against |
-| `<home>/cache/` | One index per repository, keyed by the commit each region was last touched by |
-| `<home>/answers/` | What the tooling said, and from which commit — read afterwards to see whether the model was right |
+| `<home>/cache/` | One index per repository, keyed by the contents of each file and the commit that last touched it, and the corrections landings taught |
 
-The cache is disposable; the answers are not, and neither are the corrections. Being wrong is not detectable from the source: where work had to touch ground nothing connects to its scope, the edge is real and no re-reading finds it. The gate refuses such a landing until it is recorded, and from then on it is answered with as observed rather than derived.
+The index is disposable; the corrections are not. Being wrong is not detectable from the source: where work had to touch ground nothing connects to its scope, the edge is real and no re-reading finds it. The gate refuses such a landing until it is recorded, and from then on it is answered with as observed rather than derived.
 
 ## What binds you
 
-**Never invent a code.** If a value is not in `framework/conventions.md`, stop and say so. Adding one is a change to the method, decided outside it, not a decision to take mid-task.
+**Never invent a code.** If a value is not in `docs/method/conventions.md`, stop and say so. Adding one is a change to the method, decided outside it, not a decision to take mid-task.
 
 **Criteria are fixed before execution and never after.** Correcting them is free while no candidate exists — that is a re-admission, and it is recorded. Once a candidate exists they are frozen, and a correction is a new specification under the same intent.
 
-**A criterion is written in the vocabulary of the intent, never of the implementation.** *When these conditions hold, then this observable fact holds* — not *this line was added*. One that names a code artefact can be satisfied by editing that artefact. `framework/criteria.md` has seven probes for telling a good criterion from a bad one before any work exists; use them when writing criteria and when reviewing them.
+**A criterion is written in the vocabulary of the intent, never of the implementation.** *When these conditions hold, then this observable fact holds* — not *this line was added*. One that names a code artefact can be satisfied by editing that artefact. `docs/method/criteria.md` has seven probes for telling a good criterion from a bad one before any work exists; use them when writing criteria and when reviewing them.
 
 **Never weaken a criterion, a test or a schema to make something pass.** Whatever judges a change lies outside what the change may touch. If the judging apparatus genuinely must move, that is its own unit, judged on its own, never by the unit that benefits from it.
 

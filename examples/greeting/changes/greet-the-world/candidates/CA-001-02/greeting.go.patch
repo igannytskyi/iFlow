@@ -1,0 +1,15 @@
+--- greeting.go	2026-11-14 23:49:46
++++ changes/greet-the-world/candidates/CA-001-02/greeting.go	2026-11-14 23:50:17
+@@ -1,7 +1,11 @@
+ // Package greeting says hello.
+ package greeting
+ 
+-// Greet returns the greeting for the person named.
++// Greet returns the greeting for the person named, or for the world when
++// nobody is.
+ func Greet(name string) string {
++	if name == "" {
++		name = "world"
++	}
+ 	return "Hello, " + name + "!"
+ }
