@@ -23,10 +23,19 @@ type Oneshot struct {
 	Model model.Model
 	// Attempts is how many agents may try, three when zero.
 	Attempts int
+	// Stronger, where given, takes the last attempt when the ones before it
+	// failed the check: the cheap model does what it can, and only what it
+	// cannot is paid for at the stronger one's price.
+	Stronger model.Model
 }
 
 // Name implements Executor.
-func (o Oneshot) Name() string { return "one-shot " + o.Model.Name() }
+func (o Oneshot) Name() string {
+	if o.Stronger != nil {
+		return "one-shot " + o.Model.Name() + ", then " + o.Stronger.Name()
+	}
+	return "one-shot " + o.Model.Name()
+}
 
 // Version implements Executor.
 func (o Oneshot) Version() string { return "1" }
@@ -90,8 +99,12 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			break
 		}
 		prompt := o.prompt(t, last, said)
-		emit(Event{At: time.Now(), Kind: Said, Detail: fmt.Sprintf("agent %d handed %d tokens", n, (len(prompt)+3)/4)})
-		answer, u, err := o.Model.Ask(ctx, oneshotSystem, prompt)
+		m := o.Model
+		if o.Stronger != nil && n == attempts && n > 1 {
+			m = o.Stronger
+		}
+		emit(Event{At: time.Now(), Kind: Said, Detail: fmt.Sprintf("agent %d (%s) handed %d tokens", n, m.Name(), (len(prompt)+3)/4)})
+		answer, u, err := m.Ask(ctx, oneshotSystem, prompt)
 		res.Turns++
 		res.Usage = res.Usage.Add(u)
 		emit(Event{At: time.Now(), Kind: Spent, Detail: fmt.Sprintf("agent %d answered", n), Usage: u})

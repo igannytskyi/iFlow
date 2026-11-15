@@ -105,6 +105,22 @@ func (u *UI) modelFacts() []W {
 			row(6, append([]W{u.text(sizeSmall, u.p.Muted, "thinks")}, efforts...)...),
 		))
 	}
+	// The stronger model, if any, takes a unit's last attempt when the
+	// executor's failed the check.
+	var stronger []W
+	stronger = append(stronger, u.choice("model/stronger/none", "None", m.Roles.Stronger == "", func() {
+		m.Roles.Stronger = ""
+		u.applyModels(m)
+	}))
+	for _, c := range models.Catalogue {
+		stronger = append(stronger, u.choice("model/stronger/"+c.Spec, c.Label+"  "+c.Price, m.Roles.Stronger == c.Spec, func() {
+			m.Roles.Stronger = c.Spec
+			u.applyModels(m)
+		}))
+	}
+	out = append(out, column(6,
+		row(10, u.strong(sizeBody, u.p.Text, "takes the last attempt when the executor fails"), u.mono(sizeSmall, u.p.Faint, m.Roles.Stronger)),
+		u.wrap(6, stronger)))
 	if c := u.flowConfig; c != nil {
 		out = append(out, u.text(sizeSmall, u.p.Muted, fmt.Sprintf("Each unit may spend at most %s; criteria are accepted by %s.", money(c.BudgetUSD), c.Person)))
 	}

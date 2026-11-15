@@ -41,6 +41,9 @@ type Roles struct {
 	Reviewer string `json:"reviewer"`
 	Planner  string `json:"planner"`
 	Executor string `json:"executor"`
+	// Stronger takes a unit's last attempt when the executor's failed; none
+	// when empty.
+	Stronger string `json:"executor_stronger,omitempty"`
 }
 
 // Provider is a server speaking the OpenAI chat protocol, and where its key
@@ -75,7 +78,7 @@ func Default() Config {
 				Prices: map[string]model.Price{"deepseek-chat": {In: 0.30, Cached: 0.03, Out: 1.20}}},
 		},
 		Roles: Roles{Author: "openrouter:z-ai/glm-5.3-flash", Reviewer: "openrouter:z-ai/glm-5.3-flash",
-			Planner: "openrouter:z-ai/glm-5.3-flash", Executor: "openrouter:z-ai/glm-5.3-flash"},
+			Planner: "openrouter:z-ai/glm-5.3-flash", Executor: "openrouter:z-ai/glm-5.3-flash", Stronger: "openrouter:z-ai/glm-5.3"},
 		Effort: Roles{Author: "medium", Reviewer: "medium", Planner: "medium", Executor: "low"},
 	}
 }
@@ -175,7 +178,7 @@ func (m Config) Save() error {
 func (m Config) Flow(base flow.Config) (flow.Config, string) {
 	roles := m.Roles
 	if all := os.Getenv("IFLOW_MODEL"); all != "" {
-		roles = Roles{all, all, all, all}
+		roles = Roles{all, all, all, all, ""}
 	}
 	var problems []string
 	pick := func(role, spec, effort string) model.Model {
@@ -189,7 +192,11 @@ func (m Config) Flow(base flow.Config) (flow.Config, string) {
 	base.Model = pick("author", roles.Author, m.Effort.Author)
 	base.Reviewer = pick("reviewer", roles.Reviewer, m.Effort.Reviewer)
 	base.Planner = pick("planner", roles.Planner, m.Effort.Planner)
-	base.Executor = harness.Oneshot{Model: pick("executor", roles.Executor, m.Effort.Executor)}
+	exec := harness.Oneshot{Model: pick("executor", roles.Executor, m.Effort.Executor)}
+	if m.Roles.Stronger != "" {
+		exec.Stronger = pick("stronger executor", m.Roles.Stronger, m.Effort.Executor)
+	}
+	base.Executor = exec
 	if os.Getenv("IFLOW_EXECUTOR") == "agent" {
 		base.Executor = harness.ClaudeCode{Model: "sonnet"}
 	}

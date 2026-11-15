@@ -70,3 +70,29 @@ func TestOneshotAsksAFreshAgentWhenTheCheckFails(t *testing.T) {
 		t.Errorf("refused %d, spent %v", refused, res.Usage.CostUSD)
 	}
 }
+
+// named is a scripted model with a name of its own.
+type named struct {
+	scripted
+	name string
+}
+
+func (n named) Name() string { return n.name }
+
+// The last attempt goes to the stronger model when the cheap one's failed.
+func TestTheLastAttemptGoesToTheStrongerModel(t *testing.T) {
+	ws := t.TempDir()
+	var cheapAsked, strongAsked []string
+	wrong := "=== FILE: a.txt\nwrong\n=== END\n=== SUMMARY: tried"
+	cheap := named{scripted{answers: []string{wrong, wrong}, asked: &cheapAsked}, "cheap"}
+	strong := named{scripted{answers: []string{"=== FILE: a.txt\nright\n=== END\n=== SUMMARY: done"}, asked: &strongAsked}, "strong"}
+	check := []string{"sh", "-c", "grep -q right a.txt"}
+	res, err := Oneshot{Model: cheap, Stronger: strong}.Run(context.Background(),
+		Task{Workspace: ws, Goal: "make a.txt right", Scope: []string{"a.txt"}, Check: check}, func(Event) {})
+	if err != nil || res.Terminal != Candidate {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if len(cheapAsked) != 2 || len(strongAsked) != 1 {
+		t.Errorf("the cheap model was asked %d times and the stronger %d", len(cheapAsked), len(strongAsked))
+	}
+}
