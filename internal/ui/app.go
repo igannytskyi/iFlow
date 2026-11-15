@@ -423,7 +423,7 @@ func (u *UI) taskRow(p *project, key, title, state, spent string, c *workspace.C
 			p.show(key, c)
 		}
 		on := p.selected == key
-		return layout.Inset{Left: 18}.Layout(gtx, func(gtx C) D {
+		line := func(gtx C) D {
 			return u.pressable(gtx, btn, on, 5, stretch(inset(5, 8, func(gtx C) D {
 				return layout.Flex{Alignment: layout.Middle, Gap: gtx.Dp(8)}.Layout(gtx,
 					layout.Rigid(dot(u.stateColor(state), 7)),
@@ -431,6 +431,23 @@ func (u *UI) taskRow(p *project, key, title, state, spent string, c *workspace.C
 					layout.Rigid(u.oneLine(sizeSmall, u.p.Faint, spent)),
 				)
 			})))
+		}
+		// A task that stopped and will not be finished is closed from where
+		// it is seen: the cross opens it with the form to close it.
+		if state != "stopped" || c == nil {
+			return layout.Inset{Left: 18}.Layout(gtx, line)
+		}
+		closer := u.clicks.of("task/close/" + c.Change.Dir)
+		if closer.Clicked(gtx) {
+			p.show(key, c)
+			p.closing = c.Change.Dir
+		}
+		return layout.Inset{Left: 18}.Layout(gtx, func(gtx C) D {
+			return layout.Flex{Alignment: layout.Middle, Gap: gtx.Dp(2)}.Layout(gtx,
+				layout.Flexed(1, line),
+				layout.Rigid(func(gtx C) D {
+					return u.pressable(gtx, closer, p.closing == c.Change.Dir, 5, inset(4, 7, u.text(sizeSmall, u.p.Muted, "close")))
+				}))
 		})
 	}
 }
