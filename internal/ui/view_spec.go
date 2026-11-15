@@ -40,7 +40,7 @@ func (u *UI) specPanel(p *project, s shown) []W {
 			out = append(out, u.reviewLeft(s.v.Reviewed)...)
 		}
 	} else {
-		out = append(out, u.specActions(p, s))
+		out = append(out, u.text(sizeSmall, u.p.Faint, "Accepted, a specification is fixed: a changed intent is a new one — start it from the task's title above."))
 	}
 	if p.editing == c.Change.Dir {
 		out = append(out, u.specEditor(p, c, path))
@@ -98,7 +98,7 @@ func (u *UI) specActions(p *project, s shown) W {
 			p.selected, p.item = newKey, nil
 			gtx.Execute(key.FocusCmd{Tag: &p.task})
 		}
-		ws := []W{u.button(again, "New intent from this", u.p.AccentSoft, u.p.Accent)}
+		ws := []W{u.small(again, "New intent from this", u.p.AccentSoft, u.p.Accent)}
 		state := s.state(p)
 		if state == "stopped" && s.c != nil {
 			closer := u.clicks.of("intent/close/" + s.c.Change.Dir)
@@ -109,9 +109,9 @@ func (u *UI) specActions(p *project, s shown) W {
 					p.closing = s.c.Change.Dir
 				}
 			}
-			ws = append(ws, u.button(closer, "Close this task…", u.p.Sunken, u.p.Text))
+			ws = append(ws, u.small(closer, "Close this task…", u.p.Sunken, u.p.Text))
 		}
-		parts := []W{row(8, ws...), u.text(sizeSmall, u.p.Faint, "Accepted, a specification is fixed: a changed intent is a new one.")}
+		parts := []W{row(8, ws...)}
 		if s.c != nil {
 			if closed, note := s.c.Closed(); closed {
 				parts = append(parts, u.text(sizeSmall, u.p.Muted, note))
@@ -215,5 +215,12 @@ func (u *UI) metaPanel(p *project, s shown) []W {
 func (u *UI) button(btn *widget.Clickable, label string, bg, fg colorNRGBA) W {
 	return func(gtx C) D {
 		return u.pressable(gtx, btn, false, 8, box(bg, colorNRGBA{}, 8, 0, inset(8, 16, u.strong(sizeBody, fg, label))))
+	}
+}
+
+// small is a pressable label on a colour, sized for a line of actions.
+func (u *UI) small(btn *widget.Clickable, label string, bg, fg colorNRGBA) W {
+	return func(gtx C) D {
+		return u.pressable(gtx, btn, false, 6, box(bg, colorNRGBA{}, 6, 0, inset(5, 12, u.text(sizeSmall, fg, label))))
 	}
 }

@@ -251,6 +251,10 @@ func (u *UI) taskTitle(p *project, s shown) W {
 				facts = append(facts, u.gateBadge(s.c))
 			}
 		}
-		return column(4, u.strong(sizeTitle, u.p.Text, s.title()), u.wrap(12, facts))(gtx)
+		parts := []W{u.strong(sizeTitle, u.p.Text, s.title()), u.wrap(12, facts)}
+		if !(s.live && !s.v.Finished) {
+			parts = append(parts, u.specActions(p, s))
+		}
+		return column(6, parts...)(gtx)
 	}
 }
