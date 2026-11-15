@@ -1,0 +1,5 @@
+--- FAIL: TestGreetTheWorld (0.00s)
+    greeting_world_test.go:7: Greet("") = "Hello, !", want "Hello, world!"
+FAIL
+FAIL	example.com/greeting	0.215s
+FAIL

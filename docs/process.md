@@ -62,6 +62,20 @@ flowchart LR
 
 The boundary contracts as evidence accumulates, but **toward a floor rather than to zero**: the correctness of an intent cannot be established from inside the system, and a system cannot arbitrate itself.
 
+### Who writes what, and who reads it first
+
+Every piece of work is one agent, asked once and gone: it is handed the least that work needs and never a conversation. Context is the framework's to manage — what it hands each agent is measured and kept beside the change (`handed` in `costs.jsonl`, `pack.md` beside each candidate).
+
+| Agent | Is handed | Writes |
+|---|---|---|
+| author of the specification | the task, the estate as names (no code) | the specification: the change as a product and design document — context, goals, flows, numbered requirements, quality, design, edge cases, dependencies, risks, open questions, test strategy — and its criteria |
+| reviewer of the specification | the specification, the estate as names | findings by severity, and questions only the person can answer |
+| planner | the specification, the estate as names | the plan: the approach, and every unit as a ticket — objective, what it serves, what it relies on, tasks, what it provides, constraints, edge cases, when it is done |
+| reviewer of the plan | the specification and the plan | findings by severity |
+| executor, one per unit | its ticket, the files it may change, what earlier units wrote, signatures around it | the candidate |
+
+A reviewer is a consumer refusing at a boundary before the person does (B3): what it marks blocking or major returns the document to its author, at most twice; what it still finds goes to the person beside the document. It decides nothing about acceptance — the criteria and the person do — and it answers no open question itself.
+
 ---
 
 ## 3. A defect whose cause is unknown

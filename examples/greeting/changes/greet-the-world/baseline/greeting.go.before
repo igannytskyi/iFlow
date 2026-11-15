@@ -1,0 +1,7 @@
+// Package greeting says hello.
+package greeting
+
+// Greet returns the greeting for the person named.
+func Greet(name string) string {
+	return "Hello, " + name + "!"
+}

@@ -1,0 +1,318 @@
+// Package model is how the method asks a language model something: one
+// question, one answer, and what it cost. Which model answers is a choice
+// made outside the method and recorded beside every answer it gives.
+package model
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"slices"
+	"strings"
+	"time"
+)
+
+// Usage is what one answer, or one run, cost: which model, the tokens it
+// read — fresh, from cache, and written to cache — the tokens it wrote, and
+// the money, as the provider prices it.
+type Usage struct {
+	Model      string  `json:"model,omitempty"`
+	Input      int     `json:"input"`
+	CacheRead  int     `json:"cache_read"`
+	CacheWrite int     `json:"cache_write"`
+	Output     int     `json:"output"`
+	CostUSD    float64 `json:"cost_usd"`
+}
+
+// In is every token read, cached or not.
+func (u Usage) In() int { return u.Input + u.CacheRead + u.CacheWrite }
+
+// Zero reports whether nothing was spent.
+func (u Usage) Zero() bool { return u.In() == 0 && u.Output == 0 && u.CostUSD == 0 }
+
+// Add returns the sum of two usages; the model is kept where both name the
+// same one, and both are named where they differ.
+func (u Usage) Add(o Usage) Usage {
+	m := u.Model
+	switch {
+	case m == "":
+		m = o.Model
+	case o.Model != "" && !strings.Contains(m, o.Model):
+		m += ", " + o.Model
+	}
+	return Usage{m, u.Input + o.Input, u.CacheRead + o.CacheRead, u.CacheWrite + o.CacheWrite, u.Output + o.Output, u.CostUSD + o.CostUSD}
+}
+
+// Model answers one question.
+type Model interface {
+	// Name says which model answered, as a record cites it.
+	Name() string
+	Ask(ctx context.Context, system, prompt string) (string, Usage, error)
+}
+
+// ClaudeCode asks the Claude Code program, headless, with its tools off: a
+// question answered, not a task carried out.
+type ClaudeCode struct {
+	// Binary is the program, "claude" when empty.
+	Binary string
+	// Model names a model the program accepts, its default when empty.
+	Model string
+	// Effort is how hard the model thinks before it answers — low, medium,
+	// high — which is most of what an answer costs; the program's default
+	// when empty.
+	Effort string
+}
+
+// Name implements Model.
+func (c ClaudeCode) Name() string {
+	if c.Model != "" {
+		return "claude-code/" + c.Model
+	}
+	return "claude-code"
+}
+
+func (c ClaudeCode) binary() string {
+	if c.Binary != "" {
+		return c.Binary
+	}
+	return "claude"
+}
+
+// Ask implements Model.
+func (c ClaudeCode) Ask(ctx context.Context, system, prompt string) (string, Usage, error) {
+	// Asked from an empty folder with nothing but project settings, the
+	// program reads no instructions, memory or tools of anyone's: the model
+	// is handed the question and nothing more, which is several thousand
+	// tokens less on every call.
+	args := []string{"-p", "--output-format", "json", "--system-prompt", system, "--tools", "",
+		"--setting-sources", "project", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"}
+	if c.Model != "" {
+		args = append(args, "--model", c.Model)
+	}
+	if c.Effort != "" {
+		args = append(args, "--effort", c.Effort)
+	}
+	empty, err := os.MkdirTemp("", "iflow-ask-")
+	if err != nil {
+		return "", Usage{}, err
+	}
+	defer os.RemoveAll(empty)
+	cmd := exec.CommandContext(ctx, c.binary(), args...)
+	cmd.Dir = empty
+	cmd.Stdin = strings.NewReader(prompt)
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	if err := cmd.Run(); err != nil && out.Len() == 0 {
+		return "", Usage{}, fmt.Errorf("model: %s: %w: %s", c.binary(), err, strings.TrimSpace(errb.String()))
+	}
+	var r struct {
+		Result     string                     `json:"result"`
+		IsError    bool                       `json:"is_error"`
+		Cost       float64                    `json:"total_cost_usd"`
+		ModelUsage map[string]json.RawMessage `json:"modelUsage"`
+		Usage      struct {
+			Input       int `json:"input_tokens"`
+			CacheRead   int `json:"cache_read_input_tokens"`
+			CacheCreate int `json:"cache_creation_input_tokens"`
+			Output      int `json:"output_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &r); err != nil {
+		return "", Usage{}, fmt.Errorf("model: unreadable answer from %s: %w", c.binary(), err)
+	}
+	u := Usage{Model: modelOf(r.ModelUsage, c.Name()), Input: r.Usage.Input, CacheRead: r.Usage.CacheRead,
+		CacheWrite: r.Usage.CacheCreate, Output: r.Usage.Output, CostUSD: r.Cost}
+	if r.IsError {
+		return "", u, fmt.Errorf("model: %s answered with an error: %s", c.binary(), r.Result)
+	}
+	return r.Result, u, nil
+}
+
+// modelOf is which model a Claude Code run says answered, without the
+// context-window mark it adds; fallback where it says none.
+func modelOf(usage map[string]json.RawMessage, fallback string) string {
+	var names []string
+	for k := range usage {
+		names = append(names, strings.TrimSuffix(k, "[1m]"))
+	}
+	if len(names) == 0 {
+		return fallback
+	}
+	slices.Sort(names)
+	return strings.Join(names, ", ")
+}
+
+// OpenAI asks any server speaking the OpenAI chat-completions protocol: a
+// local Ollama, vLLM or LM Studio, or a hosted one.
+type OpenAI struct {
+	// BaseURL ends before /chat/completions, e.g. http://localhost:11434/v1.
+	BaseURL string
+	Key     string
+	Model   string
+	// Provider names who serves the model, as a record cites it: openrouter,
+	// deepseek, ollama.
+	Provider string
+	// Effort is how hard a reasoning model thinks — low, medium, high —
+	// where the server takes it; the model's default when empty.
+	Effort string
+	// Price is what a million tokens cost, for a server that does not say
+	// what an answer cost; zero where it is free or says so itself.
+	Price  Price
+	Client *http.Client
+}
+
+// Price is the cost of a million tokens: read fresh, read from cache, and
+// written.
+type Price struct {
+	In, Cached, Out float64
+}
+
+// Name implements Model.
+func (o OpenAI) Name() string {
+	if o.Provider != "" {
+		return o.Provider + "/" + o.Model
+	}
+	return o.Model
+}
+
+func (o OpenAI) openRouter() bool { return strings.Contains(o.BaseURL, "openrouter.ai") }
+
+// Message is one turn of a conversation in the chat-completions protocol.
+type Message struct {
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"`
+}
+
+// ToolCall is a model asking for a tool to be run.
+type ToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+// Tool describes a tool a model may call.
+type Tool struct {
+	Type     string `json:"type"`
+	Function struct {
+		Name        string          `json:"name"`
+		Description string          `json:"description"`
+		Parameters  json.RawMessage `json:"parameters"`
+	} `json:"function"`
+}
+
+// Ask implements Model.
+func (o OpenAI) Ask(ctx context.Context, system, prompt string) (string, Usage, error) {
+	m, u, err := o.Chat(ctx, []Message{{Role: "system", Content: system}, {Role: "user", Content: prompt}}, nil)
+	return m.Content, u, err
+}
+
+// Chat sends a conversation, with the tools the model may call, and returns
+// the model's next turn.
+func (o OpenAI) Chat(ctx context.Context, msgs []Message, tools []Tool) (Message, Usage, error) {
+	req := map[string]any{"model": o.Model, "messages": msgs}
+	if len(tools) > 0 {
+		req["tools"] = tools
+	}
+	if o.openRouter() {
+		// OpenRouter says what an answer cost when asked to account for it.
+		req["usage"] = map[string]any{"include": true}
+		if o.Effort != "" {
+			req["reasoning"] = map[string]any{"effort": o.Effort}
+		}
+	} else if o.Effort != "" {
+		req["reasoning_effort"] = o.Effort
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return Message{}, Usage{}, err
+	}
+	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(o.BaseURL, "/")+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return Message{}, Usage{}, err
+	}
+	hr.Header.Set("Content-Type", "application/json")
+	if o.Key != "" {
+		hr.Header.Set("Authorization", "Bearer "+o.Key)
+	}
+	client := o.Client
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Minute}
+	}
+	resp, err := client.Do(hr)
+	if err != nil {
+		return Message{}, Usage{}, fmt.Errorf("model: %s: %w", o.BaseURL, err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Message{}, Usage{}, err
+	}
+	if resp.StatusCode/100 != 2 {
+		return Message{}, Usage{}, fmt.Errorf("model: %s answered %s: %s", o.BaseURL, resp.Status, strings.TrimSpace(string(raw)))
+	}
+	var r struct {
+		Choices []struct {
+			Message Message `json:"message"`
+		} `json:"choices"`
+		Model string `json:"model"`
+		Usage struct {
+			Prompt     int      `json:"prompt_tokens"`
+			Completion int      `json:"completion_tokens"`
+			Cost       *float64 `json:"cost"`
+			Details    struct {
+				Cached int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
+			CacheHit int `json:"prompt_cache_hit_tokens"` // DeepSeek's own name for it
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return Message{}, Usage{}, fmt.Errorf("model: unreadable answer: %w", err)
+	}
+	if len(r.Choices) == 0 {
+		return Message{}, Usage{}, errors.New("model: the answer held no choice")
+	}
+	cached := max(r.Usage.Details.Cached, r.Usage.CacheHit)
+	u := Usage{Model: o.Name(), Input: r.Usage.Prompt - cached, CacheRead: cached, Output: r.Usage.Completion}
+	if r.Usage.Cost != nil {
+		u.CostUSD = *r.Usage.Cost
+	} else {
+		u.CostUSD = (float64(u.Input)*o.Price.In + float64(cached)*o.Price.Cached + float64(u.Output)*o.Price.Out) / 1e6
+	}
+	return r.Choices[0].Message, u, nil
+}
+
+// JSON extracts the first JSON object or array from a model's answer, which
+// models wrap in prose and fences however they are asked not to.
+func JSON(answer string, into any) error {
+	s := answer
+	if i := strings.Index(s, "```"); i >= 0 {
+		rest := s[i+3:]
+		if nl := strings.Index(rest, "\n"); nl >= 0 {
+			rest = rest[nl+1:]
+		}
+		if j := strings.Index(rest, "```"); j >= 0 {
+			s = rest[:j]
+		}
+	}
+	start := strings.IndexAny(s, "{[")
+	if start < 0 {
+		return fmt.Errorf("model: the answer holds no JSON: %.200q", answer)
+	}
+	dec := json.NewDecoder(strings.NewReader(s[start:]))
+	if err := dec.Decode(into); err != nil {
+		return fmt.Errorf("model: the answer's JSON does not read: %w", err)
+	}
+	return nil
+}

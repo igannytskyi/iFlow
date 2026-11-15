@@ -1,0 +1,3 @@
+I don't have approval to run commands in this session. The test file is written and ready — please run `/private/var/folders/vk/hkg1rbx97bg5h8bs6f7cyhyh0000gn/T/iflow-ws-1177295712/test.sh` yourself to confirm it fails as expected against the current `Greet` implementation (which does no trimming).
+
+I added `greeting_trim_test.go` with two tests: `TestGreetTrimsSurroundingWhitespaceFromName` (CR-002-01, checks names with leading/trailing whitespace are greeted trimmed) and `TestGreetTreatsWhitespaceOnlyNameAsAbsent` (CR-002-02, checks whitespace-only names fall back to "Hello, world!"). Both should fail against the current `Greet` implementation since it only special-cases the exact empty string and never trims.
