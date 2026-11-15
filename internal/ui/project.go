@@ -59,7 +59,7 @@ type project struct {
 func newProject(path string) *project {
 	p := &project{path: path, name: filepath.Base(path), area: 1, open: map[string]bool{}}
 	p.task.Submit = true
-	p.ground.SingleLine = true
+	p.ground.SingleLine = false
 	return p
 }
 

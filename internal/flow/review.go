@@ -117,7 +117,7 @@ Judge each unit as its agent will need it:
 - Could it be carried out from its brief alone, without guessing names, signatures or behaviour?
 - Do the tests units and the code units use the same names and signatures?
 - Is every requirement and criterion of the specification served by some unit, and nothing done twice or by no one?
-- Is the order right: does each unit have what it relies on from the units before it, and leave the estate building?
+- Is the order right: does each unit have what it relies on from the units before it, and leave the estate building? A unit that uses a type or function another unit provides must come after it; two units defining the same name is blocking.
 - Is any unit too large for one agent in one answer, or split where it should not be?
 
 ` + reviewForm
@@ -141,7 +141,11 @@ func (r *Run) reviewed(ctx context.Context, area int, kind, system, prompt strin
 	}
 	dir := filepath.Join(r.dir, "reviews")
 	if err := os.MkdirAll(dir, 0o755); err == nil {
-		name := fmt.Sprintf("%s-%d.md", strings.ReplaceAll(kind, " ", "-"), round)
+		// Numbered across every round the document went through, so that a
+		// review after the person sent it back does not replace one before.
+		base := strings.ReplaceAll(kind, " ", "-")
+		kept, _ := filepath.Glob(filepath.Join(dir, base+"-*.md"))
+		name := fmt.Sprintf("%s-%d.md", base, len(kept)+1)
 		_ = os.WriteFile(filepath.Join(dir, name), []byte(v.markdown(fmt.Sprintf("Review of the %s, round %d", kind, round), m.Name())), 0o644)
 	}
 	n := 0

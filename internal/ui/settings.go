@@ -17,7 +17,11 @@ type settings struct {
 	Open     string             `json:"open"`
 	Widths   map[string]float32 `json:"widths"`
 	Dark     bool               `json:"dark"`
-	path     string
+	// ShowLanded lists landed tasks under a project, which are folded away
+	// otherwise; HideCosts folds the panel of what tasks cost.
+	ShowLanded bool `json:"show landed"`
+	HideCosts  bool `json:"hide costs"`
+	path       string
 }
 
 func loadSettings() *settings {

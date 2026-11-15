@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"image"
 	"os"
 	"path/filepath"
 	"slices"
@@ -377,7 +378,7 @@ func (u *UI) taskRows(p *project) []W {
 	}
 	if len(done) > 0 {
 		out = append(out, u.foldRow(p, len(done)))
-		if p.showDone {
+		if p.showDone || u.settings.ShowLanded {
 			out = append(out, done...)
 		}
 	}
@@ -404,7 +405,7 @@ func (u *UI) foldRow(p *project, n int) W {
 			p.showDone = !p.showDone
 		}
 		label := "▸ Landed (" + strconv.Itoa(n) + ")"
-		if p.showDone {
+		if p.showDone || u.settings.ShowLanded {
 			label = "▾ Landed (" + strconv.Itoa(n) + ")"
 		}
 		return layout.Inset{Left: 18}.Layout(gtx, func(gtx C) D {
@@ -464,6 +465,9 @@ func (u *UI) main(gtx C) D {
 			layout.Rigid(inset(pad, gutter, u.composer(p))),
 		)
 	}
+	if u.settings.HideCosts {
+		return layout.Flex{}.Layout(gtx, layout.Flexed(1, center), layout.Rigid(u.costsStrip))
+	}
 	return u.splitOf("stats", 380, 300, 640).layout(gtx, u, center, u.statsPanel(p, s, ok), true)
 }
 
@@ -477,3 +481,18 @@ func (u *UI) invalidate() {
 // Main hands the main thread to the windowing system, which some platforms
 // require, and does not return. Run is called on another goroutine.
 func Main() { app.Main() }
+
+// costsStrip is the panel of costs folded to its edge; a click unfolds it.
+func (u *UI) costsStrip(gtx C) D {
+	btn := u.clicks.of("costs/show")
+	if btn.Clicked(gtx) {
+		u.settings.HideCosts = false
+		u.settings.save()
+	}
+	return btn.Layout(gtx, func(gtx C) D {
+		gtx.Constraints.Min = image.Pt(gtx.Dp(30), gtx.Constraints.Max.Y)
+		gtx.Constraints.Max.X = gtx.Constraints.Min.X
+		fill(gtx, u.p.Surface)
+		return layout.N.Layout(gtx, inset(14, 0, u.text(sizeSmall, u.p.Accent, "$ ‹")))
+	})
+}

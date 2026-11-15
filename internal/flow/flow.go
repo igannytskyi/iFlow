@@ -247,6 +247,12 @@ func (r *Run) keepCosts() {
 
 // ask waits for the person.
 func (r *Run) ask(ctx context.Context, area int, question string) (decision, error) {
+	// An answer given twice to the question before — a second click — is
+	// not an answer to this one.
+	select {
+	case <-r.answer:
+	default:
+	}
 	r.mu.Lock()
 	r.question = question
 	r.areas[area] = Waiting

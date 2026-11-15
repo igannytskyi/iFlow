@@ -30,6 +30,9 @@ type draft struct {
 	// Document is the change described for a reader, as a product and a
 	// design document would describe it.
 	Document document `json:"document"`
+	// Later are the parts of a task too large for one change: each a task
+	// of its own, to be specified when this one has landed.
+	Later    []string `json:"later"`
 	Criteria []struct {
 		Criterion string `json:"criterion"`
 		When      string `json:"when"`
@@ -70,11 +73,11 @@ Rules you must follow:
 - "class" is one of C1P (behaviour-preserving, proved), C1T (behaviour-preserving, tested), C2 (defect repair), C3 (a stated contract), C4 (observed effect), C5 (judgement).
 - "scope" lists the files the change may create or edit, by path. It never includes tests. Keep it to what the task needs.
 - "new_tests" lists test files that will be written first to judge the change — new files, never in scope, placed where the language expects tests for the scope (in Go, beside the code in the same package directory). Criteria they judge have "judged_by_new_tests": true.
-- Keep the change small enough for one agent to carry out in one sitting; if the task is larger, state the first coherent part of it and say in "prose" what is left.
+- Keep the change to what a few agents, each with one unit, can carry out. If the task is larger, specify its first coherent part — one that is worth landing alone — and list in "later" the rest, each written as a task of its own, in the order they should come.
 - "existing_tests" lists the estate's existing test files that judge that nothing else moves.
 - "slug" is a few lowercase words joined by hyphens.
 
-The JSON object has exactly these keys: slug, name, statement, class, prose, document (the keys above), criteria (criterion, when, then, plan, threshold, judged_by_new_tests), scope, new_tests, existing_tests, termination (condition, action: stop or escalate).`
+The JSON object has exactly these keys: slug, name, statement, class, prose, document (the keys above), later, criteria (criterion, when, then, plan, threshold, judged_by_new_tests), scope, new_tests, existing_tests, termination (condition, action: stop or escalate).`
 
 // overview is what a model is shown of the estate to state a change: every
 // source file and the names it defines, where the words of the task land,
@@ -151,13 +154,53 @@ func (r *Run) intent(ctx context.Context) error {
 	r.n = nextNumber(r.repo)
 	r.mu.Unlock()
 	prompt := "The task, as a person wrote it:\n\n" + r.statement + "\n\n" + r.overview()
-	var d draft
 	var feedback string
+	for sent := 0; ; sent++ {
+		d, err := r.specified(ctx, prompt, feedback)
+		if err != nil {
+			return err
+		}
+		r.spec = d
+		r.say(1, r.id("SPEC"), "specification written: %d criteria, class %s, scope %s", len(d.Criteria), d.Class, strings.Join(d.Scope, ", "))
+		got, err := r.ask(ctx, 1, "Is this the change you want? Read the specification and its criteria; accepting them fixes them, and from here nothing moves them.")
+		if err != nil {
+			return err
+		}
+		if got.ok {
+			r.say(1, r.id("SPEC"), "%s accepted the criteria", r.cfg.Person)
+			r.set(1, Done)
+			return nil
+		}
+		// Sent back, the specification is its author's failure, recorded as
+		// one; a new author writes it again from the person's notes, and it
+		// is reviewed again before the person is asked again.
+		_ = r.record("specification", r.id("SPEC"), "sent back by "+r.cfg.Person+": "+got.ground)
+		r.say(1, r.id("SPEC"), "%s sent the specification back: %s", r.cfg.Person, got.ground)
+		if sent+1 >= personRounds {
+			return r.fail(1, "the specification was sent back %d times; the last time: %s", personRounds, got.ground)
+		}
+		r.set(1, Working)
+		spec, _ := os.ReadFile(filepath.Join(r.dir, "01-specification.md"))
+		feedback = "\n\n# Your previous specification\n\n" + string(spec) +
+			"\n# The person who asked for the change sent it back, saying\n\n" + got.ground +
+			"\n\nWrite the specification again, whole, as the person says. Where they answered an open question, the answer is decided: take it out of the open questions and build on it."
+	}
+}
+
+// personRounds is how many times a person may send a specification back
+// before the task stops.
+const personRounds = 5
+
+// specified is a specification an author wrote and reviewers read: drafts
+// until one is readable and passes the gate, then reviews, each sending it
+// back with what is missing, reviewRounds times at most.
+func (r *Run) specified(ctx context.Context, prompt, feedback string) (draft, error) {
+	var d draft
 	var last review
 	for round := 1; ; round++ {
 		var err error
 		if d, err = r.drafted(ctx, prompt, feedback); err != nil {
-			return err
+			return d, err
 		}
 		if round > reviewRounds {
 			break
@@ -180,19 +223,7 @@ func (r *Run) intent(ctx context.Context) error {
 	r.mu.Lock()
 	r.reviewLeft = last
 	r.mu.Unlock()
-	r.spec = d
-	r.say(1, r.id("SPEC"), "specification written: %d criteria, class %s, scope %s", len(d.Criteria), d.Class, strings.Join(d.Scope, ", "))
-	got, err := r.ask(ctx, 1, "Is this the change you want? Read the specification and its criteria; accepting them fixes them, and from here nothing moves them.")
-	if err != nil {
-		return err
-	}
-	if !got.ok {
-		_ = r.record("specification", r.id("SPEC"), "refused by "+r.cfg.Person+": "+got.ground)
-		return r.fail(1, "the criteria were refused: %s", got.ground)
-	}
-	r.say(1, r.id("SPEC"), "%s accepted the criteria", r.cfg.Person)
-	r.set(1, Done)
-	return nil
+	return d, nil
 }
 
 // drafted asks the author for a specification until one is readable and
@@ -301,7 +332,7 @@ func (r *Run) writeIntent(d draft) error {
 	}
 	spec := artifact.SpecDoc{Name: r.slug, ID: r.id("SPEC"), Intent: r.id("INT"), Class: d.Class, Prose: d.Prose,
 		Included: d.Scope, Excluded: append(slices.Clone(d.NewTests), d.SuiteTests...),
-		Change: d.Document.parts()}
+		Change: append(d.Document.parts(), artifact.Part{Title: "What comes after", Points: d.Later})}
 	var byNew, bySuite []string
 	for i, c := range d.Criteria {
 		id := r.id("CR", i+1)

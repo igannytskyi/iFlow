@@ -25,14 +25,14 @@ func TestAnOpenAIAnswerSaysWhatItCost(t *testing.T) {
 	}))
 	defer srv.Close()
 	o := OpenAI{BaseURL: srv.URL + "/openrouter.ai/v1", Key: "k", Model: "z-ai/glm-5.3-flash", Provider: "openrouter", Effort: "low"}
-	got, u, err := o.Ask(context.Background(), "sys", "q")
+	got, u, err := o.Ask(context.Background(), "Answer with one JSON object.", "q")
 	if err != nil || got != "ok" {
 		t.Fatalf("%q %v", got, err)
 	}
 	if u.Input != 600 || u.CacheRead != 400 || u.Output != 100 || u.CostUSD != 0.0123 || u.Model != "openrouter/z-ai/glm-5.3-flash" {
 		t.Errorf("usage %+v", u)
 	}
-	if asked["usage"] == nil || asked["reasoning"] == nil || asked["tools"] != nil {
+	if asked["usage"] == nil || asked["reasoning"] == nil || asked["tools"] != nil || asked["response_format"] == nil {
 		t.Errorf("the request was %v", asked)
 	}
 

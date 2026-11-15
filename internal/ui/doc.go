@@ -174,3 +174,22 @@ func firstLine(lines []string) string {
 	}
 	return strings.TrimSpace(lines[0])
 }
+
+// laterOf is what a specification says comes after it: the parts of a task
+// too large for one change, each a task of its own.
+func (u *UI) laterOf(dir string) []string {
+	var out []string
+	in := false
+	for _, l := range u.docs.read(filepath.Join(dir, "01-specification.md")) {
+		l = strings.TrimSpace(l)
+		switch {
+		case l == "### What comes after":
+			in = true
+		case strings.HasPrefix(l, "#"):
+			in = false
+		case in && strings.HasPrefix(l, "- "):
+			out = append(out, strings.TrimPrefix(l, "- "))
+		}
+	}
+	return out
+}

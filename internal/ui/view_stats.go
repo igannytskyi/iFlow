@@ -77,8 +77,19 @@ func (u *UI) taskStats(p *project, s shown) []W {
 	if who == "" {
 		who = "—"
 	}
+	hide := u.clicks.of("costs/hide")
 	out1 := []W{
-		u.text(sizeSmall, u.p.Faint, "THIS TASK"),
+		func(gtx C) D {
+			if hide.Clicked(gtx) {
+				u.settings.HideCosts = true
+				u.settings.save()
+			}
+			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+				layout.Flexed(1, u.text(sizeSmall, u.p.Faint, "THIS TASK")),
+				layout.Rigid(func(gtx C) D {
+					return u.pressable(gtx, hide, false, 4, inset(2, 6, u.text(sizeSmall, u.p.Muted, "fold ›")))
+				}))
+		},
 		column(1, u.strong(unit.Sp(30), u.p.Text, money(spentUSD)), u.text(sizeSmall, u.p.Faint, "spent")),
 		u.wrap(8, []W{
 			u.cell(tokens(in), "tokens in", u.p.Text),
@@ -87,6 +98,7 @@ func (u *UI) taskStats(p *project, s shown) []W {
 			u.cell(fmt.Sprint(t.Steps), "agent steps", u.p.Text),
 			u.cell(clock, "elapsed", u.p.Text),
 			u.cell(fmt.Sprint(len(s.costs)), "model calls", u.p.Text),
+			u.cell(tokens(handed(s.costs)), "handed by the framework", u.p.Accent),
 		}),
 		column(1, u.text(sizeBody, u.p.Text, who), u.text(sizeSmall, u.p.Faint, "models")),
 	}
@@ -195,4 +207,14 @@ func (u *UI) escalations(p *project) W {
 		})
 	}
 	return column(4, rows...)
+}
+
+// handed is what the framework gave the models to read, before anything
+// they or their provider added.
+func handed(cs []artifact.Cost) int {
+	n := 0
+	for _, c := range cs {
+		n += c.Handed
+	}
+	return n
 }

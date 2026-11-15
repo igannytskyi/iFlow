@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 
+	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/unit"
 
@@ -47,6 +48,16 @@ func (u *UI) projectView(gtx C, p *project) D {
 	}
 	for _, c := range p.order {
 		body = append(body, u.taskLine(p, c))
+	}
+	var next []W
+	for _, c := range p.order {
+		for i, later := range u.laterOf(c.Change.Dir) {
+			next = append(next, u.laterRow(p, c, i, later))
+		}
+	}
+	if len(next) > 0 {
+		body = append(body, u.hairline, u.text(sizeSmall, u.p.Faint, "NEXT — parts of earlier tasks too large for one change, each a task of its own"))
+		body = append(body, next...)
 	}
 	body = append(body, u.hairline, u.text(sizeSmall, u.p.Faint, "FOUNDATIONS — what holds for every task, not for one"))
 	var cards []W
@@ -136,5 +147,25 @@ func (u *UI) newIntentView(p *project) W {
 			gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(720))
 			return column(10, ws...)(gtx)
 		})
+	}
+}
+
+// laterRow is one part an earlier task left for later, started with a click
+// as a new intent already written.
+func (u *UI) laterRow(p *project, c *workspace.Change, i int, text string) W {
+	return func(gtx C) D {
+		btn := u.clicks.of(fmt.Sprintf("later/%s/%d", c.Change.Dir, i))
+		if btn.Clicked(gtx) {
+			p.task.SetText(text)
+			p.selected, p.item = newKey, nil
+			gtx.Execute(key.FocusCmd{Tag: &p.task})
+		}
+		return layout.Flex{Gap: gtx.Dp(12), Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(width(200, u.oneLine(sizeSmall, u.p.Faint, "after "+c.Name()))),
+			layout.Flexed(1, u.text(sizeBody, u.p.Text, text)),
+			layout.Rigid(func(gtx C) D {
+				return u.pressable(gtx, btn, false, 6, box(u.p.AccentSoft, colorNRGBA{}, 6, 0, inset(5, 12, u.text(sizeSmall, u.p.Accent, "Start"))))
+			}),
+		)
 	}
 }

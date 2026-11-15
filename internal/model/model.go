@@ -214,14 +214,29 @@ type Tool struct {
 
 // Ask implements Model.
 func (o OpenAI) Ask(ctx context.Context, system, prompt string) (string, Usage, error) {
-	m, u, err := o.Chat(ctx, []Message{{Role: "system", Content: system}, {Role: "user", Content: prompt}}, nil)
+	msgs := []Message{{Role: "system", Content: system}, {Role: "user", Content: prompt}}
+	// A question that asks for one JSON object is asked in the server's JSON
+	// mode, where the server holds the model to well-formed JSON rather than
+	// leaving a broken brace to be found afterwards.
+	if strings.Contains(system, "one JSON object") {
+		m, u, err := o.chat(ctx, msgs, nil, map[string]any{"type": "json_object"})
+		return m.Content, u, err
+	}
+	m, u, err := o.Chat(ctx, msgs, nil)
 	return m.Content, u, err
 }
 
 // Chat sends a conversation, with the tools the model may call, and returns
 // the model's next turn.
 func (o OpenAI) Chat(ctx context.Context, msgs []Message, tools []Tool) (Message, Usage, error) {
+	return o.chat(ctx, msgs, tools, nil)
+}
+
+func (o OpenAI) chat(ctx context.Context, msgs []Message, tools []Tool, format map[string]any) (Message, Usage, error) {
 	req := map[string]any{"model": o.Model, "messages": msgs}
+	if format != nil {
+		req["response_format"] = format
+	}
 	if len(tools) > 0 {
 		req["tools"] = tools
 	}

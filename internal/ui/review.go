@@ -43,12 +43,23 @@ func (u *UI) review(p *project, v flow.View) W {
 		} else {
 			body = append(body, u.reviewIntent(c)...)
 			if v.Reviewed != "" {
-				var left []W
+				var left, questions []W
 				for _, l := range strings.Split(strings.TrimSpace(v.Reviewed), "\n") {
-					left = append(left, u.point("!", strings.TrimPrefix(l, "- ")))
+					l = strings.TrimPrefix(l, "- ")
+					if q, ok := strings.CutPrefix(l, "[question for the person] "); ok {
+						questions = append(questions, u.point("?", q))
+					} else {
+						left = append(left, u.point("!", l))
+					}
 				}
-				body = append(body, box(u.p.NoteSoft, colorNRGBA{}, 8, 10, column(6,
-					append([]W{u.text(sizeSmall, u.p.Note, "WHAT THE REVIEWER STILL SAYS — decide whether it matters")}, left...)...)))
+				if len(questions) > 0 {
+					body = append(body, box(u.p.AccentSoft, colorNRGBA{}, 8, 10, column(6,
+						append([]W{u.text(sizeSmall, u.p.Accent, "QUESTIONS ONLY YOU CAN ANSWER — answer them in your notes and send it back, or accept it as it is")}, questions...)...)))
+				}
+				if len(left) > 0 {
+					body = append(body, box(u.p.NoteSoft, colorNRGBA{}, 8, 10, column(6,
+						append([]W{u.text(sizeSmall, u.p.Note, "WHAT THE REVIEWER STILL FINDS — decide whether it matters")}, left...)...)))
+				}
 			}
 			body = append(body, u.text(sizeSmall, u.p.Faint, "THE SPECIFICATION"))
 			body = append(body, u.prose(filepath.Join(c.Change.Dir, "01-specification.md"), "## The change")...)
@@ -56,7 +67,7 @@ func (u *UI) review(p *project, v flow.View) W {
 		body = append(body, column(8,
 			box(u.p.Bg, u.p.Line, 6, 8, func(gtx C) D {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return material.Editor(u.th, &p.ground, "what is wrong or missing — the author gets it as the reason").Layout(gtx)
+				return material.Editor(u.th, &p.ground, "your notes: what is wrong or missing, and your answers to the questions — a new author writes the specification again from them").Layout(gtx)
 			}),
 			row(10,
 				func(gtx C) D {

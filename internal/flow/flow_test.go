@@ -268,3 +268,44 @@ func TestASlugNothingSurvivesOf(t *testing.T) {
 		t.Error("the intent is not in the change's folder")
 	}
 }
+
+// A specification sent back is written again from the person's notes, and
+// the person is asked again; the second time they accept it and the path
+// goes on.
+func TestSendingBackRewritesTheSpecification(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	var prompts []string
+	cfg := Config{Model: stubModel{answer: spec, handed: &prompts}, Executor: stubExecutor{}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var mu sync.Mutex
+	asked := 0
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout", func() {
+		if v := run.View(); v.Question != "" {
+			mu.Lock()
+			asked++
+			n := asked
+			mu.Unlock()
+			if n == 1 {
+				go run.Refuse("an empty name should shout HELLO, WORLD")
+			} else {
+				go run.Refuse("stop here") // the second answer only proves it was asked again
+			}
+		}
+	})
+	_ = run.Start(context.Background())
+	again := ""
+	for _, p := range prompts {
+		if strings.Contains(p, "sent it back, saying") && strings.Contains(p, "HELLO, WORLD") {
+			again = p
+		}
+	}
+	if again == "" {
+		t.Error("the author was never handed the person's notes")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if asked < 2 {
+		t.Errorf("the person was asked %d time(s), not again after sending it back", asked)
+	}
+}
