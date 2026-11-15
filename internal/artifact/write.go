@@ -151,11 +151,23 @@ func (d ChangeDoc) Markdown() string {
 	if s := strings.TrimSpace(d.Summary); s != "" && s != strings.TrimSpace(d.Statement) {
 		b.WriteString("\n" + s + "\n")
 	}
-	for _, p := range d.Parts {
-		// A document's sections are its second level; what a section with no
-		// words of its own heads is the third.
+	for i, p := range d.Parts {
+		// A document's sections are its second level; a group heads the
+		// third-level parts after it, and is left out when they are empty.
 		if p.Level == 0 {
 			p.Level = 2
+		}
+		if p.Group {
+			said := false
+			for _, q := range d.Parts[i+1:] {
+				if q.Level != 3 {
+					break
+				}
+				said = said || strings.TrimSpace(q.Text) != "" || len(q.Points) > 0
+			}
+			if !said {
+				continue
+			}
 		}
 		b.WriteString(p.markdown())
 	}
@@ -169,8 +181,11 @@ type Part struct {
 	Text   string
 	Points []string
 	// Level is the heading's depth: 2 for a section, 3 (the default) for a
-	// part of one. A level-2 part with nothing in it heads those after it.
+	// part of one.
 	Level int
+	// Group is a heading over the parts after it, shown only when one of
+	// them has something to say.
+	Group bool
 }
 
 func (p Part) markdown() string {
@@ -178,8 +193,8 @@ func (p Part) markdown() string {
 	if level == 0 {
 		level = 3
 	}
-	if level == 2 && strings.TrimSpace(p.Text) == "" && len(p.Points) == 0 {
-		return "\n## " + p.Title + "\n"
+	if p.Group {
+		return "\n" + strings.Repeat("#", level) + " " + p.Title + "\n"
 	}
 	if strings.TrimSpace(p.Text) == "" && len(p.Points) == 0 {
 		return ""

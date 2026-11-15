@@ -9,7 +9,6 @@
 package flow
 
 import (
-	"syscall"
 	"context"
 	"fmt"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/igannytskyi/iflow/internal/artifact"

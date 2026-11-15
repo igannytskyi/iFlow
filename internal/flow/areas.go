@@ -169,7 +169,7 @@ func (d document) parts() []artifact.Part {
 		{Title: "How a person uses it", Points: d.Flows},
 		{Title: "Functional requirements", Points: reqs},
 		{Title: "Non-functional requirements", Points: d.Quality},
-		{Title: "Design", Level: 2},
+		{Title: "Design", Level: 2, Group: true},
 		{Title: "Architecture", Points: d.Architecture, Level: 3},
 		{Title: "Data model", Points: d.DataModel, Level: 3},
 		{Title: "Interfaces", Points: d.Interfaces, Level: 3},

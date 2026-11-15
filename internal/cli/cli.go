@@ -21,6 +21,8 @@ import (
 const usage = `usage: iflow desk [project...]            the workbench: projects side by side, a task carried through each
        iflow run [--accept|--ask] <estate> <task> carry a task along the path; --ask reads
                                          each answer on stdin: accept, or notes to send it back
+       iflow describe <change>...        write, after the fact, the whole specification of changes
+                                         carried before specifications were whole
        iflow models [--try]              which model does each piece of work, and whether its key is found;
                                          --try asks each one a one-word question
        iflow plan <changes/slug> [--draft]  what the estate says about a specification
@@ -65,6 +67,8 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		return app.check(ctx, args[1:])
 	case len(args) > 0 && args[0] == "desk":
 		return app.Desk(ctx, args[1:])
+	case len(args) > 0 && args[0] == "describe":
+		return app.Describe(ctx, args[1:])
 	case len(args) > 0 && args[0] == "models":
 		m, err := models.Load()
 		if err != nil {

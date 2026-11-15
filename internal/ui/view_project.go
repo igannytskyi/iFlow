@@ -35,6 +35,12 @@ func (u *UI) projectView(gtx C, p *project) D {
 	}
 	body := []W{
 		column(4, u.strong(sizeHead, u.p.Text, p.name), u.mono(sizeSmall, u.p.Faint, p.path)),
+		func(gtx C) D {
+			if a := p.arbiters.Load(); a != nil {
+				return u.text(sizeSmall, u.p.Note, *a)(gtx)
+			}
+			return D{}
+		},
 		u.wrap(8, []W{
 			u.cell(money(t.spent), "spent", u.p.Text),
 			u.cell(tokens(t.tokens), "tokens", u.p.Text),

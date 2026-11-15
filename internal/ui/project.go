@@ -49,6 +49,9 @@ type project struct {
 	// was started, as the watcher last saw it; watched says it watches.
 	atWork  atomic.Pointer[map[string]bool]
 	watched atomic.Bool
+	// arbiters says, for the framework's own project, whether its arbiters
+	// are being run against the framework as it is now: "" when not.
+	arbiters atomic.Pointer[string]
 
 	run    *flow.Run
 	cancel context.CancelFunc
@@ -161,6 +164,43 @@ func (u *UI) watch(p *project) {
 	}()
 }
 
+// verify runs the framework's own arbiters beside the window when the
+// project is the framework and its code has moved since they last passed:
+// R22 holds every landing until what judges the framework passes against it
+// as it is now, and the window makes that run rather than only asking for
+// it. One run at a time; the project is read again when it ends.
+func (u *UI) verify(p *project) {
+	home := gate.Home()
+	if home != p.path || !fileExists(filepath.Join(p.path, "internal", "gate", "gate.go")) {
+		return
+	}
+	if _, ok := gate.Verified(home)[gate.ArbitersKey(home)]; ok {
+		return
+	}
+	running := "the framework's own tests are running against it as it is now (R22)"
+	if !p.arbiters.CompareAndSwap(nil, &running) {
+		return
+	}
+	u.invalidate()
+	go func() {
+		run, err := gate.Arbiters(u.ctx, home)
+		switch {
+		case err != nil:
+			msg := "the framework's tests could not be run: " + err.Error()
+			p.arbiters.Store(&msg)
+		case !run.Passed:
+			msg := "the framework's own tests fail against it as it is now, so R22 holds its landings"
+			p.arbiters.Store(&msg)
+		default:
+			p.arbiters.Store(nil)
+		}
+		p.stale.Store(true)
+		u.invalidate()
+	}()
+}
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
 // at says whether a live process is carrying the change in dir now.
 func (p *project) at(dir string) bool {
 	m := p.atWork.Load()
@@ -171,6 +211,7 @@ func (p *project) at(dir string) bool {
 // gate and the estate about it beside the window.
 func (u *UI) take(p *project, l *loaded) {
 	u.watch(p)
+	u.verify(p)
 	p.ws, p.order, p.led = l.ws, l.order, l.led
 	u.docs.bump()
 	if u.flowConfig != nil {
