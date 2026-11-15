@@ -368,6 +368,7 @@ func (r *Run) writeIntent(d draft) error {
 	if err := shelter(filepath.Join(r.repo, "changes")); err != nil {
 		return err
 	}
+	_ = os.WriteFile(filepath.Join(dir, RunningFile), []byte(fmt.Sprint(os.Getpid())), 0o644)
 	r.keepCosts()
 	first := !fileExists(filepath.Join(dir, "00-intent.md"))
 	err := artifact.Write(dir, artifact.Intent, artifact.IntentDoc{

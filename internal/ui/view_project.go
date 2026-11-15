@@ -91,7 +91,7 @@ func (u *UI) taskLine(p *project, c *workspace.Change) W {
 		if u.clicked(gtx, btn) {
 			p.show(c.Change.Dir, c)
 		}
-		s := shown{c: c}
+		s := shown{c: c, running: p.at(c.Change.Dir)}
 		for n := 1; n <= 6; n++ {
 			s.status[n] = statusOf(c, n)
 		}

@@ -385,7 +385,7 @@ func (u *UI) taskRows(p *project) []W {
 		if c.Change.Dir == runDir {
 			continue
 		}
-		s := shown{c: c}
+		s := shown{c: c, running: p.at(c.Change.Dir)}
 		for n := 1; n <= 6; n++ {
 			s.status[n] = statusOf(c, n)
 		}

@@ -9,6 +9,7 @@
 package flow
 
 import (
+	"syscall"
 	"context"
 	"fmt"
 	"os"
@@ -323,7 +324,11 @@ func (r *Run) Start(ctx context.Context) error {
 	defer func() {
 		r.mu.Lock()
 		r.finished = true
+		dir := r.dir
 		r.mu.Unlock()
+		if dir != "" {
+			_ = os.Remove(filepath.Join(dir, RunningFile))
+		}
 		r.changed()
 	}()
 	for _, area := range []func(context.Context) error{r.intent, r.plan, r.admit, r.execute, r.assure, r.land} {
@@ -332,6 +337,25 @@ func (r *Run) Start(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// RunningFile marks a change a run is carrying now, wherever that run was
+// started — the workbench, a terminal, another window — with its process:
+// what is in it is not a stopped task but one at work.
+const RunningFile = ".running"
+
+// Running reports whether a live process is carrying the change in dir.
+func Running(dir string) bool {
+	b, err := os.ReadFile(filepath.Join(dir, RunningFile))
+	if err != nil {
+		return false
+	}
+	var pid int
+	if _, err := fmt.Sscan(string(b), &pid); err != nil || pid <= 0 {
+		return false
+	}
+	p, err := os.FindProcess(pid)
+	return err == nil && p.Signal(syscall.Signal(0)) == nil
 }
 
 func today() string { return time.Now().Format("2006-01-02") }

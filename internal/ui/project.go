@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -44,6 +45,10 @@ type project struct {
 	filter  string
 	stale   atomic.Bool // the workspace is to be read again
 	pending atomic.Pointer[loaded]
+	// running is every change a live process is carrying now, wherever it
+	// was started, as the watcher last saw it; watched says it watches.
+	atWork  atomic.Pointer[map[string]bool]
+	watched atomic.Bool
 
 	run    *flow.Run
 	cancel context.CancelFunc
@@ -114,9 +119,58 @@ func (u *UI) read(p *project) *loaded {
 	return &loaded{ws, newestFirst(ws.Changes), led}
 }
 
+// watch looks at a project's changes once a second, beside the window: a
+// run started anywhere — a terminal, another window — moves what is on
+// disk, and the window reads it again; which changes are being carried now
+// is kept for the frame to read without touching the disk.
+func (u *UI) watch(p *project) {
+	if p.watched.Swap(true) {
+		return
+	}
+	go func() {
+		var last string
+		for {
+			select {
+			case <-u.ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
+			var sig strings.Builder
+			running := map[string]bool{}
+			dirs, _ := filepath.Glob(filepath.Join(p.path, "changes", "*"))
+			for _, d := range dirs {
+				entries, _ := os.ReadDir(d)
+				for _, e := range entries {
+					if info, err := e.Info(); err == nil {
+						fmt.Fprintf(&sig, "%s/%s:%d:%d;", d, e.Name(), info.Size(), info.ModTime().UnixNano())
+					}
+				}
+				if flow.Running(d) {
+					running[d] = true
+				}
+			}
+			p.atWork.Store(&running)
+			if s := sig.String(); s != last {
+				if last != "" {
+					p.stale.Store(true)
+				}
+				last = s
+				u.invalidate()
+			}
+		}
+	}()
+}
+
+// at says whether a live process is carrying the change in dir now.
+func (p *project) at(dir string) bool {
+	m := p.atWork.Load()
+	return m != nil && (*m)[dir]
+}
+
 // take puts what was read in place, on the window's goroutine, and asks the
 // gate and the estate about it beside the window.
 func (u *UI) take(p *project, l *loaded) {
+	u.watch(p)
 	p.ws, p.order, p.led = l.ws, l.order, l.led
 	u.docs.bump()
 	if u.flowConfig != nil {
@@ -241,6 +295,9 @@ type shown struct {
 	live   bool
 	status [7]flow.Status
 	costs  []artifact.Cost
+	// running is a change being carried now by a run this window did not
+	// start: from a terminal, or another window.
+	running bool
 }
 
 // shownOf is the task a project has on view, if it has any.
@@ -258,7 +315,7 @@ func (p *project) shownOf() (shown, bool) {
 	}
 	for _, c := range p.order {
 		if c.Change.Dir == p.selected {
-			s := shown{c: c, costs: c.Costs}
+			s := shown{c: c, costs: c.Costs, running: p.at(c.Change.Dir)}
 			for n := 1; n <= 6; n++ {
 				s.status[n] = statusOf(c, n)
 			}
@@ -306,6 +363,9 @@ func (s shown) state(p *project) string {
 	}
 	if s.live {
 		return p.state()
+	}
+	if s.c != nil && s.running {
+		return "working"
 	}
 	// How a task stands is how far it went: landed, or not. What the gate
 	// says of it now — by rules that may be newer than the task — is shown
