@@ -307,11 +307,9 @@ func (s shown) state(p *project) string {
 	if s.live {
 		return p.state()
 	}
-	for n := 1; n <= 6; n++ {
-		if s.status[n] == flow.Failed {
-			return "stopped"
-		}
-	}
+	// How a task stands is how far it went: landed, or not. What the gate
+	// says of it now — by rules that may be newer than the task — is shown
+	// beside it, and does not unmake a landing.
 	if s.c.Reached() == 6 {
 		return "landed"
 	}
