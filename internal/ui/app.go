@@ -52,7 +52,7 @@ type UI struct {
 	// acted is set when anything a person did this frame changed what is to
 	// be drawn: the frame that follows is asked for at once, not left to the
 	// next event that happens to come.
-	acted bool
+	acted  bool
 	lists  lists
 	docs   *docs
 	splits map[string]*split
