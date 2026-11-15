@@ -54,19 +54,29 @@ type draft struct {
 
 const intentSystem = `You state a change to software so that it can be carried out and judged without its author. You answer with one JSON object and nothing else.
 
-The specification you write is a document a person reads before accepting it, and that agents who never talk to that person build from — each seeing only its part. Write it as a product requirements document and a design document together, in "document":
-- "context": one paragraph — the problem, why the change is wanted, and what exists now.
-- "goals", "non_goals": points — what the change achieves, and what it deliberately does not.
+The specification you write is the whole specification of the change, as the best engineering organisations write one — a product requirements document, a design document and a request for comments together. A person reads it before accepting it; agents who never talk to that person build from it, each seeing only its part. Leave nothing to be guessed. In "document":
+- "summary": one paragraph — what changes, for whom, and why, readable alone.
+- "context": the problem and its motivation, and what exists now in the estate.
+- "goals", "non_goals": points — what the change achieves; what could reasonably have been a goal and deliberately is not.
+- "users": points — who meets the change, and in what role.
+- "user_stories": points — "As a <user>, I want <action>, so that <outcome>".
 - "flows": points — how a person uses it, step by step, for every path: the ordinary one and each alternative.
-- "requirements": points — the functional requirements, one testable statement each; they are numbered FR-1, FR-2… in order.
-- "quality": points — security, error handling, data integrity, limits, performance, as far as they matter here.
-- "technology": points — the languages, libraries, protocols and services it is built with, and why, as far as the estate does not already decide them; never one the estate does not have without saying so.
-- "design": points — how it is built: data kept and where, the interfaces with their methods and signatures, routes or commands with their inputs and outputs, which file holds what, what is injected so tests can stand in for the outside world.
-- "edge_cases": points — wrong input, repetition, expiry, absence, refusal, concurrency — each with what happens.
-- "dependencies": points — what it relies on, inside the estate or out.
-- "risks": points — what could go wrong or be misread.
+- "requirements": points — the functional requirements, one testable statement each; numbered FR-1, FR-2… in order.
+- "non_functional": points — security, privacy, error handling, data integrity, limits, performance, accessibility, as far as they matter here.
+- "architecture": points — the parts and how they talk to each other and to what exists.
+- "data_model": points — what is kept, its fields and types, where and for how long.
+- "interfaces": points — every route, command or function another part calls: inputs, outputs, status codes and errors, with signatures in the estate's language.
+- "components": points — which file holds what.
+- "technology": points — languages, libraries, protocols and services, and why, as far as the estate does not already decide them; never one the estate does not have without saying so.
+- "edge_cases": points — wrong input, repetition, expiry, absence, refusal, concurrency, failure of what it depends on — each with what happens.
+- "alternatives": points — designs weighed and why not chosen.
+- "dependencies", "assumptions": points — what it relies on, inside the estate or out; what is taken as true without proof.
+- "risks": points — what could go wrong or be misread, and how it is contained.
+- "observability": points — what is logged or measured to see it work in use.
+- "rollout": points — how it is shipped, migrated if anything is, and undone.
+- "test_strategy": points — which tests judge which criteria, at which entry point, with which fakes.
+- "success_metrics": points — how, once in use, it is known to have achieved its goals.
 - "open_questions": points — only what the person who asked must decide; never guess at these, and never leave the design vague instead of asking.
-- "test_strategy": points — how the criteria will be judged: which tests, at which entry point, with which fakes.
 "prose" is one sentence summing it up.
 
 Rules you must follow:
@@ -113,42 +123,68 @@ func (r *Run) overview() string {
 // document is the prose of a specification: what the change is for, how a
 // person uses it, what it must do, how it is built, and what is still open.
 type document struct {
-	Context      string   `json:"context"`
-	Goals        []string `json:"goals"`
-	NonGoals     []string `json:"non_goals"`
-	Flows        []string `json:"flows"`
-	Requirements []string `json:"requirements"`
-	Quality      []string `json:"quality"`
-	Technology   []string `json:"technology"`
-	Design       []string `json:"design"`
-	EdgeCases    []string `json:"edge_cases"`
-	Dependencies []string `json:"dependencies"`
-	Risks        []string `json:"risks"`
-	Questions    []string `json:"open_questions"`
-	Testing      []string `json:"test_strategy"`
+	Summary       string   `json:"summary"`
+	Context       string   `json:"context"`
+	Goals         []string `json:"goals"`
+	NonGoals      []string `json:"non_goals"`
+	Users         []string `json:"users"`
+	Stories       []string `json:"user_stories"`
+	Flows         []string `json:"flows"`
+	Requirements  []string `json:"requirements"`
+	Quality       []string `json:"non_functional"`
+	Architecture  []string `json:"architecture"`
+	DataModel     []string `json:"data_model"`
+	Interfaces    []string `json:"interfaces"`
+	Components    []string `json:"components"`
+	Technology    []string `json:"technology"`
+	EdgeCases     []string `json:"edge_cases"`
+	Alternatives  []string `json:"alternatives"`
+	Dependencies  []string `json:"dependencies"`
+	Assumptions   []string `json:"assumptions"`
+	Risks         []string `json:"risks"`
+	Observability []string `json:"observability"`
+	Rollout       []string `json:"rollout"`
+	Testing       []string `json:"test_strategy"`
+	Metrics       []string `json:"success_metrics"`
+	Questions     []string `json:"open_questions"`
 }
 
-// parts is the document as the specification's sections, its functional
-// requirements numbered so that units and reviews can cite them.
+// parts is the specification in the order a reader needs it, as product
+// requirements, design document and request for comments write it: why,
+// for whom, what it must do, how it is built, what else was weighed, how it
+// is shipped and watched, how it is judged — its functional requirements
+// numbered so that units, reviews and criteria can cite them.
 func (d document) parts() []artifact.Part {
 	var reqs []string
 	for i, q := range d.Requirements {
 		reqs = append(reqs, fmt.Sprintf("FR-%d %s", i+1, strings.TrimSpace(strings.TrimPrefix(q, fmt.Sprintf("FR-%d", i+1)))))
 	}
 	return []artifact.Part{
-		{Title: "Context", Text: d.Context},
+		{Title: "Summary", Text: d.Summary},
+		{Title: "Context and problem", Text: d.Context},
 		{Title: "Goals", Points: d.Goals},
 		{Title: "Non-goals", Points: d.NonGoals},
+		{Title: "Users", Points: d.Users},
+		{Title: "User stories", Points: d.Stories},
 		{Title: "How a person uses it", Points: d.Flows},
-		{Title: "Requirements", Points: reqs},
-		{Title: "Quality — security, errors, data, performance", Points: d.Quality},
-		{Title: "Technology", Points: d.Technology},
-		{Title: "Design", Points: d.Design},
-		{Title: "Edge cases", Points: d.EdgeCases},
+		{Title: "Functional requirements", Points: reqs},
+		{Title: "Non-functional requirements", Points: d.Quality},
+		{Title: "Design", Level: 2},
+		{Title: "Architecture", Points: d.Architecture, Level: 3},
+		{Title: "Data model", Points: d.DataModel, Level: 3},
+		{Title: "Interfaces", Points: d.Interfaces, Level: 3},
+		{Title: "Components and files", Points: d.Components, Level: 3},
+		{Title: "Technology", Points: d.Technology, Level: 3},
+		{Title: "Edge cases and errors", Points: d.EdgeCases},
+		{Title: "Alternatives considered", Points: d.Alternatives},
 		{Title: "Dependencies", Points: d.Dependencies},
+		{Title: "Assumptions", Points: d.Assumptions},
 		{Title: "Risks", Points: d.Risks},
+		{Title: "Observability", Points: d.Observability},
+		{Title: "Rollout and rollback", Points: d.Rollout},
+		{Title: "Test strategy", Points: d.Testing},
+		{Title: "Success metrics", Points: d.Metrics},
 		{Title: "Open questions", Points: d.Questions},
-		{Title: "How it is tested", Points: d.Testing},
 	}
 }
 
@@ -306,8 +342,8 @@ func (d draft) problem() string {
 		return "it has no criteria"
 	case len(d.Scope) == 0:
 		return "it names no scope"
-	case len(d.Document.Flows) == 0 || len(d.Document.Requirements) == 0 || len(d.Document.Design) == 0:
-		return "it does not describe the change: flows, requirements or design are empty"
+	case d.Document.Summary == "" || len(d.Document.Flows) == 0 || len(d.Document.Requirements) == 0 || len(d.Document.Interfaces) == 0 || len(d.Document.Components) == 0:
+		return "it does not specify the change: summary, flows, requirements, interfaces or components are empty"
 	case !slices.Contains([]string(gate.Codes["class"]), d.Class):
 		return "class " + d.Class + " is not one of C1P, C1T, C2, C3, C4, C5"
 	}
@@ -391,6 +427,7 @@ func (r *Run) writeIntent(d draft) error {
 		crit = append(crit, fmt.Sprintf("%s %s — when %s, then %s", r.id("CR", i+1), c.Criterion, c.When, c.Then))
 	}
 	parts := append(d.Document.parts(), artifact.Part{Title: "Acceptance criteria", Points: crit},
+		artifact.Part{Title: "Termination", Points: terms(d)},
 		artifact.Part{Title: "What comes after", Points: d.Later})
 	if err := os.WriteFile(filepath.Join(dir, artifact.ChangeFile), []byte(artifact.ChangeDoc{Name: r.slug, Statement: d.Statement, Summary: d.Prose, Parts: parts}.Markdown()), 0o644); err != nil {
 		return err
@@ -961,4 +998,12 @@ func (r *Run) specText() string {
 		return ""
 	}
 	return string(doc) + "\n# How it is judged — the specification's record\n\n" + string(meta)
+}
+
+func terms(d draft) []string {
+	var out []string
+	for _, t := range d.Termination {
+		out = append(out, t.Action+" when "+t.Condition)
+	}
+	return out
 }

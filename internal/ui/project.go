@@ -39,8 +39,9 @@ type project struct {
 	// showDone shows the tasks that landed, which are folded away.
 	showDone bool
 	// filter is which tasks the overview lists: "", "active" or "landed".
-	filter string
-	stale  atomic.Bool // the workspace is to be read again
+	filter  string
+	stale   atomic.Bool // the workspace is to be read again
+	pending atomic.Pointer[loaded]
 
 	run    *flow.Run
 	cancel context.CancelFunc
@@ -56,6 +57,11 @@ type project struct {
 	handedView string
 	open       map[string]bool // units whose every step is shown
 	task       widget.Editor
+	// specFolded folds the specification to its heading, to reach what is
+	// under it; describing is a specification being written after the fact.
+	specFolded  bool
+	describing  atomic.Bool
+	describeErr string
 	// editing is the change whose description is open for its person to
 	// change, docEdit the text, editLoaded the file it was read from.
 	editing, editLoaded string
@@ -79,14 +85,38 @@ func newProject(path string) *project {
 
 // load reads the project's changes and asks the gate about them, drawing
 // each answer as it arrives.
-func (u *UI) load(p *project) {
+func (u *UI) load(p *project) { u.take(p, u.read(p)) }
+
+// reload reads a project again beside the window, which takes what was read
+// in the frame after it is ready: a frame never waits for a disk.
+func (u *UI) reload(p *project) {
+	go func() {
+		p.pending.Store(u.read(p))
+		u.invalidate()
+	}()
+}
+
+// loaded is a project as read from disk, ready for the window to take.
+type loaded struct {
+	ws    *workspace.Workspace
+	order []*workspace.Change
+	led   *ledger.Ledger
+}
+
+func (u *UI) read(p *project) *loaded {
 	ws, err := workspace.Open(u.model, filepath.Join(p.path, "changes"))
 	if err != nil {
 		ws, _ = workspace.Open(u.model)
 	}
-	p.ws = ws
-	p.order = newestFirst(ws.Changes)
-	p.led, _ = ledger.Read(p.path)
+	led, _ := ledger.Read(p.path)
+	return &loaded{ws, newestFirst(ws.Changes), led}
+}
+
+// take puts what was read in place, on the window's goroutine, and asks the
+// gate and the estate about it beside the window.
+func (u *UI) take(p *project, l *loaded) {
+	p.ws, p.order, p.led = l.ws, l.order, l.led
+	u.docs.bump()
 	if u.flowConfig != nil {
 		go func() {
 			p.estate.Store(readEstate(u.flowConfig.Estate, p.path))
@@ -96,6 +126,7 @@ func (u *UI) load(p *project) {
 		p.estate.Store(&estateFacts{err: "no estate model is configured"})
 	}
 	p.checked.Store(0)
+	ws := l.ws
 	go ws.Check(u.ctx, u.gate, u.parallel, func(*workspace.Change) {
 		p.checked.Add(1)
 		u.invalidate()

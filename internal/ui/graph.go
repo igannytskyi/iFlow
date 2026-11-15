@@ -49,7 +49,7 @@ func (u *UI) crossing(from, to int) []string {
 func (u *UI) node(p *project, s shown, n int) W {
 	return func(gtx C) D {
 		btn := u.clicks.of(fmt.Sprintf("graph/%s/%d", p.path, n))
-		if btn.Clicked(gtx) {
+		if u.clicked(gtx, btn) {
 			p.area = n
 		}
 		a := u.model.Area(n)

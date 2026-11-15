@@ -49,8 +49,12 @@ type UI struct {
 	chosen chan chosen   // what the system's folder chooser answered
 
 	clicks clicks
+	// acted is set when anything a person did this frame changed what is to
+	// be drawn: the frame that follows is asked for at once, not left to the
+	// next event that happens to come.
+	acted bool
 	lists  lists
-	docs   docs
+	docs   *docs
 	splits map[string]*split
 }
 
@@ -77,7 +81,7 @@ type Options struct {
 
 func newUI(ctx context.Context, o Options, s *settings) *UI {
 	u := &UI{model: o.Model, gate: o.Gate, flowConfig: o.Flow, rebuild: o.Rebuild, modelsNote: o.ModelsProblem, settings: s, ctx: ctx, parallel: max(o.Parallel, 1),
-		clicks: clicks{}, lists: lists{}, docs: docs{}, splits: map[string]*split{}}
+		clicks: clicks{}, lists: lists{}, docs: newDocs(), splits: map[string]*split{}}
 	u.adding.SingleLine, u.adding.Submit = true, true
 	u.chosen = make(chan chosen, 1)
 	u.setTheme(s.Dark)
@@ -137,7 +141,10 @@ func (u *UI) frame(gtx C) {
 	u.keys(gtx)
 	for _, p := range u.projects {
 		if p.stale.Swap(false) {
-			u.load(p)
+			u.reload(p)
+		}
+		if l := p.pending.Swap(nil); l != nil {
+			u.take(p, l)
 		}
 		if p.running() {
 			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
@@ -148,6 +155,19 @@ func (u *UI) frame(gtx C) {
 		defer u.cur.ws.RUnlock()
 	}
 	u.layout(gtx)
+	if u.acted {
+		u.acted = false
+		gtx.Execute(op.InvalidateCmd{})
+	}
+}
+
+// clicked reports a click on btn, and that the frame is to be drawn again.
+func (u *UI) clicked(gtx C, btn *widget.Clickable) bool {
+	if btn.Clicked(gtx) {
+		u.acted = true
+		return true
+	}
+	return false
 }
 
 func (u *UI) setTheme(dark bool) {
@@ -167,6 +187,7 @@ func (u *UI) keys(gtx C) {
 			return
 		}
 		if e, ok := ev.(key.Event); ok && e.State == key.Press && u.cur != nil {
+			u.acted = true
 			u.cur.item = nil
 		}
 	}
@@ -196,14 +217,15 @@ func (u *UI) sidebar(gtx C) D {
 			break
 		}
 		if s, ok := e.(widget.SubmitEvent); ok {
+			u.acted = true
 			u.addProject(s.Text)
 		}
 	}
 	plus, prefs := u.clicks.of("project/add"), u.clicks.of("settings")
-	if plus.Clicked(gtx) {
+	if u.clicked(gtx, plus) {
 		u.choose()
 	}
-	if prefs.Clicked(gtx) {
+	if u.clicked(gtx, prefs) {
 		u.preferring = !u.preferring
 	}
 	var rows []W
@@ -324,7 +346,7 @@ func (u *UI) stateColor(s string) colorNRGBA {
 func (u *UI) projectRow(p *project) W {
 	return func(gtx C) D {
 		btn := u.clicks.of("project/" + p.path)
-		if btn.Clicked(gtx) {
+		if u.clicked(gtx, btn) {
 			u.select_(p)
 			p.selected, p.item = "", nil
 		}
@@ -390,7 +412,7 @@ func (u *UI) taskRows(p *project) []W {
 func (u *UI) newIntentRow(p *project) W {
 	return func(gtx C) D {
 		btn := u.clicks.of("task/new/" + p.path)
-		if btn.Clicked(gtx) {
+		if u.clicked(gtx, btn) {
 			p.selected, p.item = newKey, nil
 			gtx.Execute(key.FocusCmd{Tag: &p.task})
 		}
@@ -403,7 +425,7 @@ func (u *UI) newIntentRow(p *project) W {
 func (u *UI) foldRow(p *project, n int) W {
 	return func(gtx C) D {
 		btn := u.clicks.of("task/fold/" + p.path)
-		if btn.Clicked(gtx) {
+		if u.clicked(gtx, btn) {
 			p.showDone = !p.showDone
 		}
 		label := "▸ Done (" + strconv.Itoa(n) + ")"
@@ -419,7 +441,7 @@ func (u *UI) foldRow(p *project, n int) W {
 func (u *UI) taskRow(p *project, key, title, state, spent string, c *workspace.Change) W {
 	return func(gtx C) D {
 		btn := u.clicks.of("task/" + p.path + "/" + key)
-		if btn.Clicked(gtx) {
+		if u.clicked(gtx, btn) {
 			p.show(key, c)
 		}
 		on := p.selected == key
@@ -438,7 +460,7 @@ func (u *UI) taskRow(p *project, key, title, state, spent string, c *workspace.C
 			return layout.Inset{Left: 18}.Layout(gtx, line)
 		}
 		closer := u.clicks.of("task/close/" + c.Change.Dir)
-		if closer.Clicked(gtx) {
+		if u.clicked(gtx, closer) {
 			p.show(key, c)
 			p.closing = c.Change.Dir
 		}
@@ -495,6 +517,7 @@ func (u *UI) main(gtx C) D {
 
 // invalidate asks for a new frame, when there is a window to draw it in.
 func (u *UI) invalidate() {
+	u.docs.bump()
 	if u.win != nil {
 		u.win.Invalidate()
 	}
@@ -507,7 +530,7 @@ func Main() { app.Main() }
 // costsStrip is the panel of costs folded to its edge; a click unfolds it.
 func (u *UI) costsStrip(gtx C) D {
 	btn := u.clicks.of("costs/show")
-	if btn.Clicked(gtx) {
+	if u.clicked(gtx, btn) {
 		u.settings.HideCosts = false
 		u.settings.save()
 	}

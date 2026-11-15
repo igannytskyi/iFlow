@@ -53,7 +53,7 @@ func (u *UI) theme(dark bool) {
 func (u *UI) choice(key, label string, on bool, pick func()) W {
 	return func(gtx C) D {
 		btn := u.clicks.of(key)
-		if btn.Clicked(gtx) && !on {
+		if u.clicked(gtx, btn) && !on {
 			pick()
 		}
 		border := u.p.Line
@@ -136,7 +136,7 @@ func (u *UI) projectSettings() []W {
 	for _, p := range u.projects {
 		out = append(out, func(gtx C) D {
 			forget := u.clicks.of("forget/" + p.path)
-			if forget.Clicked(gtx) && !p.running() {
+			if u.clicked(gtx, forget) && !p.running() {
 				u.forget(p)
 			}
 			action := func(gtx C) D {

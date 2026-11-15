@@ -104,7 +104,7 @@ func (u *UI) links(p *project, title string, c *workspace.Change, ids []string) 
 				return u.chip(u.p.Sunken, u.p.Faint, id+" (not defined here)")(gtx)
 			}
 			btn := u.clicks.of("link/" + p.path + title + id)
-			if btn.Clicked(gtx) {
+			if u.clicked(gtx, btn) {
 				p.item, p.handedView = to, ""
 			}
 			return u.pressable(gtx, btn, false, 4, u.chip(u.p.AccentSoft, u.p.Accent, id))
@@ -120,7 +120,7 @@ func (u *UI) links(p *project, title string, c *workspace.Change, ids []string) 
 func (u *UI) objectChip(p *project, it *workspace.Item) W {
 	return func(gtx C) D {
 		btn := u.clicks.of("obj/" + p.path + "/" + it.Kind + "/" + it.ID)
-		if btn.Clicked(gtx) {
+		if u.clicked(gtx, btn) {
 			p.item, p.handedView = it, ""
 		}
 		bg, fg := u.p.Sunken, u.p.Text
@@ -140,7 +140,7 @@ func (u *UI) objectChip(p *project, it *workspace.Item) W {
 func (u *UI) agentFeed(p *project, unit string, events []harness.Event, costs []artifact.Cost) W {
 	return func(gtx C) D {
 		toggle := u.clicks.of("feed/" + p.path + "/" + unit)
-		if toggle.Clicked(gtx) {
+		if u.clicked(gtx, toggle) {
 			p.open[unit] = !p.open[unit]
 		}
 		open := p.open[unit]
@@ -207,6 +207,10 @@ func (u *UI) agentFeed(p *project, unit string, events []harness.Event, costs []
 
 // tracesOf reads the steps each unit's executor kept beside its candidate.
 func (u *UI) tracesOf(c *workspace.Change) map[string][]harness.Event {
+	return memo(u.docs, "traces|"+c.Change.Dir, func() map[string][]harness.Event { return readTraces(c) })
+}
+
+func readTraces(c *workspace.Change) map[string][]harness.Event {
 	out := map[string][]harness.Event{}
 	for _, it := range c.Items {
 		if it.Kind != "Candidate" {

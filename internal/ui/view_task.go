@@ -22,7 +22,6 @@ func (u *UI) taskView(gtx C, p *project, s shown, ok bool) D {
 	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(inset(pad+4, gutter, u.graph(p, s))),
-		layout.Rigid(inset(8, gutter, u.taskTitle(p, s))),
 		layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
 		layout.Rigid(u.hairline),
 		layout.Flexed(1, u.areaDetail(p, s)),
@@ -37,11 +36,16 @@ func (u *UI) areaDetail(p *project, s shown) W {
 		if s.live && s.v.Question != "" {
 			n = 1
 		}
+		// First the specification, whole, for the task as a whole; then the
+		// metadata of the area chosen on the graph: what it did, what it
+		// produced, and the method's record of it.
+		body := u.specBlock(p, s)
+		body = append(body, u.hairline)
 		a := u.model.Area(n)
-		var body []W
-		body = append(body, row(10,
-			u.mono(sizeSmall, u.p.Accent, fmt.Sprintf("%02d", n)), u.strong(sizeTitle, u.p.Text, a.Name), u.statusChip(s.status[n]),
-			u.text(sizeSmall, u.p.Muted, costLine(inArea(s.costs, n)))))
+		body = append(body, column(4,
+			u.text(sizeSmall, u.p.Faint, "METADATA — of the area chosen on the graph"),
+			row(10, u.mono(sizeSmall, u.p.Accent, fmt.Sprintf("%02d", n)), u.strong(sizeTitle, u.p.Text, a.Name), u.statusChip(s.status[n]),
+				u.text(sizeSmall, u.p.Muted, costLine(inArea(s.costs, n))))))
 		if s.live {
 			for _, st := range s.v.Steps {
 				if st.Area != n {
@@ -59,16 +63,11 @@ func (u *UI) areaDetail(p *project, s shown) W {
 				})
 			}
 		}
-		// The documents an area writes are read as documents: the change as
-		// specified, the plan with every unit described, and what the
-		// reviewers said of each.
 		if s.c != nil {
 			dir := s.c.Change.Dir
 			switch n {
 			case 1:
-				body = append(body, u.specPanel(p, s)...)
 				body = append(body, u.reviews(dir, "specification")...)
-				body = append(body, u.metaPanel(p, s)...)
 			case 2:
 				body = append(body, u.content(p, s, 2)...)
 				body = append(body, u.reviews(dir, "plan")...)
@@ -77,13 +76,20 @@ func (u *UI) areaDetail(p *project, s shown) W {
 			}
 		}
 		var items []W
-		if s.c != nil && n != 1 { // area 1 draws its record in its own panel
+		if s.c != nil {
 			for _, it := range s.c.InArea(n) {
 				items = append(items, u.itemRow(p, it))
 			}
 		}
+		if n == 1 && s.c != nil {
+			for _, it := range s.c.Items {
+				if it.Kind == "Specification" {
+					body = append(body, u.text(sizeSmall, u.p.Muted, u.className(it.Field("Default class"))))
+				}
+			}
+		}
 		if len(items) > 0 {
-			body = append(body, u.text(sizeSmall, u.p.Faint, "METADATA — the method's record of it; open an object to see every cell"), box(u.p.Surface, u.p.Line, 8, 4, column(0, items...)))
+			body = append(body, u.text(sizeSmall, u.p.Faint, "THE RECORD — open an object to see every cell"), box(u.p.Surface, u.p.Line, 8, 4, column(0, items...)))
 		} else if s.status[n] == flow.Idle {
 			body = append(body, u.text(sizeSmall, u.p.Faint, "not reached"))
 		}
@@ -149,14 +155,15 @@ func (u *UI) composer(p *project) W {
 				break
 			}
 			if s, ok := e.(widget.SubmitEvent); ok && !busy {
+				u.acted = true
 				u.send(p, s.Text)
 			}
 		}
 		send, stop := u.clicks.of("run/send/"+p.path), u.clicks.of("run/stop/"+p.path)
-		if send.Clicked(gtx) && !busy {
+		if u.clicked(gtx, send) && !busy {
 			u.send(p, p.task.Text())
 		}
-		if stop.Clicked(gtx) && busy && p.cancel != nil {
+		if u.clicked(gtx, stop) && busy && p.cancel != nil {
 			p.cancel()
 		}
 		hint := "What should change in " + p.name + "? Enter runs it."
@@ -201,7 +208,7 @@ func (u *UI) send(p *project, text string) {
 func (u *UI) closeForm(p *project, c *workspace.Change) W {
 	return func(gtx C) D {
 		confirm := u.clicks.of("close/confirm/" + c.Change.Dir)
-		if confirm.Clicked(gtx) {
+		if u.clicked(gtx, confirm) {
 			_ = u.close(p, c, p.closeWhy.Text())
 		}
 		var by []W
@@ -212,7 +219,7 @@ func (u *UI) closeForm(p *project, c *workspace.Change) W {
 			if later.Reached() == 6 {
 				later := later
 				btn := u.clicks.of("close/by/" + c.Change.Dir + "/" + later.Change.Dir)
-				if btn.Clicked(gtx) {
+				if u.clicked(gtx, btn) {
 					_ = u.close(p, c, "superseded by "+later.Name()+", which landed what it was for")
 				}
 				by = append(by, func(gtx C) D {
@@ -237,24 +244,5 @@ func (u *UI) closeForm(p *project, c *workspace.Change) W {
 				}))
 		})
 		return box(u.p.Bg, colorNRGBA{}, 6, 10, column(8, parts...))(gtx)
-	}
-}
-
-// taskTitle is what the task was for and how it stands, in a line or two.
-func (u *UI) taskTitle(p *project, s shown) W {
-	return func(gtx C) D {
-		state := s.state(p)
-		facts := []W{row(6, dot(u.stateColor(state), 8), u.text(sizeSmall, u.stateColor(state), state))}
-		if s.c != nil {
-			facts = append(facts, u.mono(sizeSmall, u.p.Faint, s.c.Name()))
-			if !s.live || s.v.Finished {
-				facts = append(facts, u.gateBadge(s.c))
-			}
-		}
-		parts := []W{u.strong(sizeTitle, u.p.Text, s.title()), u.wrap(12, facts)}
-		if !(s.live && !s.v.Finished) {
-			parts = append(parts, u.specActions(p, s))
-		}
-		return column(6, parts...)(gtx)
 	}
 }

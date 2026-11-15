@@ -147,12 +147,17 @@ type ChangeDoc struct {
 // Markdown renders the change described.
 func (d ChangeDoc) Markdown() string {
 	var b strings.Builder
-	b.WriteString("# The change — " + d.Name + "\n\n" + strings.TrimSpace(d.Statement) + "\n")
+	b.WriteString("# Specification — " + d.Name + "\n\n## Intent\n\n" + strings.TrimSpace(d.Statement) + "\n")
 	if s := strings.TrimSpace(d.Summary); s != "" && s != strings.TrimSpace(d.Statement) {
 		b.WriteString("\n" + s + "\n")
 	}
 	for _, p := range d.Parts {
-		b.WriteString(strings.Replace(p.markdown(), "\n### ", "\n## ", 1))
+		// A document's sections are its second level; what a section with no
+		// words of its own heads is the third.
+		if p.Level == 0 {
+			p.Level = 2
+		}
+		b.WriteString(p.markdown())
 	}
 	return b.String()
 }
@@ -163,14 +168,24 @@ type Part struct {
 	Title  string
 	Text   string
 	Points []string
+	// Level is the heading's depth: 2 for a section, 3 (the default) for a
+	// part of one. A level-2 part with nothing in it heads those after it.
+	Level int
 }
 
 func (p Part) markdown() string {
+	level := p.Level
+	if level == 0 {
+		level = 3
+	}
+	if level == 2 && strings.TrimSpace(p.Text) == "" && len(p.Points) == 0 {
+		return "\n## " + p.Title + "\n"
+	}
 	if strings.TrimSpace(p.Text) == "" && len(p.Points) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n### " + p.Title + "\n\n")
+	b.WriteString("\n" + strings.Repeat("#", level) + " " + p.Title + "\n\n")
 	if t := strings.TrimSpace(p.Text); t != "" {
 		b.WriteString(t + "\n")
 		if len(p.Points) > 0 {

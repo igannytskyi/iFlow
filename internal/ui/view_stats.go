@@ -86,7 +86,7 @@ func (u *UI) taskStats(p *project, s shown) []W {
 	hide := u.clicks.of("costs/hide")
 	out1 := []W{
 		func(gtx C) D {
-			if hide.Clicked(gtx) {
+			if u.clicked(gtx, hide) {
 				u.settings.HideCosts = true
 				u.settings.save()
 			}
@@ -123,7 +123,7 @@ func (u *UI) taskStats(p *project, s shown) []W {
 		}
 		btn := u.clicks.of(fmt.Sprintf("stats/area/%s/%d", p.path, n))
 		rows = append(rows, func(gtx C) D {
-			if btn.Clicked(gtx) {
+			if u.clicked(gtx, btn) {
 				p.area = n
 			}
 			value := "—"
@@ -194,7 +194,7 @@ func (u *UI) byAgent(p *project, s shown) W {
 		c, key := c, fmt.Sprintf("handed/%s/%d", p.path, i)
 		handovers = append(handovers, func(gtx C) D {
 			btn := u.clicks.of(key)
-			if btn.Clicked(gtx) {
+			if u.clicked(gtx, btn) {
 				p.handedView, p.item = c.Kept, nil
 			}
 			label := c.What
@@ -241,7 +241,7 @@ func (u *UI) handedPanel(p *project, s shown) []W {
 	lines := u.docs.read(path)
 	text := strings.Join(lines, "\n")
 	head := func(gtx C) D {
-		if closer.Clicked(gtx) {
+		if u.clicked(gtx, closer) {
 			p.handedView = ""
 		}
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
@@ -275,7 +275,7 @@ func (u *UI) meter(share float64) W {
 func (u *UI) objectPanel(p *project, s shown) []W {
 	closer := u.clicks.of("object/close/" + p.path)
 	return append([]W{func(gtx C) D {
-		if closer.Clicked(gtx) {
+		if u.clicked(gtx, closer) {
 			p.item = nil
 		}
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
@@ -313,13 +313,13 @@ func (u *UI) escalations(p *project) W {
 		name, _, _ := strings.Cut(o.Ref, "#")
 		btn, settle := u.clicks.of("owed/"+p.path+o.Ref), u.clicks.of("owed/settle/"+p.path+o.Ref)
 		rows = append(rows, func(gtx C) D {
-			if settle.Clicked(gtx) {
+			if u.clicked(gtx, settle) {
 				p.task.SetText("Close " + o.Ref + ": " + o.Ground)
 				p.settles = []string{o.Ref}
 				p.selected, p.item = newKey, nil
 				gtx.Execute(key.FocusCmd{Tag: &p.task})
 			}
-			if btn.Clicked(gtx) {
+			if u.clicked(gtx, btn) {
 				for _, c := range p.order {
 					if c.Name() == name {
 						p.show(c.Change.Dir, c)

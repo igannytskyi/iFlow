@@ -153,7 +153,7 @@ func (cannedModel) Ask(_ context.Context, system, _ string) (string, model.Usage
 {"title":"Shout","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"requirements":["FR-1"],"objective":"Shout greets in capitals.","tasks":["Add func Shout(n string) string returning Greet(n) in capitals."],"provides":["func Shout(n string) string"],"constraints":["leave Greet as it is"],"done_when":["the whole suite passes"]}]}`, use, nil
 	}
 	return `{"slug":"shout","name":"shout","statement":"The greeting can be shouted.","class":"C3","prose":"A shouted greeting is in capitals.",
-"document":{"context":"Greetings are only spoken today.","goals":["a greeting can be shouted"],"non_goals":["whispering"],"flows":["A caller shouts a name and gets the greeting in capitals."],"requirements":["Shout returns the greeting of the name in capitals."],"design":["func Shout(n string) string in greet.go calls Greet."],"edge_cases":["an empty name shouts HELLO, "],"risks":["none"],"test_strategy":["shout_test.go calls Shout"]},
+"document":{"summary":"A greeting can be shouted: the same words, in capitals.","context":"Greetings are only spoken today.","goals":["a greeting can be shouted"],"non_goals":["whispering"],"users":["a caller of the package"],"user_stories":["As a caller, I want to shout a greeting, so that it stands out."],"flows":["A caller shouts a name and gets the greeting in capitals."],"requirements":["Shout returns the greeting of the name in capitals."],"architecture":["Shout wraps Greet."],"interfaces":["func Shout(n string) string"],"components":["greet.go holds Shout beside Greet."],"alternatives":["a flag on Greet — rejected: it changes Greet's signature"],"rollout":["ships with the package; nothing to migrate"],"success_metrics":["callers use Shout"],"edge_cases":["an empty name shouts HELLO, "],"risks":["none"],"test_strategy":["shout_test.go calls Shout"]},
 "criteria":[{"criterion":"A shouted greeting is in capitals","when":"a greeting is shouted","then":"every letter is a capital","plan":"required","threshold":"exact text","judged_by_new_tests":true},
 {"criterion":"Nothing else moves","when":"the whole suite is run","then":"it stands as before","plan":"not-required","threshold":"identical","judged_by_new_tests":false}],
 "scope":["greet.go"],"new_tests":["shout_test.go"],"existing_tests":["greet_test.go"],"termination":[{"condition":"shouting needs a dependency","action":"stop"}]}`, use, nil
@@ -274,5 +274,46 @@ func TestClosingATask(t *testing.T) {
 	after, _ := os.ReadDir(c.Change.Dir)
 	if len(after) != len(before) {
 		t.Errorf("closing changed what the task kept: %d files, then %d", len(before), len(after))
+	}
+}
+
+// TestFramesAreInstant holds every view of a project to the workbench's
+// first goal: once a view has been drawn, drawing it again takes well under
+// a millisecond. The budget here is loose for slow machines; a frame that
+// reads disk or recomputes what it showed last time blows through it.
+func TestFramesAreInstant(t *testing.T) {
+	u := testUI(t, nil, filepath.Join(gate.Home(), "examples", "greeting"))
+	p := u.cur
+	waitFor(t, "the gate", func() bool { return int(p.checked.Load()) == len(p.ws.Changes) })
+	frame := func() time.Duration {
+		var ops op.Ops
+		gtx := layout.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 2, PxPerSp: 2},
+			Constraints: layout.Exact(image.Pt(2880, 1800)), Now: time.Now()}
+		began := time.Now()
+		u.frame(gtx)
+		return time.Since(began)
+	}
+	c := p.order[0]
+	views := []struct {
+		name string
+		set  func()
+	}{
+		{"overview", func() { p.selected = "" }},
+		{"task", func() { p.show(c.Change.Dir, c) }},
+		{"plan", func() { p.area = 2 }},
+		{"execution", func() { p.area = 4 }},
+		{"assurance", func() { p.area = 5 }},
+		{"settings", func() { u.preferring = true }},
+	}
+	for _, v := range views {
+		v.set()
+		frame() // the first frame of a view reads and shapes what it shows
+		best := time.Hour
+		for range 5 {
+			best = min(best, frame())
+		}
+		if best > 8*time.Millisecond {
+			t.Errorf("%s: a frame takes %v", v.name, best)
+		}
 	}
 }

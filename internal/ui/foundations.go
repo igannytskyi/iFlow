@@ -74,7 +74,7 @@ func foundationsOf(p *project, e *estateFacts) []foundation {
 				passing++
 			}
 		}
-		files, _ := filepath.Glob(filepath.Join(c.Change.Dir, "reviews", "*.md"))
+		files, _ := filepath.Glob(filepath.Join(c.Change.Dir, "reviews", "*.md")) // read once, under memo
 		reviewFiles += len(files)
 		for _, k := range c.Costs {
 			handed += k.Handed

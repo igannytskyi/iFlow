@@ -71,7 +71,8 @@ func (u *UI) projectView(gtx C, p *project) D {
 	}
 	body = append(body, u.hairline, u.text(sizeSmall, u.p.Faint, "FOUNDATIONS — what holds for every task, not for one"))
 	var cards []func(int) W
-	for _, f := range foundationsOf(p, p.estate.Load()) {
+	e := p.estate.Load()
+	for _, f := range memo(u.docs, "foundations|"+p.path, func() []foundation { return foundationsOf(p, e) }) {
 		cards = append(cards, u.foundationCard(f))
 	}
 	body = append(body, u.grid(280, 10, cards))
@@ -84,7 +85,7 @@ func (u *UI) projectView(gtx C, p *project) D {
 func (u *UI) taskLine(p *project, c *workspace.Change) W {
 	return func(gtx C) D {
 		btn := u.clicks.of("project/task/" + c.Change.Dir)
-		if btn.Clicked(gtx) {
+		if u.clicked(gtx, btn) {
 			p.show(c.Change.Dir, c)
 		}
 		s := shown{c: c}
@@ -185,7 +186,7 @@ func (u *UI) newIntentView(p *project) W {
 func (u *UI) laterRow(p *project, c *workspace.Change, i int, text string) W {
 	return func(gtx C) D {
 		btn := u.clicks.of(fmt.Sprintf("later/%s/%d", c.Change.Dir, i))
-		if btn.Clicked(gtx) {
+		if u.clicked(gtx, btn) {
 			p.task.SetText(text)
 			p.selected, p.item = newKey, nil
 			gtx.Execute(key.FocusCmd{Tag: &p.task})

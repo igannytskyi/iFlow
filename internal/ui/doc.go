@@ -5,36 +5,88 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
+	"sync/atomic"
 
 	"gioui.org/layout"
 	"gioui.org/unit"
 )
 
-// docs keeps the prose of documents read from a change, read again only
-// when the file changes.
-type docs map[string]docEntry
-
-type docEntry struct {
-	at    time.Time
-	lines []string
+// docs is everything the window shows from disk, read once and kept until
+// something changes it. A frame does no input or output and no heavy work:
+// it lays out what is in memory, so that a click is answered in the time it
+// takes to draw. The generation moves when anything may have changed — a
+// project read again, a run's step, a check's answer — and only then is
+// what the next frame asks for read again.
+type docs struct {
+	gen   atomic.Uint64
+	files map[string]docEntry
+	globs map[string]globEntry
+	memo  map[string]memoEntry
 }
 
-func (d docs) read(path string) []string {
-	st, err := os.Stat(path)
-	if err != nil {
-		return nil
-	}
-	if e, ok := d[path]; ok && e.at.Equal(st.ModTime()) {
+type docEntry struct {
+	gen   uint64
+	lines []string // nil where the file is not there
+}
+
+type globEntry struct {
+	gen     uint64
+	matches []string
+}
+
+type memoEntry struct {
+	gen   uint64
+	value any
+}
+
+func newDocs() *docs {
+	return &docs{files: map[string]docEntry{}, globs: map[string]globEntry{}, memo: map[string]memoEntry{}}
+}
+
+// bump says something on disk may have changed; safe from any goroutine.
+func (d *docs) bump() { d.gen.Add(1) }
+
+// read is a file's lines, nil where it is not there.
+func (d *docs) read(path string) []string {
+	g := d.gen.Load()
+	if e, ok := d.files[path]; ok && e.gen == g {
 		return e.lines
 	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil
+	var lines []string
+	if b, err := os.ReadFile(path); err == nil {
+		lines = strings.Split(string(b), "\n")
+		if lines == nil {
+			lines = []string{}
+		}
 	}
-	lines := strings.Split(string(b), "\n")
-	d[path] = docEntry{st.ModTime(), lines}
+	d.files[path] = docEntry{g, lines}
 	return lines
+}
+
+// exists reports whether a file is there.
+func (d *docs) exists(path string) bool { return d.read(path) != nil }
+
+// glob is the paths matching a pattern, sorted.
+func (d *docs) glob(pattern string) []string {
+	g := d.gen.Load()
+	if e, ok := d.globs[pattern]; ok && e.gen == g {
+		return e.matches
+	}
+	m, _ := filepath.Glob(pattern)
+	slices.Sort(m)
+	d.globs[pattern] = globEntry{g, m}
+	return m
+}
+
+// memo is what f computes, kept under key until the generation moves.
+func memo[T any](d *docs, key string, f func() T) T {
+	g := d.gen.Load()
+	if e, ok := d.memo[key]; ok && e.gen == g {
+		return e.value.(T)
+	}
+	v := f()
+	d.memo[key] = memoEntry{g, v}
+	return v
 }
 
 // prose is a document's words for a reader: its headings, paragraphs and
@@ -115,8 +167,7 @@ func (u *UI) point(mark, text string) W {
 // reviews is what the reviewing agents said about one kind of document,
 // the latest round last.
 func (u *UI) reviews(dir, kind string) []W {
-	matches, _ := filepath.Glob(filepath.Join(dir, "reviews", kind+"-*.md"))
-	slices.Sort(matches)
+	matches := u.docs.glob(filepath.Join(dir, "reviews", kind+"-*.md"))
 	var out []W
 	for _, m := range matches {
 		lines := u.docs.read(m)

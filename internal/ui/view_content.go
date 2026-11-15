@@ -46,8 +46,7 @@ func (u *UI) planContent(p *project, dir string) []W {
 	if len(doc) > 0 {
 		out = append(out, box(u.p.Surface, u.p.Line, 8, 14, column(8, doc...)))
 	}
-	tickets, _ := filepath.Glob(filepath.Join(dir, artifact.UnitsDir, "*.md"))
-	slices.Sort(tickets)
+	tickets := u.docs.glob(filepath.Join(dir, artifact.UnitsDir, "*.md"))
 	for _, t := range tickets {
 		lines := u.docs.read(t)
 		out = append(out, u.fold(p, "ticket/"+t, strings.TrimPrefix(firstLine(lines), "# "), "the ticket, word for word",
@@ -58,8 +57,7 @@ func (u *UI) planContent(p *project, dir string) []W {
 
 func (u *UI) admissionContent(p *project, dir string) []W {
 	out := []W{u.text(sizeSmall, u.p.Faint, "PRIOR STATE — every file the change may touch, as it stood before, to compare against")}
-	files, _ := filepath.Glob(filepath.Join(dir, "baseline", "*"))
-	slices.Sort(files)
+	files := u.docs.glob(filepath.Join(dir, "baseline", "*"))
 	if len(files) == 0 {
 		out = append(out, u.text(sizeSmall, u.p.Faint, "nothing captured"))
 	}
@@ -76,33 +74,34 @@ func (u *UI) admissionContent(p *project, dir string) []W {
 
 func (u *UI) executionContent(p *project, dir string) []W {
 	out := []W{u.text(sizeSmall, u.p.Faint, "WHAT EACH UNIT CHANGED — against the prior state, line by line")}
-	cands, _ := filepath.Glob(filepath.Join(dir, "candidates", "CA-*"))
-	slices.Sort(cands)
+	cands := u.docs.glob(filepath.Join(dir, "candidates", "CA-*"))
 	for _, ca := range cands {
 		id := filepath.Base(ca)
 		summary := strings.TrimSpace(strings.Join(u.docs.read(filepath.Join(ca, "summary.txt")), " "))
 		head := []W{row(10, u.mono(sizeSmall, u.p.Accent, id), u.text(sizeSmall, u.p.Text, summary))}
-		if _, err := os.Stat(filepath.Join(ca, "pack.md")); err == nil {
+		if u.docs.exists(filepath.Join(ca, "pack.md")) {
 			rel := "candidates/" + id + "/pack.md"
 			btn := u.clicks.of("pack/" + ca)
 			head = append(head, func(gtx C) D {
-				if btn.Clicked(gtx) {
+				if u.clicked(gtx, btn) {
 					p.handedView, p.item = rel, nil
 				}
 				return u.pressable(gtx, btn, p.handedView == rel, 4, inset(2, 6, u.text(sizeSmall, u.p.Accent, "what its agent was handed ›")))
 			})
 		}
 		out = append(out, column(4, head...))
-		_ = filepath.WalkDir(filepath.Join(ca, "files"), func(f string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() || d.Name() == "CHANGES" {
-				return err
+		for _, f := range u.candidateFiles(ca) {
+			rel, err := filepath.Rel(filepath.Join(ca, "files"), f)
+			if err != nil || strings.HasPrefix(rel, "..") {
+				rel = filepath.Base(f)
 			}
-			rel, _ := filepath.Rel(filepath.Join(ca, "files"), f)
 			before := filepath.Join(dir, "baseline", path.Base(filepath.ToSlash(rel))+".before")
-			added, removed, lines := diff(readLines(before), readLines(f))
-			out = append(out, u.fold(p, "diff/"+f, filepath.ToSlash(rel), fmt.Sprintf("+%d −%d", added, removed), func() []W { return u.diffLines(lines) }))
-			return nil
-		})
+			d := memo(u.docs, "diff|"+before+"|"+f, func() diffResult {
+				a, r, l := diff(u.lines(before), u.lines(f))
+				return diffResult{a, r, l}
+			})
+			out = append(out, u.fold(p, "diff/"+f, filepath.ToSlash(rel), fmt.Sprintf("+%d −%d", d.added, d.removed), func() []W { return u.diffLines(d.lines) }))
+		}
 	}
 	if len(cands) == 0 {
 		out = append(out, u.text(sizeSmall, u.p.Faint, "no candidate yet"))
@@ -112,14 +111,14 @@ func (u *UI) executionContent(p *project, dir string) []W {
 
 func (u *UI) assuranceContent(p *project, dir string) []W {
 	out := []W{u.text(sizeSmall, u.p.Faint, "WHAT THE VERDICTS REST ON — the output of every run, as it was")}
-	runs, _ := filepath.Glob(filepath.Join(dir, "evidence", "*.txt"))
-	before, _ := filepath.Glob(filepath.Join(dir, "candidates", "*", "failing-before.txt"))
+	runs := u.docs.glob(filepath.Join(dir, "evidence", "*.txt"))
+	before := u.docs.glob(filepath.Join(dir, "candidates", "*", "failing-before.txt"))
 	for _, f := range append(before, runs...) {
 		title := strings.TrimSuffix(filepath.Base(f), ".txt")
 		if filepath.Base(f) == "failing-before.txt" {
 			title = filepath.Base(filepath.Dir(f)) + " — its tests before the change existed"
 		}
-		lines := readLines(f)
+		lines := u.lines(f)
 		verdict := "passed"
 		for _, l := range lines {
 			if strings.HasPrefix(l, "FAIL") || strings.HasPrefix(l, "--- FAIL") {
@@ -137,17 +136,16 @@ func (u *UI) assuranceContent(p *project, dir string) []W {
 func (u *UI) landingContent(p *project, dir string) []W {
 	out := []W{u.text(sizeSmall, u.p.Faint, "WHAT ENTERED THE PROJECT")}
 	var files []string
-	cands, _ := filepath.Glob(filepath.Join(dir, "candidates", "CA-*", "files"))
-	for _, c := range cands {
-		_ = filepath.WalkDir(c, func(f string, d os.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && d.Name() != "CHANGES" {
-				rel, _ := filepath.Rel(c, f)
-				files = append(files, filepath.ToSlash(rel))
+	for _, ca := range u.docs.glob(filepath.Join(dir, "candidates", "CA-*")) {
+		for _, f := range u.candidateFiles(ca) {
+			rel, err := filepath.Rel(filepath.Join(ca, "files"), f)
+			if err != nil || strings.HasPrefix(rel, "..") {
+				rel = filepath.Base(f)
 			}
-			return err
-		})
+			files = append(files, filepath.ToSlash(rel))
+		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, "06-landing.md")); err != nil {
+	if !u.docs.exists(filepath.Join(dir, "06-landing.md")) {
 		return append(out, u.text(sizeSmall, u.p.Faint, "nothing yet: the change has not landed"))
 	}
 	slices.Sort(files)
@@ -161,7 +159,7 @@ func (u *UI) landingContent(p *project, dir string) []W {
 func (u *UI) fold(p *project, key, title, note string, body func() []W) W {
 	return func(gtx C) D {
 		btn := u.clicks.of("fold/" + key)
-		if btn.Clicked(gtx) {
+		if u.clicked(gtx, btn) {
 			p.open[key] = !p.open[key]
 		}
 		mark := "▸"
@@ -185,7 +183,7 @@ func (u *UI) fold(p *project, key, title, note string, body func() []W) W {
 
 // code is a file's lines as they are, at most limit of them.
 func (u *UI) code(file string, limit int) []W {
-	lines := readLines(file)
+	lines := u.lines(file)
 	var out []W
 	for i, l := range lines {
 		if i == limit {
@@ -197,12 +195,44 @@ func (u *UI) code(file string, limit int) []W {
 	return out
 }
 
-func readLines(file string) []string {
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return nil
+// lines is a file's lines without the newline that ends the last.
+func (u *UI) lines(file string) []string {
+	l := u.docs.read(file)
+	for len(l) > 0 && l[len(l)-1] == "" {
+		l = l[:len(l)-1]
 	}
-	return strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	return l
+}
+
+// candidateFiles is every file a candidate holds, kept until something
+// changes.
+func (u *UI) candidateFiles(ca string) []string {
+	return memo(u.docs, "files|"+ca, func() []string {
+		var out []string
+		_ = filepath.WalkDir(filepath.Join(ca, "files"), func(f string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && d.Name() != "CHANGES" {
+				out = append(out, f)
+			}
+			return err
+		})
+		if len(out) == 0 {
+			// Candidates kept before files/ held them lie beside what was
+			// said about them.
+			meta := map[string]bool{"summary.txt": true, "failing-before.txt": true, "passing-after.txt": true, "pack.md": true, "trace.jsonl": true, "trace.tsv": true}
+			entries, _ := os.ReadDir(ca)
+			for _, e := range entries {
+				if !e.IsDir() && !meta[e.Name()] && !strings.HasSuffix(e.Name(), ".patch") {
+					out = append(out, filepath.Join(ca, e.Name()))
+				}
+			}
+		}
+		return out
+	})
+}
+
+type diffResult struct {
+	added, removed int
+	lines          []diffLine
 }
 
 // diffLine is one line of a difference: kept, added or removed.

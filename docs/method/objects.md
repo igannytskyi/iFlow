@@ -21,24 +21,33 @@ Mixing them made both worse: a description squeezed into a table cell, a table n
 
 ## The specification — `change.md`
 
-Written by the author, read by a reviewer, accepted — or changed by hand, or sent back with notes — by the person. A product requirements document and a design document together. A section with nothing to say is left out.
+Written by the author, read by a reviewer, accepted — or changed by hand, or sent back with notes — by the person. It is the whole specification of the change, as the best engineering organisations write one: a product requirements document, a design document and a request for comments together. It begins with the intent and holds everything about what is wanted and how; the record beside it holds how it is judged. A section with nothing to say is left out.
 
-1. **The statement** — the intent in one sentence, and a sentence summing the change up.
-2. **Context** — the problem, why the change is wanted, what exists now.
-3. **Goals** and **Non-goals**.
-4. **How a person uses it** — every path, step by step, the ordinary one and each alternative.
-5. **Requirements** — functional, numbered `FR-1…`, one testable statement each.
-6. **Quality** — security, error handling, data integrity, limits, performance, as far as they matter.
-7. **Technology** — languages, libraries, protocols, services, and why, as far as the estate does not already decide them.
-8. **Design** — data kept and where; interfaces with their methods and signatures; routes or commands with inputs and outputs; which file holds what; what tests stand in for.
-9. **Edge cases** — each with what happens.
-10. **Dependencies**, **Risks**.
-11. **Open questions** — only what the person must decide.
-12. **How it is tested** — which tests judge which criteria, at which entry point, with which fakes.
-13. **Acceptance criteria** — each `CR-…` in words: when, then.
-14. **What comes after** — the rest of a task too large for one change, each part a task of its own.
+1. **Intent** — the task in one sentence, as accepted.
+2. **Summary** — what changes, for whom and why, readable alone.
+3. **Context and problem** — the motivation, and what exists now.
+4. **Goals** and **Non-goals** — a non-goal is what could reasonably have been a goal and deliberately is not.
+5. **Users** and **User stories** — "As a …, I want …, so that …".
+6. **How a person uses it** — every path, step by step.
+7. **Functional requirements** — numbered `FR-1…`, one testable statement each.
+8. **Non-functional requirements** — security, privacy, errors, data integrity, limits, performance, accessibility.
+9. **Design** — **Architecture** (the parts and how they talk), **Data model** (what is kept, its fields, where, how long), **Interfaces** (every route, command or function another part calls: inputs, outputs, errors, signatures), **Components and files** (which file holds what), **Technology** (and why).
+10. **Edge cases and errors** — each with what happens.
+11. **Alternatives considered** — and why not.
+12. **Dependencies** and **Assumptions**.
+13. **Risks** — and how each is contained.
+14. **Observability** — what is logged or measured to see it work in use.
+15. **Rollout and rollback** — how it ships, migrates, and is undone.
+16. **Test strategy** — which tests judge which criteria, at which entry point, with which fakes.
+17. **Success metrics** — how, in use, it is known to have achieved its goals.
+18. **Open questions** — only what the person must decide.
+19. **Acceptance criteria** — each `CR-…`: when, then.
+20. **Termination** — when work stops without acceptance, and what then.
+21. **What comes after** — the rest of a task too large for one change.
 
-Accepted, it is fixed (R1): a changed intent is a new one. The criteria it lists are the record's; editing the description by hand does not change them.
+Accepted, it is fixed (R1): a changed intent is a new one. Editing the description by hand does not change the criteria, which are the record's. A task carried before specifications were written whole can have one written after the fact, from what was asked, its record and the code; it says so.
+
+Sources for the structure: [Design docs at Google](https://www.industrialempathy.com/posts/design-docs-at-google/), [Companies using RFCs or design docs](https://blog.pragmaticengineer.com/rfcs-and-design-docs/), common product requirements templates.
 
 ## The plan — `plan.md` and `units/`
 

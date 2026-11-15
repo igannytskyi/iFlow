@@ -89,7 +89,7 @@ func (s stubExecutor) Run(_ context.Context, t harness.Task, emit func(harness.E
 }
 
 const spec = `{"slug":"shout","name":"shout","statement":"The greeting can be shouted.","class":"C3","prose":"A shouted greeting is in capitals.",
-"document":{"context":"Greetings are only spoken.","goals":["shout"],"non_goals":["whisper"],"flows":["Shouting a name greets it in capitals."],"requirements":["A shouted greeting is the greeting in capitals."],"design":["Shout in greet.go calls Greet."],"edge_cases":["an empty name shouts HELLO, "],"risks":["none"],"open_questions":[],"test_strategy":["shout_test.go calls Shout"]},
+"document":{"summary":"A greeting can be shouted.","context":"Greetings are only spoken.","goals":["shout"],"non_goals":["whisper"],"users":["a caller"],"user_stories":["As a caller, I want to shout a greeting, so that it is heard."],"flows":["Shouting a name greets it in capitals."],"requirements":["A shouted greeting is the greeting in capitals."],"interfaces":["func Shout(n string) string"],"components":["greet.go holds Shout beside Greet."],"edge_cases":["an empty name shouts HELLO, "],"risks":["none"],"open_questions":[],"test_strategy":["shout_test.go calls Shout"]},
 "criteria":[
  {"criterion":"A shouted greeting is in capitals","when":"a greeting is shouted","then":"every letter is a capital","plan":"required","threshold":"exact text","judged_by_new_tests":true},
  {"criterion":"Nothing else moves","when":"the whole suite is run","then":"it stands as before","plan":"not-required","threshold":"identical","judged_by_new_tests":false}],
