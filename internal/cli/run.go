@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/models"
@@ -47,19 +50,26 @@ func person() string {
 // Run carries a task through the path without a window, printing each step.
 // With --accept the criteria are accepted as written, which the record says.
 func (app *App) RunTask(ctx context.Context, args []string) int {
-	accept := false
+	accept, ask := false, false
 	var rest []string
 	for _, a := range args {
-		if a == "--accept" {
+		switch a {
+		case "--accept":
 			accept = true
-		} else {
+		case "--ask":
+			ask = true
+		default:
 			rest = append(rest, a)
 		}
 	}
 	if len(rest) < 2 {
-		fmt.Fprintln(app.Out, "usage: iflow run [--accept] <estate> <task…>")
+		fmt.Fprintln(app.Out, "usage: iflow run [--accept | --ask] <estate> <task…>")
 		return Misused
 	}
+	// With --ask the person answers on standard input, one line a question:
+	// "accept", or the notes the specification is sent back with.
+	answers := bufio.NewScanner(os.Stdin)
+	asking := false
 	cfg, problems := app.FlowConfig()
 	if problems != "" {
 		fmt.Fprintln(app.Err, problems)
@@ -82,8 +92,26 @@ func (app *App) RunTask(ctx context.Context, args []string) int {
 			fmt.Fprintf(app.Out, "%s %d  %s\n", mark, s.Area, s.Text)
 		}
 		shown = len(v.Steps)
-		if v.Question != "" && accept {
+		switch {
+		case v.Question != "" && accept:
 			go run.Accept()
+		case v.Question != "" && ask && !asking:
+			asking = true
+			fmt.Fprintf(app.Out, "? %s\n? read %s and answer: accept, or the notes to send it back with\n", v.Question, filepath.Join(v.Dir, artifact.ChangeFile))
+			go func() {
+				line := "sent back: no answer was given"
+				if answers.Scan() {
+					line = strings.TrimSpace(answers.Text())
+				}
+				mu.Lock()
+				asking = false
+				mu.Unlock()
+				if line == "accept" {
+					run.Accept()
+				} else {
+					run.Refuse(line)
+				}
+			}()
 		}
 	}
 	run = flow.New(cfg, rest[0], strings.Join(rest[1:], " "), func() {

@@ -19,7 +19,8 @@ import (
 )
 
 const usage = `usage: iflow desk [project...]            the workbench: projects side by side, a task carried through each
-       iflow run [--accept] <estate> <task> carry a task along the path
+       iflow run [--accept|--ask] <estate> <task> carry a task along the path; --ask reads
+                                         each answer on stdin: accept, or notes to send it back
        iflow models [--try]              which model does each piece of work, and whether its key is found;
                                          --try asks each one a one-word question
        iflow plan <changes/slug> [--draft]  what the estate says about a specification
