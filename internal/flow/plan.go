@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
-	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
@@ -18,7 +18,8 @@ import (
 type unit struct {
 	id, class, aoe  string
 	title, brief    string
-	tests           bool // it writes the tests that judge the change
+	provides        []string // the names and signatures it gives the others
+	tests           bool     // it writes the tests that judge the change
 	scope, criteria []string
 	preparatoryFor  string
 	dependsOn       string
@@ -29,6 +30,7 @@ const plannerSystem = `You divide a specified change into units of work. Each un
 Rules you must follow:
 - Tests come first: one or more units of kind "tests", whose scope is only among the new test files you are given. They judge the change from outside, calling the code by the names the code units will give it; they never define what the change itself provides — only fakes of what it depends on.
 - Then units of kind "code", in the order they are carried out, whose scope is only among the files the change may touch. Each later unit can read what the earlier ones wrote, and nothing a later one will write — so order them by what they provide: the types and interfaces first, then what uses them, then what wires them into the entry point. A unit never defines what another unit provides. Keep a unit to one coherent piece; wiring something into what exists is a unit of its own when it touches another file.
+- "provides" of a code unit is the contract: every type, function and method it defines that another unit uses, each with its full signature in the estate's language (for Go: "func NewServer(c *Catalog, clock Clock) *Server", "type Clock interface { Now() time.Time }"). Every agent is handed every unit's provides, and the tests call exactly these.
 - Every criterion is assigned to at least one code unit; the last code unit carries the criterion that nothing else moves. A tests unit carries the criteria its tests judge.
 - Each unit is written as a ticket complete for someone who has read nothing else: its objective; the requirements (FR-n) and criteria it serves; what it relies on that exists or that earlier units provide; its tasks in order; the names and signatures it provides, exactly — the same in the tests units and the code units; its constraints (what not to touch or change); its edge cases; and when it is done.
 
@@ -114,9 +116,9 @@ func (r *Run) plan(ctx context.Context) error {
 		if units == nil || round > reviewRounds {
 			break
 		}
-		spec, _ := os.ReadFile(filepath.Join(r.dir, "01-specification.md"))
+		spec := r.specText()
 		text := planText(units, approach)
-		v, err := r.reviewed(ctx, 2, "plan", planReviewSystem, "# The specification\n\n"+string(spec)+"\n# The plan\n\n"+text, round)
+		v, err := r.reviewed(ctx, 2, "plan", planReviewSystem, "# The specification\n\n"+spec+"\n# The plan\n\n"+text, round)
 		if err != nil {
 			r.say(2, "", "the review could not be had: %v", err)
 			break
@@ -166,6 +168,13 @@ func (r *Run) plan(ctx context.Context) error {
 	if err := artifact.Write(r.dir, artifact.Plan, doc.Markdown()); err != nil {
 		return r.fail(2, "the plan could not be written: %v", err)
 	}
+	_ = os.WriteFile(filepath.Join(r.dir, artifact.PlanFile), []byte(doc.Document()), 0o644)
+	if err := os.MkdirAll(filepath.Join(r.dir, artifact.UnitsDir), 0o755); err == nil {
+		for _, u := range units {
+			ticket := "# " + u.id + " — " + u.title + "\n\nScope: " + strings.Join(u.scope, ", ") + "\n\n" + r.goal(u) + "\n"
+			_ = os.WriteFile(filepath.Join(r.dir, artifact.UnitsDir, u.id+".md"), []byte(ticket), 0o644)
+		}
+	}
 	if err := r.record("plan", r.id("SPEC"), fmt.Sprintf("%d unit(s), planned by %s", len(units), planner)); err != nil {
 		return err
 	}
@@ -179,13 +188,13 @@ func (r *Run) plan(ctx context.Context) error {
 // planned asks the planner, up to three times, for units the method can
 // accept; it returns nil units, and why, when none came.
 func (r *Run) planned(ctx context.Context, all, byTests []string, feedback string) ([]unit, []artifact.Part, string) {
-	spec, err := os.ReadFile(filepath.Join(r.dir, "01-specification.md"))
-	if err != nil {
+	spec := r.specText()
+	if spec == "" {
 		return nil, nil, "the specification could not be read"
 	}
 	repo := r.cfg.Estate.Repo(r.repo)
 	var b strings.Builder
-	b.WriteString("# The specification\n\n" + string(spec) + "\n# What the units may touch\n\n")
+	b.WriteString("# The specification\n\n" + spec + "\n# What the units may touch\n\n")
 	b.WriteString("New test files, for tests units: " + strings.Join(r.spec.NewTests, ", ") + "\n")
 	b.WriteString("Files the change may touch, for code units: " + strings.Join(r.spec.Scope, ", ") + "\n")
 	b.WriteString("Criteria judged by the new tests: " + strings.Join(byTests, ", ") + "\n")
@@ -196,17 +205,18 @@ func (r *Run) planned(ctx context.Context, all, byTests []string, feedback strin
 	for attempt := 1; attempt <= 3; attempt++ {
 		r.say(2, "", "asking %s to divide the work, attempt %d", m.Name(), attempt)
 		began := time.Now()
-		answer, u, err := m.Ask(ctx, plannerSystem, prompt+why)
+		var p planDraft
+		kept, handed := r.handed("planner", plannerSystem, prompt+why)
+		_, u, err := model.AskJSON(ctx, m, plannerSystem, prompt+why, &p)
 		r.spend(u)
 		r.cost(artifact.Cost{Area: 2, What: fmt.Sprintf("the plan, attempt %d", attempt), Actor: m.Name(), Turns: 1,
-			Handed: estate.Tokens(plannerSystem + prompt + why)}, u, time.Since(began))
-		if err != nil {
-			return nil, nil, "the planner could not be asked: " + err.Error()
-		}
-		var p planDraft
-		if err := model.JSON(answer, &p); err != nil {
+			Handed: handed, Kept: kept}, u, time.Since(began))
+		if errors.Is(err, model.ErrUnreadable) {
 			why = "\n\nYour last answer was not one JSON object: " + err.Error()
 			continue
+		}
+		if err != nil {
+			return nil, nil, "the planner could not be asked: " + err.Error()
 		}
 		units, problem := r.unitsOf(p, all, byTests)
 		if problem != "" {
@@ -227,6 +237,9 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 	var tests, code []unit
 	for _, pu := range p.Units {
 		u := unit{title: pu.Title, class: r.spec.Class, scope: pu.Scope, brief: pu.brief(), tests: pu.Kind == "tests"}
+		if !u.tests {
+			u.provides = pu.Provides
+		}
 		if len(u.scope) == 0 || strings.TrimSpace(pu.Objective) == "" || len(pu.Tasks) == 0 {
 			return nil, fmt.Sprintf("unit %q has no scope, no objective or no tasks", pu.Title)
 		}

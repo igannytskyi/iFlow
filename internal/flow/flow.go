@@ -106,6 +106,12 @@ type Run struct {
 	changed   func()
 
 	spec draft
+	// settles are escalations this task is meant to close.
+	settles []string
+	// handovers counts what agents were handed; unkeptHanded is what was
+	// handed before the change had a folder, as path and text.
+	handovers    int
+	unkeptHanded [][2]string
 	// reviewLeft is what the last review of the specification still found,
 	// which the person is shown beside it.
 	reviewLeft review
@@ -160,6 +166,11 @@ func (r *Run) View() View {
 		Steps: slices.Clone(r.steps), Agent: agent, Question: r.question, Reviewed: r.reviewLeft.forAuthor(), Spent: r.spent,
 		Costs: slices.Clone(r.costs), Finished: r.finished}
 }
+
+// Settles names escalations this task is meant to close: where every
+// criterion is met, its assurance records them closed, and the ledger counts
+// them settled. Called before Start.
+func (r *Run) Settles(refs ...string) { r.settles = append(r.settles, refs...) }
 
 // Accept answers the question the run is waiting on, yes.
 func (r *Run) Accept() { r.reply(decision{ok: true}) }
@@ -234,14 +245,48 @@ func (r *Run) cost(c artifact.Cost, u model.Usage, elapsed time.Duration) {
 	r.changed()
 }
 
-// keepCosts writes what was recorded before the change had a folder.
+// keepCosts writes what was recorded before the change had a folder, and
+// what was handed before it had one.
 func (r *Run) keepCosts() {
 	r.mu.Lock()
-	pending, dir := r.unkept, r.dir
-	r.unkept = nil
+	pending, dir, texts := r.unkept, r.dir, r.unkeptHanded
+	r.unkept, r.unkeptHanded = nil, nil
 	r.mu.Unlock()
 	for _, p := range pending {
 		_ = artifact.AppendCost(dir, p)
+	}
+	for _, t := range texts {
+		writeHanded(dir, t[0], t[1])
+	}
+}
+
+// HandedDir is where what each agent was handed is kept, one file a
+// handover, beside the change.
+const HandedDir = "handed"
+
+// handed keeps what one agent was handed — its instructions and its prompt,
+// exactly — and says where, for the cost record to cite. Before the change
+// has a folder the text waits for one.
+func (r *Run) handed(what, system, prompt string) (rel string, tokens int) {
+	text := "# Instructions\n\n" + system + "\n\n# Handed\n\n" + prompt
+	r.mu.Lock()
+	r.handovers++
+	rel = fmt.Sprintf("%s/%02d-%s.md", HandedDir, r.handovers, slugRE.ReplaceAllString(strings.ToLower(what), "-"))
+	dir := r.dir
+	if dir == "" {
+		r.unkeptHanded = append(r.unkeptHanded, [2]string{rel, text})
+	}
+	r.mu.Unlock()
+	if dir != "" {
+		writeHanded(dir, rel, text)
+	}
+	return rel, estate.Tokens(system + prompt)
+}
+
+func writeHanded(dir, rel, text string) {
+	p := filepath.Join(dir, filepath.FromSlash(rel))
+	if os.MkdirAll(filepath.Dir(p), 0o755) == nil {
+		_ = os.WriteFile(p, []byte(text), 0o644)
 	}
 }
 

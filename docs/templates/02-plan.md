@@ -7,18 +7,7 @@
 | Intermediate states valid | yes · no — every phase boundary must leave a shippable system |
 | Residue on abandonment | <rollback, or the intent that disposes of it> |
 
-Planned by <who divided the work>.
-
-## Approach
-
-### How
-<the change built as a whole, before it is divided>
-
-### In order
-- <the steps>
-
-### What could go wrong
-- <risks of the approach>
+How the change is built, and each unit as a ticket, are in `plan.md` and `units/` beside this file; this file is the record of the units.
 
 ## Work units
 
@@ -27,33 +16,6 @@ Planned by <who divided the work>.
 | WU-<nnn>-01 | 1 | C1P | | <how it was computed, and at what confidence> | CR-<nnn>-01 | | |
 
 A preparatory unit — a reproduction, a characterization of behaviour in an inadequately observed region — carries its own decidable criteria and names the unit that depends on it.
-
-## The units, described
-
-Each unit as a ticket its agent can carry out having read nothing else.
-
-### WU-<nnn>-01 — <title>
-<objective>
-
-Serves: <FR-n, CR-nnn-nn>
-
-Relies on:
-- <what exists, or what an earlier unit provides>
-
-Tasks:
-1. <in order>
-
-Provides:
-- <names and signatures, exactly>
-
-Constraints:
-- <what not to touch>
-
-Edge cases:
-- <each with what happens>
-
-Done when:
-- <the check, and what it shows>
 
 ## Coverage
 

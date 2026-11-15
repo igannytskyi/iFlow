@@ -2,11 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"image"
 
 	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/unit"
 
+	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
@@ -17,7 +19,7 @@ func (u *UI) projectView(gtx C, p *project) D {
 	t := tallyOf(p.ws)
 	active := 0
 	for _, c := range p.order {
-		if c.Reached() < 6 {
+		if closed, _ := c.Closed(); c.Reached() < 6 && !closed {
 			active++
 		}
 	}
@@ -41,12 +43,20 @@ func (u *UI) projectView(gtx C, p *project) D {
 			u.cell(fmt.Sprint(owed), "escalations open", u.p.Note),
 		}),
 		u.hairline,
-		u.text(sizeSmall, u.p.Faint, "TASKS — newest first"),
+		row(8, u.text(sizeSmall, u.p.Faint, "TASKS — newest first"),
+			u.choice("filter/all/"+p.path, "All", p.filter == "", func() { p.filter = "" }),
+			u.choice("filter/active/"+p.path, "Active", p.filter == "active", func() { p.filter = "active" }),
+			u.choice("filter/landed/"+p.path, "Done", p.filter == "landed", func() { p.filter = "landed" })),
 	}
 	if len(p.order) == 0 && p.run == nil {
 		body = append(body, u.text(sizeBody, u.p.Muted, "No task yet: start one with + New intent on the left."))
 	}
 	for _, c := range p.order {
+		closed, _ := c.Closed()
+		done := closed || (c.Reached() == 6 && statusOf(c, 6) == flow.Done)
+		if (p.filter == "active" && done) || (p.filter == "landed" && !done) {
+			continue
+		}
 		body = append(body, u.taskLine(p, c))
 	}
 	var next []W
@@ -60,11 +70,11 @@ func (u *UI) projectView(gtx C, p *project) D {
 		body = append(body, next...)
 	}
 	body = append(body, u.hairline, u.text(sizeSmall, u.p.Faint, "FOUNDATIONS — what holds for every task, not for one"))
-	var cards []W
+	var cards []func(int) W
 	for _, f := range foundationsOf(p, p.estate.Load()) {
 		cards = append(cards, u.foundationCard(f))
 	}
-	body = append(body, u.wrap(10, cards))
+	body = append(body, u.grid(280, 10, cards))
 	body = append(body, u.hairline, u.escalations(p))
 	return u.scroll(gtx, "project/"+p.path, body)
 }
@@ -98,13 +108,33 @@ func (u *UI) taskLine(p *project, c *workspace.Change) W {
 	}
 }
 
-func (u *UI) foundationCard(f foundation) W {
+func (u *UI) foundationCard(f foundation) func(minH int) W {
 	a := u.model.Area(f.n)
+	return func(minH int) W {
+		return u.card(minH, u.foundationBody(f, a.Name))
+	}
+}
+
+// card is a box at least minH tall, whatever it holds.
+func (u *UI) card(minH int, body W) W {
 	return func(gtx C) D {
-		gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(300))
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		return box(u.p.Surface, u.p.Line, 8, 12, func(gtx C) D {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			if minH > 0 {
+				gtx.Constraints.Min.Y = max(0, minH-gtx.Dp(24)-gtx.Dp(2))
+			}
+			d := body(gtx)
+			d.Size.Y = max(d.Size.Y, gtx.Constraints.Min.Y)
+			return d
+		})(gtx)
+	}
+}
+
+func (u *UI) foundationBody(f foundation, name string) W {
+	return func(gtx C) D {
 		var rows []W
-		rows = append(rows, row(8, u.mono(sizeSmall, u.p.Accent, fmt.Sprintf("%02d", f.n)), u.strong(sizeBody, u.p.Text, a.Name)))
+		rows = append(rows, row(8, u.mono(sizeSmall, u.p.Accent, fmt.Sprintf("%02d", f.n)), u.strong(sizeBody, u.p.Text, name)))
 		if len(f.facts) == 0 {
 			rows = append(rows, u.text(sizeSmall, u.p.Faint, f.empty))
 		}
@@ -119,7 +149,7 @@ func (u *UI) foundationCard(f foundation) W {
 					layout.Flexed(1, u.text(sizeSmall, u.p.Muted, fact[1])))
 			})
 		}
-		return box(u.p.Surface, u.p.Line, 8, 12, column(5, rows...))(gtx)
+		return column(5, rows...)(gtx)
 	}
 }
 
@@ -167,5 +197,35 @@ func (u *UI) laterRow(p *project, c *workspace.Change, i int, text string) W {
 				return u.pressable(gtx, btn, false, 6, box(u.p.AccentSoft, colorNRGBA{}, 6, 0, inset(5, 12, u.text(sizeSmall, u.p.Accent, "Start"))))
 			}),
 		)
+	}
+}
+
+// grid lays cards out in equal columns, as many as fit at least minW wide,
+// and every card as tall as the tallest, so that a card with less to say is
+// no smaller than its neighbours. A card is asked for at a height: 0 to
+// measure it, then the height of the tallest.
+func (u *UI) grid(minW, gap unit.Dp, cards []func(minH int) W) W {
+	return func(gtx C) D {
+		g := gtx.Dp(gap)
+		total := gtx.Constraints.Max.X
+		cols := max(1, (total+g)/(gtx.Dp(minW)+g))
+		w := (total - g*(cols-1)) / cols
+		at := func(h int) C {
+			cg := gtx
+			cg.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, gtx.Constraints.Max.Y)}
+			return cg
+		}
+		tallest := 0
+		for _, c := range cards {
+			tallest = max(tallest, recordOp(at(0), c(0)).dims.Size.Y) // measured, never drawn
+		}
+		y := 0
+		for i := 0; i < len(cards); i += cols {
+			for j := i; j < min(i+cols, len(cards)); j++ {
+				recordOp(at(tallest), cards[j](tallest)).at(gtx, (j-i)*(w+g), y)
+			}
+			y += tallest + g
+		}
+		return D{Size: image.Pt(total, max(0, y-g))}
 	}
 }

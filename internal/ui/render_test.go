@@ -226,6 +226,9 @@ func TestRunRenders(t *testing.T) {
 	paint.paint(u, "run-spec")
 	p.area = 2
 	paint.paint(u, "run-plan")
+	p.area = 4
+	p.open["diff/"+filepath.Join(p.live.Change.Dir, "candidates", "CA-001-02", "files", "greet.go")] = true
+	paint.paint(u, "run-diff")
 	p.area, p.item = 4, p.live.Item("EV-001-01-01")
 	paint.paint(u, "run-execution")
 	waitFor(t, "the gate on the landed change", func() bool { return int(p.checked.Load()) == len(p.ws.Changes) })
@@ -239,4 +242,37 @@ func TestRunRenders(t *testing.T) {
 	}
 	u.select_(u.projects[1])
 	paint.paint(u, "other-project")
+}
+
+// Closing a task that will not be finished records it, keeps everything it
+// wrote, and moves it out of the active ones.
+func TestClosingATask(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "greeting")
+	if err := exec.Command("cp", "-R", filepath.Join(gate.Home(), "examples", "greeting"), dir).Run(); err != nil {
+		t.Fatal(err)
+	}
+	u := testUI(t, nil, dir)
+	p := u.cur
+	c := p.order[len(p.order)-1]
+	before, _ := os.ReadDir(c.Change.Dir)
+	if err := u.close(p, c, "a later task does it"); err != nil {
+		t.Fatal(err)
+	}
+	u.load(p)
+	for _, again := range p.order {
+		if again.Change.Dir != c.Change.Dir {
+			continue
+		}
+		closed, note := again.Closed()
+		if !closed || !strings.Contains(note, "a later task does it") {
+			t.Errorf("closed %v, %q", closed, note)
+		}
+		if s := (shown{c: again}); s.state(p) != "closed" {
+			t.Errorf("the task stands %q", s.state(p))
+		}
+	}
+	after, _ := os.ReadDir(c.Change.Dir)
+	if len(after) != len(before) {
+		t.Errorf("closing changed what the task kept: %d files, then %d", len(before), len(after))
+	}
 }

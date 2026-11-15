@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/igannytskyi/iflow/internal/estate"
+	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
@@ -143,8 +144,7 @@ func foundationsOf(p *project, e *estateFacts) []foundation {
 			empty: "nothing recorded yet"},
 		{n: 9, facts: [][2]string{{money(spent), "spent"}, {tokens(handed), "tokens handed by the framework"},
 			{tokens(fresh), "tokens read fresh"}, {tokens(cached), "read from cache"}, {tokens(out), "tokens written"}}, empty: "nothing spent yet"},
-		{n: 10, facts: [][2]string{{itoa(e.correctionsOr()), "edges learned from landings"}},
-			empty: "nothing learned yet: a landing that touches ground the estate did not see teaches it here"},
+		{n: 10, facts: [][2]string{{itoa(e.correctionsOr()), "edges learned from landings"}, {itoa(decisionsKept(p.path)), "decisions of yours every author is handed"}}},
 		{n: 11, facts: [][2]string{{itoa(owed), "escalations open"}, {itoa(settled), "settled"}, {itoa(reviewed), "specifications read before admission"},
 			{itoa(unreviewed), "admitted unread"}, {itoa(refusals), "refusals"}, {itoa(reviewFiles), "agent reviews kept"}}},
 		{n: 12, facts: [][2]string{{strings.Join(keys(people), ", "), "who accepted criteria"}, {itoa(reviewsDone), "reviews recorded"}}},
@@ -163,3 +163,19 @@ func (e *estateFacts) correctionsOr() int {
 func itoa(v int) string { return strconv.Itoa(v) }
 
 func keys(m map[string]bool) []string { return sortedStrings(m) }
+
+// decisionsKept is how many of the person's decisions the project keeps for
+// every later author.
+func decisionsKept(root string) int {
+	b, err := os.ReadFile(filepath.Join(root, "changes", flow.DecisionsFile))
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, l := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(l, "- ") {
+			n++
+		}
+	}
+	return n
+}

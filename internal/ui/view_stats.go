@@ -3,10 +3,12 @@ package ui
 import (
 	"fmt"
 	"image"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/unit"
 	"gioui.org/widget/material"
@@ -24,10 +26,14 @@ func (u *UI) statsPanel(p *project, s shown, ok bool) W {
 		if ok {
 			body = append(body, u.taskStats(p, s)...)
 		}
-		if p.item != nil && s.c != nil {
+		switch {
+		case p.handedView != "" && s.c != nil:
+			body = append(body, u.hairline)
+			body = append(body, u.handedPanel(p, s)...)
+		case p.item != nil && s.c != nil:
 			body = append(body, u.hairline)
 			body = append(body, u.objectPanel(p, s)...)
-		} else {
+		default:
 			if ok {
 				body = append(body, u.hairline)
 			}
@@ -137,7 +143,121 @@ func (u *UI) taskStats(p *project, s shown) []W {
 			)))
 		})
 	}
-	return append(out1, column(2, append([]W{u.text(sizeSmall, u.p.Faint, "BY AREA")}, rows...)...))
+	return append(out1, column(2, append([]W{u.text(sizeSmall, u.p.Faint, "BY AREA")}, rows...)...), u.byAgent(p, s))
+}
+
+// roleOf is which agent a cost record was spent by, or "" for work no
+// model did — tests run, the gate asked.
+func roleOf(c artifact.Cost) string {
+	switch {
+	case c.Turns == 0 && c.Handed == 0:
+		return ""
+	case strings.HasPrefix(c.What, "review"):
+		return "reviewer"
+	case c.Area == 1:
+		return "author"
+	case c.Area == 2:
+		return "planner"
+	case c.Area == 4:
+		return "executor"
+	}
+	return "other"
+}
+
+// byAgent is what each kind of agent cost, and every handover, each
+// opening what that agent was handed.
+func (u *UI) byAgent(p *project, s shown) W {
+	type sum struct {
+		calls, handed, in, out int
+		usd                    float64
+	}
+	order := []string{"author", "reviewer", "planner", "executor"}
+	sums := map[string]*sum{}
+	var handovers []W
+	for i, c := range s.costs {
+		role := roleOf(c)
+		if role == "" {
+			continue
+		}
+		if sums[role] == nil {
+			sums[role] = &sum{}
+		}
+		t := sums[role]
+		t.calls++
+		t.handed += c.Handed
+		t.in += c.In()
+		t.out += c.Output
+		t.usd += c.CostUSD
+		if c.Kept == "" {
+			continue
+		}
+		c, key := c, fmt.Sprintf("handed/%s/%d", p.path, i)
+		handovers = append(handovers, func(gtx C) D {
+			btn := u.clicks.of(key)
+			if btn.Clicked(gtx) {
+				p.handedView, p.item = c.Kept, nil
+			}
+			label := c.What
+			if c.Unit != "" && !strings.Contains(label, c.Unit) {
+				label = c.Unit + " " + label
+			}
+			return u.pressable(gtx, btn, p.handedView == c.Kept, 4, stretch(inset(3, 6, func(gtx C) D {
+				return layout.Flex{Alignment: layout.Middle, Gap: gtx.Dp(8)}.Layout(gtx,
+					layout.Flexed(1, u.oneLine(sizeSmall, u.p.Text, label)),
+					layout.Rigid(u.oneLine(sizeSmall, u.p.Accent, tokens(c.Handed))),
+					layout.Rigid(u.oneLine(sizeSmall, u.p.Muted, money(c.CostUSD))))
+			})))
+		})
+	}
+	var rows []W
+	for _, role := range order {
+		t := sums[role]
+		if t == nil {
+			continue
+		}
+		rows = append(rows, func(gtx C) D {
+			return layout.Flex{Alignment: layout.Middle, Gap: gtx.Dp(8)}.Layout(gtx,
+				layout.Rigid(width(70, u.strong(sizeSmall, u.p.Text, role))),
+				layout.Flexed(1, u.oneLine(sizeSmall, u.p.Muted, fmt.Sprintf("%s · handed %s · in %s · out %s", plural(t.calls, "call"), tokens(t.handed), tokens(t.in), tokens(t.out)))),
+				layout.Rigid(u.oneLine(sizeSmall, u.p.Text, money(t.usd))))
+		})
+	}
+	if len(rows) == 0 {
+		return nothing
+	}
+	out := append([]W{u.text(sizeSmall, u.p.Faint, "BY AGENT")}, rows...)
+	if len(handovers) > 0 {
+		out = append(out, u.text(sizeSmall, u.p.Faint, "WHAT EACH WAS HANDED — open one to read it, word for word"))
+		out = append(out, handovers...)
+	}
+	return column(4, out...)
+}
+
+// handedPanel is one handover read whole: what the framework gave an agent,
+// and nothing it did not.
+func (u *UI) handedPanel(p *project, s shown) []W {
+	closer := u.clicks.of("handed/close/" + p.path)
+	path := filepath.Join(s.c.Change.Dir, filepath.FromSlash(p.handedView))
+	lines := u.docs.read(path)
+	text := strings.Join(lines, "\n")
+	head := func(gtx C) D {
+		if closer.Clicked(gtx) {
+			p.handedView = ""
+		}
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Flexed(1, u.text(sizeSmall, u.p.Faint, "HANDED — "+p.handedView+" · "+tokens((len(text)+3)/4)+" tokens")),
+			layout.Rigid(func(gtx C) D {
+				return u.pressable(gtx, closer, false, 4, inset(3, 8, u.text(sizeSmall, u.p.Muted, "close ×")))
+			}))
+	}
+	if len(lines) == 0 {
+		return []W{head, u.text(sizeSmall, u.p.Faint, "not kept: work carried before handovers were kept")}
+	}
+	out := []W{head}
+	for _, l := range lines {
+		out = append(out, u.mono(sizeSmall, u.p.Text, l))
+	}
+	return out
 }
 
 // meter is a thin bar filled to a share of its width.
@@ -191,8 +311,14 @@ func (u *UI) escalations(p *project) W {
 	rows := []W{u.text(sizeSmall, u.p.Faint, "OPEN ESCALATIONS — what a task left for a person")}
 	for _, o := range p.led.Owed {
 		name, _, _ := strings.Cut(o.Ref, "#")
-		btn := u.clicks.of("owed/" + p.path + o.Ref)
+		btn, settle := u.clicks.of("owed/"+p.path+o.Ref), u.clicks.of("owed/settle/"+p.path+o.Ref)
 		rows = append(rows, func(gtx C) D {
+			if settle.Clicked(gtx) {
+				p.task.SetText("Close " + o.Ref + ": " + o.Ground)
+				p.settles = []string{o.Ref}
+				p.selected, p.item = newKey, nil
+				gtx.Execute(key.FocusCmd{Tag: &p.task})
+			}
 			if btn.Clicked(gtx) {
 				for _, c := range p.order {
 					if c.Name() == name {
@@ -201,9 +327,16 @@ func (u *UI) escalations(p *project) W {
 					}
 				}
 			}
-			return u.pressable(gtx, btn, false, 4, stretch(inset(5, 6, column(2,
-				u.mono(sizeSmall, u.p.Note, o.Ref),
-				u.text(sizeSmall, u.p.Text, o.Ground)))))
+			return column(4,
+				func(gtx C) D {
+					return u.pressable(gtx, btn, false, 4, stretch(inset(5, 6, column(2,
+						u.mono(sizeSmall, u.p.Note, o.Ref),
+						u.text(sizeSmall, u.p.Text, o.Ground)))))
+				},
+				func(gtx C) D {
+					return u.pressable(gtx, settle, false, 6, box(u.p.AccentSoft, colorNRGBA{}, 6, 0,
+						inset(4, 10, u.text(sizeSmall, u.p.Accent, "Close it with a new intent"))))
+				})(gtx)
 		})
 	}
 	return column(4, rows...)

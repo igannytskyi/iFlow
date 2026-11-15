@@ -68,11 +68,11 @@ Every piece of work is one agent, asked once and gone: it is handed the least th
 
 | Agent | Is handed | Writes |
 |---|---|---|
-| author of the specification | the task, the estate as names (no code) | the specification: the change as a product and design document — context, goals, flows, numbered requirements, quality, design, edge cases, dependencies, risks, open questions, test strategy — and its criteria |
+| author of the specification | the task, the estate as names (no code), the person's past decisions | the change described (`change.md`) — context, goals, flows, numbered requirements, quality, technology, design, edge cases, dependencies, risks, open questions, test strategy — and its record (`01-specification.md`): criteria, scope, judges, when to stop |
 | reviewer of the specification | the specification, the estate as names | findings by severity, and questions only the person can answer |
-| planner | the specification, the estate as names | the plan: the approach, and every unit as a ticket — objective, what it serves, what it relies on, tasks, what it provides, constraints, edge cases, when it is done |
+| planner | the specification, the estate as names | the plan (`plan.md`): the approach, and every unit as a ticket (`units/`) — objective, what it serves, what it relies on, tasks, what it provides, constraints, edge cases, when it is done — and its record (`02-plan.md`) |
 | reviewer of the plan | the specification and the plan | findings by severity |
-| executor, one per unit | its ticket, the files it may change, what earlier units wrote, signatures around it | the candidate |
+| executor, one per unit | its ticket, the contract between the units, the files it may change, what earlier units wrote, signatures around it | the candidate |
 
 A reviewer is a consumer refusing at a boundary before the person does (B3): what it marks blocking or major returns the document to its author, at most twice; what it still finds goes to the person beside the document. It decides nothing about acceptance — the criteria and the person do — and it answers no open question itself.
 

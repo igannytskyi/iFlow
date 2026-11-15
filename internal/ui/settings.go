@@ -21,7 +21,9 @@ type settings struct {
 	// otherwise; HideCosts folds the panel of what tasks cost.
 	ShowLanded bool `json:"show landed"`
 	HideCosts  bool `json:"hide costs"`
-	path       string
+	// CostsLeft puts the panel of costs on the task's left, not its right.
+	CostsLeft bool `json:"costs left"`
+	path      string
 }
 
 func loadSettings() *settings {

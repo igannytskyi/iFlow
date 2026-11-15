@@ -38,20 +38,34 @@ type project struct {
 	estate  atomic.Pointer[estateFacts]
 	// showDone shows the tasks that landed, which are folded away.
 	showDone bool
-	stale    atomic.Bool // the workspace is to be read again
+	// filter is which tasks the overview lists: "", "active" or "landed".
+	filter string
+	stale  atomic.Bool // the workspace is to be read again
 
 	run    *flow.Run
 	cancel context.CancelFunc
 	live   *workspace.Change // what the run has written so far
 	seen   int               // steps seen when live was last read
 
-	area   int             // the node of the path opened under the graph
-	nodeH  int             // how tall the graph's nodes are drawn
-	nextH  int             // the tallest node drawn this frame
-	item   *workspace.Item // the object open in the inspector
-	open   map[string]bool // units whose every step is shown
-	task   widget.Editor
-	ground widget.Editor
+	area  int             // the node of the path opened under the graph
+	nodeH int             // how tall the graph's nodes are drawn
+	nextH int             // the tallest node drawn this frame
+	item  *workspace.Item // the object open in the inspector
+	// handedView is what one agent was handed, open in the panel beside the
+	// task: a path inside the change's folder.
+	handedView string
+	open       map[string]bool // units whose every step is shown
+	task       widget.Editor
+	// editing is the change whose description is open for its person to
+	// change, docEdit the text, editLoaded the file it was read from.
+	editing, editLoaded string
+	docEdit             widget.Editor
+	// closing is the change whose closing is being written, and why.
+	closing  string
+	closeWhy widget.Editor
+	// settles are escalations the next task typed is meant to close.
+	settles []string
+	ground  widget.Editor
 
 	selected string // the task on view: a change's folder, or runKey; "" is the newest
 }
@@ -127,6 +141,8 @@ func (u *UI) start(p *project, statement string) {
 	ctx, cancel := context.WithCancel(u.ctx)
 	p.cancel = cancel
 	run := flow.New(*u.flowConfig, p.path, statement, u.invalidate)
+	run.Settles(p.settles...)
+	p.settles = nil
 	p.run, p.live, p.seen, p.item, p.area, p.selected = run, nil, 0, nil, 1, runKey
 	go func() {
 		_ = run.Start(ctx)
@@ -250,6 +266,11 @@ func (s shown) title() string {
 
 // state is how the task stands, in a word or two.
 func (s shown) state(p *project) string {
+	if s.c != nil && !(s.live && !s.v.Finished) {
+		if closed, _ := s.c.Closed(); closed {
+			return "closed"
+		}
+	}
 	if s.live {
 		return p.state()
 	}
@@ -277,4 +298,39 @@ func (p *project) show(sel string, c *workspace.Change) {
 			}
 		}
 	}
+}
+
+// close records that a person closed a change that will not be finished,
+// and why — appended to its record, never deleting anything — and reads
+// the project again.
+func (u *UI) close(p *project, c *workspace.Change, why string) error {
+	why = strings.TrimSpace(why)
+	if why == "" {
+		why = "no longer needed"
+	}
+	intent := c.Name()
+	for _, it := range c.Items {
+		if it.Kind == "Intent" {
+			intent = it.ID
+		}
+	}
+	by := "a person"
+	if u.flowConfig != nil {
+		by = u.flowConfig.Person
+	}
+	err := artifact.Record{Name: c.Name(), Dir: c.Change.Dir}.Append(artifact.Crossing{
+		At: time.Now().Format("2006-01-02"), Stage: workspace.ClosedStage, Object: intent, Note: "closed by " + by + ": " + why})
+	if err != nil {
+		return err
+	}
+	if p.run != nil {
+		if v := p.run.View(); v.Finished && v.Dir == c.Change.Dir {
+			p.run, p.live = nil, nil
+		}
+	}
+	p.closing, p.selected, p.item = "", "", nil
+	p.closeWhy.SetText("")
+	p.stale.Store(true)
+	u.invalidate()
+	return nil
 }

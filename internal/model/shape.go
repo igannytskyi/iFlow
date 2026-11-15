@@ -1,0 +1,97 @@
+package model
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"strings"
+)
+
+// ErrUnreadable says an answer came but could not be read as what was asked
+// for: a model's failure, worth asking again, not the server's.
+var ErrUnreadable = errors.New("the answer does not read as what was asked for")
+
+// Shaped is a model that can be held to a shape — a JSON schema the server
+// enforces — so that a list asked for never comes back as a string.
+type Shaped interface {
+	AskShaped(ctx context.Context, system, prompt, name string, schema map[string]any) (string, Usage, error)
+}
+
+// AskJSON asks a question whose answer is read into into, a pointer to a
+// struct. A model that can be held to a shape is given the struct's schema;
+// any other is asked plainly and its answer read as best it can be. An
+// answer that does not read is ErrUnreadable.
+func AskJSON(ctx context.Context, m Model, system, prompt string, into any) (string, Usage, error) {
+	var answer string
+	var u Usage
+	var err error
+	if s, ok := m.(Shaped); ok {
+		t := reflect.TypeOf(into).Elem()
+		answer, u, err = s.AskShaped(ctx, system, prompt, strings.ToLower(t.Name()), Schema(t))
+	} else {
+		answer, u, err = m.Ask(ctx, system, prompt)
+	}
+	if err != nil {
+		return answer, u, err
+	}
+	if err := JSON(answer, into); err != nil {
+		return answer, u, fmt.Errorf("%w: %v", ErrUnreadable, err)
+	}
+	return answer, u, nil
+}
+
+// Schema is the JSON schema of a Go type as encoding/json reads it, strict:
+// every field required, nothing else allowed.
+func Schema(t reflect.Type) map[string]any {
+	switch t.Kind() {
+	case reflect.Pointer:
+		return Schema(t.Elem())
+	case reflect.String:
+		return map[string]any{"type": "string"}
+	case reflect.Bool:
+		return map[string]any{"type": "boolean"}
+	case reflect.Int, reflect.Int64, reflect.Int32:
+		return map[string]any{"type": "integer"}
+	case reflect.Float64, reflect.Float32:
+		return map[string]any{"type": "number"}
+	case reflect.Slice, reflect.Array:
+		return map[string]any{"type": "array", "items": Schema(t.Elem())}
+	case reflect.Struct:
+		props := map[string]any{}
+		var required []string
+		for i := range t.NumField() {
+			f := t.Field(i)
+			if !f.IsExported() {
+				continue
+			}
+			name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+			if name == "-" {
+				continue
+			}
+			if name == "" {
+				name = f.Name
+			}
+			props[name] = Schema(f.Type)
+			required = append(required, name)
+		}
+		return map[string]any{"type": "object", "properties": props, "required": required, "additionalProperties": false}
+	}
+	return map[string]any{}
+}
+
+// AskShaped implements Shaped: the schema is sent as the server's
+// structured output, which it holds the model to.
+func (o OpenAI) AskShaped(ctx context.Context, system, prompt, name string, schema map[string]any) (string, Usage, error) {
+	if name == "" {
+		name = "answer"
+	}
+	msgs := []Message{{Role: "system", Content: system}, {Role: "user", Content: prompt}}
+	m, u, err := o.chat(ctx, msgs, nil, map[string]any{
+		"type":        "json_schema",
+		"json_schema": map[string]any{"name": name, "strict": true, "schema": schema},
+	})
+	return m.Content, u, err
+}
+
+var _ Shaped = OpenAI{}

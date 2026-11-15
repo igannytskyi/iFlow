@@ -29,7 +29,9 @@ type Cost struct {
 	// Handed is what the framework gave the model to read, in tokens, before
 	// anything the model or its provider added: the measure of how little
 	// context a piece of work was given.
-	Handed     int     `json:"handed,omitempty"`
+	Handed int `json:"handed,omitempty"`
+	// Kept is where what was handed is kept, beside the change.
+	Kept       string  `json:"kept,omitempty"`
 	Input      int     `json:"input"`
 	CacheRead  int     `json:"cache_read"`
 	CacheWrite int     `json:"cache_write"`

@@ -200,4 +200,5 @@ var registry = []check{
 	{"record complete", 8, []string{"B4"}, recordComplete},
 	{"landing taught", 7, []string{"R21"}, landingTaught},
 	{"verified before entry", 6, []string{"R22"}, verifiedBeforeEntry},
+	{"what was handed is kept", 9, []string{"R23"}, handedKept},
 }

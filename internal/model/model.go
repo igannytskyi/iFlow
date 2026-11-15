@@ -5,6 +5,7 @@ package model
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -163,8 +164,12 @@ type OpenAI struct {
 	Effort string
 	// Price is what a million tokens cost, for a server that does not say
 	// what an answer cost; zero where it is free or says so itself.
-	Price  Price
-	Client *http.Client
+	Price Price
+	// MaxTokens bounds an answer, thinking included; 32000 when zero. A
+	// server's own default is often far less, and an answer cut there ends
+	// in the middle of its JSON.
+	MaxTokens int
+	Client    *http.Client
 }
 
 // Price is the cost of a million tokens: read fresh, read from cache, and
@@ -233,7 +238,7 @@ func (o OpenAI) Chat(ctx context.Context, msgs []Message, tools []Tool) (Message
 }
 
 func (o OpenAI) chat(ctx context.Context, msgs []Message, tools []Tool, format map[string]any) (Message, Usage, error) {
-	req := map[string]any{"model": o.Model, "messages": msgs}
+	req := map[string]any{"model": o.Model, "messages": msgs, "max_tokens": cmp.Or(o.MaxTokens, 32000)}
 	if format != nil {
 		req["response_format"] = format
 	}

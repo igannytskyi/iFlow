@@ -113,7 +113,7 @@ func (u *UI) itemRow(p *project, it *workspace.Item) W {
 	return func(gtx C) D {
 		btn := u.clicks.of("item/" + p.path + "/" + it.Kind + "/" + it.ID)
 		if btn.Clicked(gtx) {
-			p.item = it
+			p.item, p.handedView = it, ""
 		}
 		fails, notes := 0, 0
 		for _, f := range it.Findings {

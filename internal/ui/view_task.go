@@ -2,17 +2,16 @@ package ui
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 
 	"github.com/igannytskyi/iflow/internal/flow"
+	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
 // taskView is the task on view: what it was for, the path it took as a
@@ -21,10 +20,9 @@ func (u *UI) taskView(gtx C, p *project, s shown, ok bool) D {
 	if !ok {
 		return layout.Center.Layout(gtx, u.text(sizeBody, u.p.Muted, "Describe below what should change in "+p.name+"."))
 	}
-	head := u.intentCard(p, s)
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(inset(pad+4, gutter, head)),
-		layout.Rigid(inset(4, gutter, u.graph(p, s))),
+		layout.Rigid(inset(pad+4, gutter, u.graph(p, s))),
+		layout.Rigid(inset(8, gutter, u.taskTitle(p, s))),
 		layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
 		layout.Rigid(u.hairline),
 		layout.Flexed(1, u.areaDetail(p, s)),
@@ -37,7 +35,7 @@ func (u *UI) areaDetail(p *project, s shown) W {
 	return func(gtx C) D {
 		n := p.area
 		if s.live && s.v.Question != "" {
-			return u.review(p, s.v)(gtx)
+			n = 1
 		}
 		a := u.model.Area(n)
 		var body []W
@@ -68,21 +66,24 @@ func (u *UI) areaDetail(p *project, s shown) W {
 			dir := s.c.Change.Dir
 			switch n {
 			case 1:
-				body = append(body, u.prose(filepath.Join(dir, "01-specification.md"), "## The change")...)
+				body = append(body, u.specPanel(p, s)...)
 				body = append(body, u.reviews(dir, "specification")...)
+				body = append(body, u.metaPanel(p, s)...)
 			case 2:
-				body = append(body, u.prose(filepath.Join(dir, "02-plan.md"), "")...)
+				body = append(body, u.content(p, s, 2)...)
 				body = append(body, u.reviews(dir, "plan")...)
+			default:
+				body = append(body, u.content(p, s, n)...)
 			}
 		}
 		var items []W
-		if s.c != nil {
+		if s.c != nil && n != 1 { // area 1 draws its record in its own panel
 			for _, it := range s.c.InArea(n) {
 				items = append(items, u.itemRow(p, it))
 			}
 		}
 		if len(items) > 0 {
-			body = append(body, u.text(sizeSmall, u.p.Faint, "OBJECTS — open one to see every cell"), box(u.p.Surface, u.p.Line, 8, 4, column(0, items...)))
+			body = append(body, u.text(sizeSmall, u.p.Faint, "METADATA — the method's record of it; open an object to see every cell"), box(u.p.Surface, u.p.Line, 8, 4, column(0, items...)))
 		} else if s.status[n] == flow.Idle {
 			body = append(body, u.text(sizeSmall, u.p.Faint, "not reached"))
 		}
@@ -194,68 +195,62 @@ func (u *UI) send(p *project, text string) {
 	p.task.SetText("")
 }
 
-// intentCard is the task's intent as the method holds it — what was asked,
-// its class, what judges it — and what a person can do with it here: read
-// the specification, or, once the work is past changing it, start a new
-// intent from this one. A specification is never edited after admission; a
-// changed intent is a new one.
-func (u *UI) intentCard(p *project, s shown) W {
+// closeForm is closing a task that will not be finished: why, or which
+// later task does what it was for. Nothing is deleted; the record says it
+// was closed, and by whom.
+func (u *UI) closeForm(p *project, c *workspace.Change) W {
+	return func(gtx C) D {
+		confirm := u.clicks.of("close/confirm/" + c.Change.Dir)
+		if confirm.Clicked(gtx) {
+			_ = u.close(p, c, p.closeWhy.Text())
+		}
+		var by []W
+		for _, later := range p.order {
+			if later == c {
+				break // only tasks after it can stand in for it
+			}
+			if later.Reached() == 6 {
+				later := later
+				btn := u.clicks.of("close/by/" + c.Change.Dir + "/" + later.Change.Dir)
+				if btn.Clicked(gtx) {
+					_ = u.close(p, c, "superseded by "+later.Name()+", which landed what it was for")
+				}
+				by = append(by, func(gtx C) D {
+					return u.pressable(gtx, btn, false, 6, box(u.p.OKSoft, colorNRGBA{}, 6, 0, inset(5, 12, u.text(sizeSmall, u.p.OK, "Superseded by "+later.Name()))))
+				})
+			}
+		}
+		parts := []W{
+			u.text(sizeSmall, u.p.Muted, "Closing keeps everything it wrote and says it will not be finished; nothing it made entered the project."),
+		}
+		if len(by) > 0 {
+			parts = append(parts, u.wrap(8, by))
+		}
+		parts = append(parts, func(gtx C) D {
+			return layout.Flex{Gap: gtx.Dp(8), Alignment: layout.Middle}.Layout(gtx,
+				layout.Flexed(1, box(u.p.Bg, u.p.Line, 6, 8, func(gtx C) D {
+					gtx.Constraints.Min.X = gtx.Constraints.Max.X
+					return material.Editor(u.th, &p.closeWhy, "why it is closed").Layout(gtx)
+				})),
+				layout.Rigid(func(gtx C) D {
+					return u.pressable(gtx, confirm, false, 6, box(u.p.Sunken, colorNRGBA{}, 6, 0, inset(6, 14, u.text(sizeSmall, u.p.Text, "Close"))))
+				}))
+		})
+		return box(u.p.Bg, colorNRGBA{}, 6, 10, column(8, parts...))(gtx)
+	}
+}
+
+// taskTitle is what the task was for and how it stands, in a line or two.
+func (u *UI) taskTitle(p *project, s shown) W {
 	return func(gtx C) D {
 		state := s.state(p)
-		read, again := u.clicks.of("intent/read/"+p.path), u.clicks.of("intent/again/"+p.path)
-		if read.Clicked(gtx) {
-			p.area, p.item = 1, nil
-		}
-		if again.Clicked(gtx) {
-			p.task.SetText(s.title())
-			p.selected, p.item = newKey, nil
-			gtx.Execute(key.FocusCmd{Tag: &p.task})
-		}
-		class, criteria, reqs := "", 0, 0
-		if s.c != nil {
-			for _, it := range s.c.Items {
-				switch it.Kind {
-				case "Specification":
-					class = it.Field("Default class")
-				case "Criterion":
-					criteria++
-				}
-			}
-			for _, l := range u.docs.read(filepath.Join(s.c.Change.Dir, "01-specification.md")) {
-				if strings.HasPrefix(strings.TrimSpace(l), "- FR-") {
-					reqs++
-				}
-			}
-		}
 		facts := []W{row(6, dot(u.stateColor(state), 8), u.text(sizeSmall, u.stateColor(state), state))}
 		if s.c != nil {
 			facts = append(facts, u.mono(sizeSmall, u.p.Faint, s.c.Name()))
-			if class != "" {
-				facts = append(facts, u.text(sizeSmall, u.p.Muted, u.className(class)))
-			}
-			facts = append(facts, u.text(sizeSmall, u.p.Muted, fmt.Sprintf("%s · %s", plural(reqs, "requirement"), plural(criteria, "criterion"))))
 			if !s.live || s.v.Finished {
 				facts = append(facts, u.gateBadge(s.c))
 			}
 		}
-		button := func(btn *widget.Clickable, label string, strong bool) W {
-			return func(gtx C) D {
-				bg, fg := u.p.Sunken, u.p.Text
-				if strong {
-					bg, fg = u.p.AccentSoft, u.p.Accent
-				}
-				return u.pressable(gtx, btn, false, 6, box(bg, colorNRGBA{}, 6, 0, inset(5, 12, u.text(sizeSmall, fg, label))))
-			}
-		}
-		actions := []W{button(read, "Read the specification", false)}
-		if !p.running() || !s.live {
-			actions = append(actions, button(again, "New intent from this", true))
-		}
-		return box(u.p.Surface, u.p.Line, 8, 12, column(8,
-			u.text(sizeSmall, u.p.Faint, "INTENT"),
-			u.strong(sizeTitle, u.p.Text, s.title()),
-			u.wrap(12, facts),
-			row(8, actions...),
-		))(gtx)
+		return column(4, u.strong(sizeTitle, u.p.Text, s.title()), u.wrap(12, facts))(gtx)
 	}
 }

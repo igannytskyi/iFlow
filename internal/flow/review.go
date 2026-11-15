@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
-	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
@@ -128,16 +127,14 @@ func (r *Run) reviewed(ctx context.Context, area int, kind, system, prompt strin
 	m := r.cfg.reviewer()
 	r.say(area, "", "asking %s to review the %s, round %d", m.Name(), kind, round)
 	began := time.Now()
-	answer, u, err := m.Ask(ctx, system, prompt)
+	var v review
+	kept, handed := r.handed("reviewer of the "+kind, system, prompt)
+	_, u, err := model.AskJSON(ctx, m, system, prompt, &v)
 	r.spend(u)
 	r.cost(artifact.Cost{Area: area, What: fmt.Sprintf("review of the %s, round %d", kind, round), Actor: m.Name(), Turns: 1,
-		Handed: estate.Tokens(system + prompt)}, u, time.Since(began))
-	var v review
+		Handed: handed, Kept: kept}, u, time.Since(began))
 	if err != nil {
 		return v, err
-	}
-	if err := model.JSON(answer, &v); err != nil {
-		return v, fmt.Errorf("the review was not one JSON object: %w", err)
 	}
 	dir := filepath.Join(r.dir, "reviews")
 	if err := os.MkdirAll(dir, 0o755); err == nil {

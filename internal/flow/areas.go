@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
@@ -58,6 +60,7 @@ The specification you write is a document a person reads before accepting it, an
 - "flows": points — how a person uses it, step by step, for every path: the ordinary one and each alternative.
 - "requirements": points — the functional requirements, one testable statement each; they are numbered FR-1, FR-2… in order.
 - "quality": points — security, error handling, data integrity, limits, performance, as far as they matter here.
+- "technology": points — the languages, libraries, protocols and services it is built with, and why, as far as the estate does not already decide them; never one the estate does not have without saying so.
 - "design": points — how it is built: data kept and where, the interfaces with their methods and signatures, routes or commands with their inputs and outputs, which file holds what, what is injected so tests can stand in for the outside world.
 - "edge_cases": points — wrong input, repetition, expiry, absence, refusal, concurrency — each with what happens.
 - "dependencies": points — what it relies on, inside the estate or out.
@@ -101,6 +104,9 @@ func (r *Run) overview() string {
 	if p, ok := detect(r.repo); ok {
 		b.WriteString("Its tests are run with " + shown(p.suite) + ".\n")
 	}
+	if d := decisions(r.repo, r.cfg.packBudget()/8); d != "" {
+		b.WriteString("\nWhat the person has already decided — take it as settled, and do not ask it again:\n\n" + d + "\n")
+	}
 	return b.String()
 }
 
@@ -113,6 +119,7 @@ type document struct {
 	Flows        []string `json:"flows"`
 	Requirements []string `json:"requirements"`
 	Quality      []string `json:"quality"`
+	Technology   []string `json:"technology"`
 	Design       []string `json:"design"`
 	EdgeCases    []string `json:"edge_cases"`
 	Dependencies []string `json:"dependencies"`
@@ -135,6 +142,7 @@ func (d document) parts() []artifact.Part {
 		{Title: "How a person uses it", Points: d.Flows},
 		{Title: "Requirements", Points: reqs},
 		{Title: "Quality — security, errors, data, performance", Points: d.Quality},
+		{Title: "Technology", Points: d.Technology},
 		{Title: "Design", Points: d.Design},
 		{Title: "Edge cases", Points: d.EdgeCases},
 		{Title: "Dependencies", Points: d.Dependencies},
@@ -175,13 +183,14 @@ func (r *Run) intent(ctx context.Context) error {
 		// one; a new author writes it again from the person's notes, and it
 		// is reviewed again before the person is asked again.
 		_ = r.record("specification", r.id("SPEC"), "sent back by "+r.cfg.Person+": "+got.ground)
+		_ = decide(r.repo, r.slug, got.ground)
 		r.say(1, r.id("SPEC"), "%s sent the specification back: %s", r.cfg.Person, got.ground)
 		if sent+1 >= personRounds {
 			return r.fail(1, "the specification was sent back %d times; the last time: %s", personRounds, got.ground)
 		}
 		r.set(1, Working)
-		spec, _ := os.ReadFile(filepath.Join(r.dir, "01-specification.md"))
-		feedback = "\n\n# Your previous specification\n\n" + string(spec) +
+		spec := r.specText()
+		feedback = "\n\n# Your previous specification\n\n" + spec +
 			"\n# The person who asked for the change sent it back, saying\n\n" + got.ground +
 			"\n\nWrite the specification again, whole, as the person says. Where they answered an open question, the answer is decided: take it out of the open questions and build on it."
 	}
@@ -205,9 +214,9 @@ func (r *Run) specified(ctx context.Context, prompt, feedback string) (draft, er
 		if round > reviewRounds {
 			break
 		}
-		spec, _ := os.ReadFile(filepath.Join(r.dir, "01-specification.md"))
+		spec := r.specText()
 		v, err := r.reviewed(ctx, 1, "specification", specReviewSystem,
-			"# The specification\n\n"+string(spec)+"\n# The estate, as names — no code\n\n"+r.cfg.Estate.Repo(r.repo).Map(r.cfg.packBudget()/4), round)
+			"# The specification\n\n"+spec+"\n# The estate, as names — no code\n\n"+r.cfg.Estate.Repo(r.repo).Map(r.cfg.packBudget()/4), round)
 		if err != nil {
 			r.say(1, "", "the review could not be had: %v", err)
 			break
@@ -216,7 +225,7 @@ func (r *Run) specified(ctx context.Context, prompt, feedback string) (draft, er
 		if v.sufficient() {
 			break
 		}
-		feedback = "\n\n# Your previous specification\n\n" + string(spec) +
+		feedback = "\n\n# Your previous specification\n\n" + spec +
 			"\n# What a reviewer found in it\n\n" + v.forAuthor() +
 			"\nWrite the specification again, whole, resolving every blocking and major finding. Questions for the person stay open questions; do not answer them yourself."
 	}
@@ -234,17 +243,18 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 	for attempt := 1; attempt <= 3; attempt++ {
 		var d draft
 		began := time.Now()
-		answer, u, err := r.cfg.Model.Ask(ctx, intentSystem, prompt+feedback+note)
+		kept, handed := r.handed("author", intentSystem, prompt+feedback+note)
+		answer, u, err := model.AskJSON(ctx, r.cfg.Model, intentSystem, prompt+feedback+note, &d)
 		r.spend(u)
 		r.cost(artifact.Cost{Area: 1, What: fmt.Sprintf("the specification, attempt %d", attempt),
-			Actor: r.cfg.Model.Name(), Turns: 1, Handed: estate.Tokens(intentSystem + prompt + feedback + note)}, u, time.Since(began))
-		if err != nil {
-			return d, r.fail(1, "the model could not be asked: %v", err)
-		}
-		if err := model.JSON(answer, &d); err != nil {
+			Actor: r.cfg.Model.Name(), Turns: 1, Handed: handed, Kept: kept}, u, time.Since(began))
+		if errors.Is(err, model.ErrUnreadable) {
 			note = "\n\nYour last answer was not one JSON object: " + err.Error()
 			r.say(1, "", "the draft is sent back: it is not one JSON object (%v); it began %q and ended %q", err, head(answer, 80), tail(answer, 80))
 			continue
+		}
+		if err != nil {
+			return d, r.fail(1, "the model could not be asked: %v", err)
 		}
 		if why := d.problem(); why != "" {
 			note = "\n\nYour last answer cannot be used: " + why + ". Answer again."
@@ -332,7 +342,7 @@ func (r *Run) writeIntent(d draft) error {
 	}
 	spec := artifact.SpecDoc{Name: r.slug, ID: r.id("SPEC"), Intent: r.id("INT"), Class: d.Class, Prose: d.Prose,
 		Included: d.Scope, Excluded: append(slices.Clone(d.NewTests), d.SuiteTests...),
-		Change: append(d.Document.parts(), artifact.Part{Title: "What comes after", Points: d.Later})}
+	}
 	var byNew, bySuite []string
 	for i, c := range d.Criteria {
 		id := r.id("CR", i+1)
@@ -371,6 +381,18 @@ func (r *Run) writeIntent(d draft) error {
 		spec.Inputs = append(spec.Inputs, [2]string{s, "yes — what the tests judge is what changes"})
 	}
 	if err := artifact.Write(dir, artifact.Specification, spec.Markdown()); err != nil {
+		return err
+	}
+	// The change described is a document of its own, beside the method's
+	// record of it: what is wanted and how, for a person to read and the
+	// agents to build from; the specification's tables are what judge it.
+	var crit []string
+	for i, c := range d.Criteria {
+		crit = append(crit, fmt.Sprintf("%s %s — when %s, then %s", r.id("CR", i+1), c.Criterion, c.When, c.Then))
+	}
+	parts := append(d.Document.parts(), artifact.Part{Title: "Acceptance criteria", Points: crit},
+		artifact.Part{Title: "What comes after", Points: d.Later})
+	if err := os.WriteFile(filepath.Join(dir, artifact.ChangeFile), []byte(artifact.ChangeDoc{Name: r.slug, Statement: d.Statement, Summary: d.Prose, Parts: parts}.Markdown()), 0o644); err != nil {
 		return err
 	}
 	if first {
@@ -484,100 +506,42 @@ func (r *Run) execute(ctx context.Context) error {
 	r.set(4, Working)
 	prof, ok := detect(r.repo)
 	doc := artifact.ExecutionDoc{Name: r.slug}
+	// The tests units at the head of the plan rely on nothing any unit
+	// writes, so they are carried out at once, each by its own agent in its
+	// own copy of the estate; the code units after them each rely on the one
+	// before, and go one at a time.
+	head := 0
+	for head < len(r.units) && r.units[head].tests {
+		head++
+	}
+	results := make([]carried, len(r.units))
+	errs := make([]error, len(r.units))
+	var wg sync.WaitGroup
+	for i := range head {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i], errs[i] = r.carry(ctx, i, nil, prof, ok)
+		}()
+	}
+	wg.Wait()
 	var overlays []string
-	for i, u := range r.units {
-		ca := r.id("CA", i+1)
-		ws, err := harness.Snapshot(r.repo, overlays...)
-		if err != nil {
-			return r.fail(4, "a workspace could not be made: %v", err)
+	for i := range r.units {
+		if i >= head {
+			results[i], errs[i] = r.carry(ctx, i, overlays, prof, ok)
 		}
-		defer os.RemoveAll(ws)
-		before, err := harness.Manifest(ws)
-		if err != nil {
-			return r.fail(4, "the workspace could not be read: %v", err)
+		if errs[i] != nil {
+			return r.fail(4, "%v", errs[i])
 		}
-		pack := r.pack(u)
-		store := filepath.Join(r.dir, "candidates", ca)
-		if err := os.MkdirAll(store, 0o755); err != nil {
-			return r.fail(4, "%s: the candidate could not be kept: %v", u.id, err)
-		}
-		_ = os.WriteFile(filepath.Join(store, "pack.md"), []byte(pack.String()), 0o644)
-		task := harness.Task{Workspace: ws, Goal: r.goal(u), Scope: u.scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
-		switch {
-		case !ok || u.tests:
-			// Tests written first are judged afterwards, by failing against
-			// the estate as it stands; code that does not exist yet is a
-			// reason for them not to build, so building is not asked of them.
-		case i == len(r.units)-1:
-			task.Check = resolve(ws, prof.suite) // the last unit completes the change
-		case len(prof.build) > 0:
-			task.Check = resolve(ws, prof.build) // an earlier one leaves the estate building
-		}
-		r.say(4, u.id, "%s handed to %s with %d tokens of the estate", u.id, r.cfg.Executor.Name(), pack.Tokens())
-		res, err := r.cfg.Executor.Run(ctx, task, func(e harness.Event) {
-			r.mu.Lock()
-			r.agent[u.id] = append(r.agent[u.id], e)
-			r.mu.Unlock()
-			r.changed()
-		})
-		r.spend(res.Usage)
-		r.cost(artifact.Cost{Area: 4, Unit: u.id, What: "execution of " + u.id, Actor: r.cfg.Executor.Name() + " " + r.cfg.Executor.Version(),
-			Turns: res.Turns, Steps: res.Steps, Handed: pack.Tokens(), Note: res.Terminal}, res.Usage, res.Elapsed)
-		r.writeTrace(store, u.id) // kept whether or not a candidate comes of it
-		if err != nil {
-			return r.fail(4, "%s: the executor failed: %v", u.id, err)
-		}
-		changes, err := harness.Since(ws, before)
-		if err != nil {
-			return r.fail(4, "%s: what changed could not be read: %v", u.id, err)
-		}
-		var outside []string
-		for _, c := range changes {
-			if !inScope(c.Path, u.scope) {
-				outside = append(outside, c.Path)
-			}
-		}
-		if len(outside) > 0 {
-			return r.fail(4, "%s changed %s, outside its scope; the candidate is refused", u.id, strings.Join(outside, ", "))
-		}
-		if res.Terminal != harness.Candidate || len(changes) == 0 {
-			return r.fail(4, "%s ended %s with %d change(s): %s", u.id, res.Terminal, len(changes), res.Summary)
-		}
-		if err := harness.Keep(ws, changes, filepath.Join(store, "files")); err != nil {
-			return r.fail(4, "%s: the candidate could not be kept: %v", u.id, err)
-		}
-		_ = os.WriteFile(filepath.Join(store, "summary.txt"), []byte(res.Summary+"\n"), 0o644)
-		if u.preparatoryFor != "" && ok {
-			// What judges the change must fail before it, and fail for the
-			// stated reason: otherwise it judges nothing.
-			names := r.testNames(store, prof)
-			if len(names) == 0 {
-				return r.fail(4, "%s wrote no test this estate's runner can name", u.id)
-			}
-			passed, out, took := runIn(ctx, ws, resolve(ws, prof.only(names)))
-			r.cost(artifact.Cost{Area: 4, Unit: u.id, What: "the tests run against the estate as it stands", Actor: prof.name}, model.Usage{}, took)
-			_ = os.WriteFile(filepath.Join(store, "failing-before.txt"), []byte(out), 0o644)
-			if passed {
-				return r.fail(4, "%s: the tests pass before the change exists, so they judge nothing", u.id)
-			}
-			r.say(4, ca, "the tests %s fail against the estate as it stands, as they must", strings.Join(names, ", "))
-		}
-		var paths []string
-		for _, c := range changes {
-			paths = append(paths, c.Path)
-		}
-		doc.Runs = append(doc.Runs, artifact.RunRow{Unit: u.id, Executor: r.cfg.Executor.Name(), Version: r.cfg.Executor.Version(), Terminal: res.Terminal, Candidate: ca})
-		doc.Candidates = append(doc.Candidates, artifact.CandidateRow{ID: ca, Unit: u.id, StoredAt: "candidates/" + ca + "/",
-			Artefacts: strings.Join(paths, ", "), ProducedAt: today()})
-		r.mu.Lock()
-		r.cands[u.id] = filepath.Join(store, "files")
-		r.mu.Unlock()
-		overlays = append(overlays, filepath.Join(store, "files"))
-		r.say(4, ca, "%s: %s — %s", ca, strings.Join(paths, ", "), res.Summary)
+		c, u := results[i], r.units[i]
+		doc.Runs = append(doc.Runs, artifact.RunRow{Unit: u.id, Executor: r.cfg.Executor.Name(), Version: r.cfg.Executor.Version(), Terminal: c.res.Terminal, Candidate: c.ca})
+		doc.Candidates = append(doc.Candidates, artifact.CandidateRow{ID: c.ca, Unit: u.id, StoredAt: "candidates/" + c.ca + "/",
+			Artefacts: strings.Join(c.paths, ", "), ProducedAt: today()})
+		overlays = append(overlays, filepath.Join(c.store, "files"))
 		if err := artifact.Write(r.dir, artifact.Execution, doc.Markdown()); err != nil {
 			return r.fail(4, "the execution could not be written: %v", err)
 		}
-		if err := r.record("execution", ca, res.Summary); err != nil {
+		if err := r.record("execution", c.ca, c.res.Summary); err != nil {
 			return err
 		}
 	}
@@ -586,6 +550,103 @@ func (r *Run) execute(ctx context.Context) error {
 	}
 	r.set(4, Done)
 	return nil
+}
+
+// carried is one unit carried out: its candidate, where it is kept, how the
+// executor ended, and what it changed.
+type carried struct {
+	ca, store string
+	res       harness.Result
+	paths     []string
+}
+
+// carry hands one unit to its agent in a copy of the estate holding the
+// candidates in overlays, and keeps what comes of it as a candidate.
+func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile, ok bool) (carried, error) {
+	u := r.units[i]
+	c := carried{ca: r.id("CA", i+1)}
+	ws, err := harness.Snapshot(r.repo, overlays...)
+	if err != nil {
+		return c, fmt.Errorf("a workspace could not be made: %v", err)
+	}
+	defer os.RemoveAll(ws)
+	before, err := harness.Manifest(ws)
+	if err != nil {
+		return c, fmt.Errorf("the workspace could not be read: %v", err)
+	}
+	pack := r.pack(u)
+	c.store = filepath.Join(r.dir, "candidates", c.ca)
+	if err := os.MkdirAll(c.store, 0o755); err != nil {
+		return c, fmt.Errorf("%s: the candidate could not be kept: %v", u.id, err)
+	}
+	_ = os.WriteFile(filepath.Join(c.store, "pack.md"), []byte("# Goal\n\n"+r.goal(u)+"\n\n"+pack.String()), 0o644)
+	task := harness.Task{Workspace: ws, Goal: r.goal(u), Scope: u.scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
+	switch {
+	case !ok || u.tests:
+		// Tests written first are judged afterwards, by failing against the
+		// estate as it stands; code that does not exist yet is a reason for
+		// them not to build, so building is not asked of them.
+	case i == len(r.units)-1:
+		task.Check = resolve(ws, prof.suite) // the last unit completes the change
+	case len(prof.build) > 0:
+		task.Check = resolve(ws, prof.build) // an earlier one leaves the estate building
+	}
+	r.say(4, u.id, "%s handed to %s with %d tokens of the estate", u.id, r.cfg.Executor.Name(), pack.Tokens())
+	res, err := r.cfg.Executor.Run(ctx, task, func(e harness.Event) {
+		r.mu.Lock()
+		r.agent[u.id] = append(r.agent[u.id], e)
+		r.mu.Unlock()
+		r.changed()
+	})
+	c.res = res
+	r.spend(res.Usage)
+	r.cost(artifact.Cost{Area: 4, Unit: u.id, What: "execution of " + u.id, Actor: r.cfg.Executor.Name() + " " + r.cfg.Executor.Version(),
+		Turns: res.Turns, Steps: res.Steps, Handed: pack.Tokens(), Kept: "candidates/" + c.ca + "/pack.md", Note: res.Terminal}, res.Usage, res.Elapsed)
+	r.writeTrace(c.store, u.id) // kept whether or not a candidate comes of it
+	if err != nil {
+		return c, fmt.Errorf("%s: the executor failed: %v", u.id, err)
+	}
+	changes, err := harness.Since(ws, before)
+	if err != nil {
+		return c, fmt.Errorf("%s: what changed could not be read: %v", u.id, err)
+	}
+	var outside []string
+	for _, ch := range changes {
+		if !inScope(ch.Path, u.scope) {
+			outside = append(outside, ch.Path)
+		}
+		c.paths = append(c.paths, ch.Path)
+	}
+	if len(outside) > 0 {
+		return c, fmt.Errorf("%s changed %s, outside its scope; the candidate is refused", u.id, strings.Join(outside, ", "))
+	}
+	if res.Terminal != harness.Candidate || len(changes) == 0 {
+		return c, fmt.Errorf("%s ended %s with %d change(s): %s", u.id, res.Terminal, len(changes), res.Summary)
+	}
+	if err := harness.Keep(ws, changes, filepath.Join(c.store, "files")); err != nil {
+		return c, fmt.Errorf("%s: the candidate could not be kept: %v", u.id, err)
+	}
+	_ = os.WriteFile(filepath.Join(c.store, "summary.txt"), []byte(res.Summary+"\n"), 0o644)
+	if u.preparatoryFor != "" && ok {
+		// What judges the change must fail before it, and fail for the stated
+		// reason: otherwise it judges nothing.
+		names := r.testNames(c.store, prof)
+		if len(names) == 0 {
+			return c, fmt.Errorf("%s wrote no test this estate's runner can name", u.id)
+		}
+		passed, out, took := runIn(ctx, ws, resolve(ws, prof.only(names)))
+		r.cost(artifact.Cost{Area: 4, Unit: u.id, What: "the tests run against the estate as it stands", Actor: prof.name}, model.Usage{}, took)
+		_ = os.WriteFile(filepath.Join(c.store, "failing-before.txt"), []byte(out), 0o644)
+		if passed {
+			return c, fmt.Errorf("%s: the tests pass before the change exists, so they judge nothing", u.id)
+		}
+		r.say(4, c.ca, "the tests %s fail against the estate as it stands, as they must", strings.Join(names, ", "))
+	}
+	r.mu.Lock()
+	r.cands[u.id] = filepath.Join(c.store, "files")
+	r.mu.Unlock()
+	r.say(4, c.ca, "%s: %s — %s", c.ca, strings.Join(c.paths, ", "), res.Summary)
+	return c, nil
 }
 
 // pack is what the estate gives one unit's agent: the files it may change,
@@ -603,8 +664,8 @@ func (r *Run) pack(u unit) estate.Pack {
 	var earlier []estate.Section
 	r.mu.Lock()
 	for _, prev := range r.units {
-		if prev.id == u.id {
-			break
+		if prev.id == u.id || u.tests {
+			break // tests units rely on nothing another unit writes
 		}
 		dir := r.cands[prev.id]
 		_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
@@ -643,6 +704,22 @@ func (r *Run) goal(u unit) string {
 		}
 	}
 	brief := "## What to do: " + u.title + "\n\n" + u.brief + "\n\n## The criteria this unit serves\n\n" + strings.Join(crit, "\n")
+	// Every agent is handed the contract between the units — what each code
+	// unit provides, exactly — so that the tests call what the code defines
+	// and no unit defines what another provides.
+	var contract []string
+	for _, o := range r.units {
+		for _, p := range o.provides {
+			who := o.id
+			if o.id == u.id {
+				who += ", you"
+			}
+			contract = append(contract, "- "+p+"   ("+who+")")
+		}
+	}
+	if len(contract) > 0 {
+		brief += "\n\n## The contract between the units — use these names and signatures exactly; define only those marked you\n\n" + strings.Join(contract, "\n")
+	}
 	if u.tests {
 		return brief + "\n\nWrite only the tests. The behaviour does not exist yet, and neither does the code that will provide it: " +
 			"call it by the names the brief gives, and leave it undefined — the code units define it, to pass your tests. " +
@@ -743,6 +820,12 @@ func (r *Run) assure(ctx context.Context) error {
 			ve := r.id("VE", n)
 			doc.Verdicts = append(doc.Verdicts, artifact.VerdictRow{ID: ve, Unit: u.id, Criterion: c, Outcome: outcome, Evidence: ev, State: "settled"})
 			r.say(5, ve, "%s: %s on %s — %s, on %s", ve, u.id, c, outcome, ev)
+		}
+	}
+	if allMet {
+		for _, ref := range r.settles {
+			doc.Settled = append(doc.Settled, [3]string{ref, "this change", "every criterion met; started to close it"})
+			r.say(5, ref, "%s is closed by this change", ref)
 		}
 	}
 	if err := artifact.Write(r.dir, artifact.Assurance, doc.Markdown()); err != nil {
@@ -867,4 +950,15 @@ func (l *list[T]) UnmarshalJSON(b []byte) error {
 	}
 	*l = many
 	return nil
+}
+
+// specText is the specification as an agent reads it: the change described,
+// then the method's record of how it is judged.
+func (r *Run) specText() string {
+	doc, _ := os.ReadFile(filepath.Join(r.dir, artifact.ChangeFile))
+	meta, err := os.ReadFile(filepath.Join(r.dir, string(artifact.Specification)+".md"))
+	if err != nil {
+		return ""
+	}
+	return string(doc) + "\n# How it is judged — the specification's record\n\n" + string(meta)
 }

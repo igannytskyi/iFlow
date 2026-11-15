@@ -9,6 +9,7 @@ Everything written about iFlow is here. What it is about, what it is made of, an
 | [`method/glossary.md`](method/glossary.md) | What every word means, in a sentence or two. For a person |
 | [`method/conventions.md`](method/conventions.md) | Every code, defined once. Nothing anywhere may use a value this file does not define, and the gate validates against it |
 | [`method/criteria.md`](method/criteria.md) | How to arrive at a criterion: seven probes, one mechanical and six questions |
+| [`method/objects.md`](method/objects.md) | What each area hands on, as the thing itself and as its record, and the structure of each |
 | [`method/rules.md`](method/rules.md) | Every rule, each naming the check that proves it — and, where a rule is not checked, why not |
 | [`templates/`](templates/) | The seven artefacts a change travels through, and its append-only record |
 

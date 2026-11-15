@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -132,6 +133,30 @@ func (d SpecDoc) Markdown() string {
 	return b.String()
 }
 
+// ChangeFile is where the change described is kept beside its
+// specification: the document a person reads and changes, while
+// 01-specification.md is the method's record of how the change is judged.
+const ChangeFile = "change.md"
+
+// ChangeDoc is the change described.
+type ChangeDoc struct {
+	Name, Statement, Summary string
+	Parts                    []Part
+}
+
+// Markdown renders the change described.
+func (d ChangeDoc) Markdown() string {
+	var b strings.Builder
+	b.WriteString("# The change — " + d.Name + "\n\n" + strings.TrimSpace(d.Statement) + "\n")
+	if s := strings.TrimSpace(d.Summary); s != "" && s != strings.TrimSpace(d.Statement) {
+		b.WriteString("\n" + s + "\n")
+	}
+	for _, p := range d.Parts {
+		b.WriteString(strings.Replace(p.markdown(), "\n### ", "\n## ", 1))
+	}
+	return b.String()
+}
+
 // Part is one titled part of a document's prose: a paragraph, points, or
 // both.
 type Part struct {
@@ -188,20 +213,38 @@ func (d PlanDoc) Markdown() string {
 	if d.Planner != "" {
 		b.WriteString("\nPlanned by " + d.Planner + ".\n")
 	}
+	b.WriteString("\n## Work units\n\n" + table([]string{"Id", "Phase", "Class", "Scope", "Area of effect", "Criteria", "Depends on", "Preparatory for"}, units))
+	b.WriteString("\n## Coverage\n\n" + strings.TrimSpace(d.Coverage) + "\n")
+	return b.String()
+}
+
+// PlanFile is where the plan described is kept beside the plan's record: how
+// the change is built and every unit as a ticket, while 02-plan.md records
+// the units the method checks.
+const PlanFile = "plan.md"
+
+// UnitsDir holds one ticket a unit: all its agent is told of the change.
+const UnitsDir = "units"
+
+// Document is the described half of the plan, for PlanFile.
+func (d PlanDoc) Document() string {
+	var b strings.Builder
+	b.WriteString("# The plan — " + d.Name + "\n")
+	if d.Planner != "" {
+		b.WriteString("\nPlanned by " + d.Planner + ".\n")
+	}
 	if len(d.Approach) > 0 {
 		b.WriteString("\n## Approach\n")
 		for _, p := range d.Approach {
 			b.WriteString(p.markdown())
 		}
 	}
-	b.WriteString("\n## Work units\n\n" + table([]string{"Id", "Phase", "Class", "Scope", "Area of effect", "Criteria", "Depends on", "Preparatory for"}, units))
 	if len(d.Briefs) > 0 {
-		b.WriteString("\n## The units, described\n")
+		b.WriteString("\n## The units\n")
 		for _, p := range d.Briefs {
 			b.WriteString(p.markdown())
 		}
 	}
-	b.WriteString("\n## Coverage\n\n" + strings.TrimSpace(d.Coverage) + "\n")
 	return b.String()
 }
 
@@ -291,6 +334,9 @@ type AssuranceDoc struct {
 	Verdicts    []VerdictRow
 	Escalations []EscalationRow
 	Refusals    [][6]string // id, object, boundary, refused by, ground, at
+	// Settled are escalations other changes raised that this one closes:
+	// escalation, resolved by, note.
+	Settled [][3]string
 }
 
 // Markdown renders the assurance.
@@ -313,6 +359,9 @@ func (d AssuranceDoc) Markdown() string {
 	}
 	if len(d.Refusals) > 0 {
 		out += "\n## Refusals\n\n" + table([]string{"Id", "Object", "Boundary", "Refused by", "Ground", "At"}, rows(d.Refusals))
+	}
+	if len(d.Settled) > 0 {
+		out += "\n## Escalations closed\n\n" + table([]string{"Escalation", "Resolved by", "Note"}, rows(d.Settled))
 	}
 	return out
 }
@@ -353,8 +402,18 @@ type Record struct {
 func (r Record) Append(lines ...Crossing) error {
 	p := filepath.Join(r.Dir, "record.md")
 	n := 0
+	// A line is written in the columns the record already has: an older
+	// record keeps a Digest column a newer one does not, and a line written
+	// in the wrong shape puts its note under the wrong heading.
+	columns := []string{"#", "At", "Stage", "Object", "Note"}
 	if b, err := os.ReadFile(p); err == nil {
-		n = len(ParseDoc(string(b)).Rows("#", "Stage"))
+		doc := ParseDoc(string(b))
+		n = len(doc.Rows("#", "Stage"))
+		for _, t := range doc.All() {
+			if slices.Contains(t.Headers, "Stage") && slices.Contains(t.Headers, "#") {
+				columns = t.Headers
+			}
+		}
 	} else {
 		head := "# Record — " + r.Name + "\n\nAppend-only. Each crossing of a stage boundary is one line.\n\n| # | At | Stage | Object | Note |\n|---|---|---|---|---|\n"
 		if err := os.WriteFile(p, []byte(head), 0o644); err != nil {
@@ -368,7 +427,12 @@ func (r Record) Append(lines ...Crossing) error {
 	defer f.Close()
 	for _, l := range lines {
 		n++
-		if _, err := fmt.Fprintf(f, "| %d | %s | %s | %s | %s |\n", n, cell(l.At), cell(l.Stage), cell(l.Object), cell(l.Note)); err != nil {
+		value := map[string]string{"#": fmt.Sprint(n), "At": l.At, "Stage": l.Stage, "Object": l.Object, "Note": l.Note}
+		cells := make([]string, len(columns))
+		for i, c := range columns {
+			cells[i] = cell(value[c])
+		}
+		if _, err := fmt.Fprintf(f, "| %s |\n", strings.Join(cells, " | ")); err != nil {
 			return err
 		}
 	}

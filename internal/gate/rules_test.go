@@ -147,6 +147,12 @@ func TestEachRuleIsNamedWhenBroken(t *testing.T) {
 		break_ func(t *testing.T, root, dir string)
 	}{
 		{"B1", func(t *testing.T, _, dir string) { os.Remove(file(dir, artifact.Plan)) }},
+		{"R23", func(t *testing.T, _, dir string) {
+			if err := artifact.AppendCost(dir, artifact.Cost{Area: 1, What: "the specification", Input: 100, Output: 10,
+				Provenance: "derived", Handed: 90, Kept: "handed/01-author.md"}); err != nil {
+				t.Fatal(err)
+			}
+		}},
 		{"R19", func(t *testing.T, _, dir string) {
 			edit(t, file(dir, artifact.Specification), "| The answer is one |", "| src/a.go returns one |")
 		}},

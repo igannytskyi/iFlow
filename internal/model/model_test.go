@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -48,3 +49,26 @@ func TestAnOpenAIAnswerSaysWhatItCost(t *testing.T) {
 }
 
 func fmtf(f float64) string { b, _ := json.Marshal(f); return string(b) }
+
+// A schema says every field, of its type, required, and nothing else.
+func TestASchemaHoldsEveryField(t *testing.T) {
+	type inner struct {
+		When string `json:"when"`
+	}
+	type answer struct {
+		Scope    []string `json:"scope"`
+		Criteria []inner  `json:"criteria"`
+		New      bool     `json:"new"`
+		hidden   int
+	}
+	s := Schema(reflect.TypeOf(answer{}))
+	b, _ := json.Marshal(s)
+	for _, want := range []string{`"scope":{"items":{"type":"string"},"type":"array"}`, `"additionalProperties":false`, `"new":{"type":"boolean"}`, `"when":{"type":"string"}`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("schema lacks %s: %s", want, b)
+		}
+	}
+	if strings.Contains(string(b), "hidden") {
+		t.Error("an unexported field is in the schema")
+	}
+}

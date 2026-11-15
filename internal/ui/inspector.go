@@ -105,7 +105,7 @@ func (u *UI) links(p *project, title string, c *workspace.Change, ids []string) 
 			}
 			btn := u.clicks.of("link/" + p.path + title + id)
 			if btn.Clicked(gtx) {
-				p.item = to
+				p.item, p.handedView = to, ""
 			}
 			return u.pressable(gtx, btn, false, 4, u.chip(u.p.AccentSoft, u.p.Accent, id))
 		})
@@ -121,7 +121,7 @@ func (u *UI) objectChip(p *project, it *workspace.Item) W {
 	return func(gtx C) D {
 		btn := u.clicks.of("obj/" + p.path + "/" + it.Kind + "/" + it.ID)
 		if btn.Clicked(gtx) {
-			p.item = it
+			p.item, p.handedView = it, ""
 		}
 		bg, fg := u.p.Sunken, u.p.Text
 		if p.item != nil && p.item.ID == it.ID && p.item.Kind == it.Kind {

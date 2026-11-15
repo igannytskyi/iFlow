@@ -405,3 +405,18 @@ func (ws *Workspace) Rules() RuleCount {
 	}
 	return rc
 }
+
+// ClosedStage is the stage a record names when a person closes a change
+// that will not be finished: nothing it produced entered the estate, and
+// nothing more will be done under it.
+const ClosedStage = "closed"
+
+// Closed reports whether a person closed the change, and what they said.
+func (c *Change) Closed() (bool, string) {
+	for _, it := range c.Items {
+		if it.Kind == "Crossing" && it.Field("Stage") == ClosedStage {
+			return true, it.Field("Note")
+		}
+	}
+	return false, ""
+}

@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,4 +112,53 @@ func shelter(changes string) error {
 		}
 	}
 	return nil
+}
+
+// DecisionsFile is where a project keeps what its person decided — answers to
+// what reviewers asked, reasons a specification was sent back — so that no
+// later author asks again what was settled once. Area 10: knowledge kept
+// because something could have shown it wrong, and nothing has yet.
+const DecisionsFile = "decisions.md"
+
+// decide keeps one decision of the person's, appended, never rewritten.
+func decide(repo, change, decision string) error {
+	dir := filepath.Join(repo, "changes")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	p := filepath.Join(dir, DecisionsFile)
+	if !fileExists(p) {
+		head := "# Decisions\n\nWhat the person who asks for changes here has decided, newest last. Every author of a specification is handed it.\n\n"
+		if err := os.WriteFile(p, []byte(head), 0o644); err != nil {
+			return err
+		}
+	}
+	f, err := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = fmt.Fprintf(f, "- %s, in %s: %s\n", time.Now().Format("2006-01-02"), change, strings.ReplaceAll(strings.TrimSpace(decision), "\n", " "))
+	return err
+}
+
+// decisions is what the person has decided before, the newest that fit in
+// budget tokens.
+func decisions(repo string, budget int) string {
+	b, err := os.ReadFile(filepath.Join(repo, "changes", DecisionsFile))
+	if err != nil {
+		return ""
+	}
+	var lines []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(l, "- ") {
+			lines = append(lines, l)
+		}
+	}
+	out, used := []string{}, 0
+	for i := len(lines) - 1; i >= 0 && used+len(lines[i])/4 <= budget; i-- {
+		out = append([]string{lines[i]}, out...)
+		used += len(lines[i]) / 4
+	}
+	return strings.Join(out, "\n")
 }

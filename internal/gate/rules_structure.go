@@ -1,6 +1,8 @@
 package gate
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -127,5 +129,32 @@ func recordAppendOnly(r *run) {
 			r.fail("R4", "the record is not append-only: ordinals %s are not 1..%d in order", intList(seen), len(seen))
 			return
 		}
+	}
+}
+
+// handedKept — R23: model work says what it was handed, and what it was
+// handed is kept beside the change.
+func handedKept(r *run) {
+	costs, err := a.Costs(r.c.Dir)
+	if err != nil {
+		r.fail("R23", "costs.jsonl does not read: %v", err)
+		return
+	}
+	unmeasured := 0
+	for _, c := range costs {
+		if c.Input+c.CacheRead+c.CacheWrite+c.Output == 0 {
+			continue // no model read or wrote anything: a test run, the gate
+		}
+		if c.Kept != "" {
+			if _, err := os.Stat(filepath.Join(r.c.Dir, filepath.FromSlash(c.Kept))); err != nil {
+				r.fail("R23", "%q says what it was handed is kept at %s, and nothing is there", c.What, c.Kept)
+			}
+		}
+		if c.Handed == 0 {
+			unmeasured++
+		}
+	}
+	if unmeasured > 0 {
+		r.note("R23", "%d cost record(s) of model work say nothing of what the model was handed — work measured before handovers were", unmeasured)
 	}
 }

@@ -132,8 +132,11 @@ func TestATaskTravelsThePath(t *testing.T) {
 		if len(goals) != 2 || !strings.Contains(goals[1], "Add func Shout") {
 			t.Errorf("the units were not handed their briefs: %q", goals)
 		}
-		if b, _ := os.ReadFile(filepath.Join(landed, "02-plan.md")); !strings.Contains(string(b), "## The units, described") || !strings.Contains(string(b), "Planned by stub") {
+		if b, _ := os.ReadFile(filepath.Join(landed, "plan.md")); !strings.Contains(string(b), "## The units") || !strings.Contains(string(b), "Planned by stub") {
 			t.Errorf("the plan does not describe its units:\n%s", b)
+		}
+		if b, _ := os.ReadFile(filepath.Join(landed, "units", "WU-001-02.md")); !strings.Contains(string(b), "Add func Shout") {
+			t.Errorf("the code unit's ticket is not kept:\n%s", b)
 		}
 		// Each agent is handed the least it needs: the model stating the
 		// intent sees what the estate defines, never its code; the agent
@@ -157,7 +160,7 @@ func TestATaskTravelsThePath(t *testing.T) {
 		if redraft == "" {
 			t.Error("the author was never handed what the reviewer found")
 		}
-		if !strings.Contains(planner, "### How a person uses it") || !strings.Contains(planner, "FR-1 ") || strings.Contains(planner, `"Hello, "`) {
+		if !strings.Contains(planner, "## How a person uses it") || !strings.Contains(planner, "FR-1 ") || strings.Contains(planner, `"Hello, "`) {
 			t.Errorf("the planner was not handed the specification as a document, and no code:\n%s", planner)
 		}
 		for _, f := range []string{"specification-1.md", "specification-2.md", "plan-1.md"} {
@@ -187,6 +190,7 @@ func TestATaskTravelsThePath(t *testing.T) {
 			go run.Accept()
 		}
 	})
+	run.Settles("earlier#1")
 	if err := run.Start(context.Background()); err != nil {
 		for _, s := range run.View().Steps {
 			t.Logf("%d %s", s.Area, s.Text)
@@ -216,6 +220,9 @@ func TestATaskTravelsThePath(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(v.Dir, "candidates", "CA-001-01", "failing-before.txt")); !strings.Contains(string(b), "FAIL") {
 		t.Errorf("the reproduction was not shown to fail before the change: %s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(v.Dir, "05-assurance.md")); !strings.Contains(string(b), "| earlier#1 | this change |") {
+		t.Errorf("the escalation the task was started to close is not recorded closed:\n%s", b)
 	}
 	// The estate's own runner, run where a person runs it, sees the estate
 	// and not the copies of candidates its change folders keep.

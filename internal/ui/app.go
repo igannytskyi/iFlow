@@ -315,6 +315,8 @@ func (u *UI) stateColor(s string) colorNRGBA {
 		return u.p.Fail
 	case "landed":
 		return u.p.OK
+	case "closed":
+		return u.p.Muted
 	}
 	return u.p.Faint
 }
@@ -370,7 +372,7 @@ func (u *UI) taskRows(p *project) []W {
 			spent = money(c.Spent.CostUSD)
 		}
 		row := u.taskRow(p, c.Change.Dir, c.Name(), s.state(p), spent, c)
-		if s.state(p) == "landed" {
+		if st := s.state(p); st == "landed" || st == "closed" {
 			done = append(done, row)
 		} else {
 			out = append(out, row)
@@ -404,9 +406,9 @@ func (u *UI) foldRow(p *project, n int) W {
 		if btn.Clicked(gtx) {
 			p.showDone = !p.showDone
 		}
-		label := "▸ Landed (" + strconv.Itoa(n) + ")"
+		label := "▸ Done (" + strconv.Itoa(n) + ")"
 		if p.showDone || u.settings.ShowLanded {
-			label = "▾ Landed (" + strconv.Itoa(n) + ")"
+			label = "▾ Done (" + strconv.Itoa(n) + ")"
 		}
 		return layout.Inset{Left: 18}.Layout(gtx, func(gtx C) D {
 			return u.pressable(gtx, btn, false, 5, stretch(inset(5, 8, u.text(sizeSmall, u.p.Muted, label))))
@@ -467,6 +469,9 @@ func (u *UI) main(gtx C) D {
 	}
 	if u.settings.HideCosts {
 		return layout.Flex{}.Layout(gtx, layout.Flexed(1, center), layout.Rigid(u.costsStrip))
+	}
+	if u.settings.CostsLeft {
+		return u.splitOf("stats/left", 380, 300, 640).layout(gtx, u, u.statsPanel(p, s, ok), center, false)
 	}
 	return u.splitOf("stats", 380, 300, 640).layout(gtx, u, center, u.statsPanel(p, s, ok), true)
 }
