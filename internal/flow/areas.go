@@ -639,6 +639,23 @@ func createdBy(path string, created map[string]bool) bool {
 	return false
 }
 
+// codeScope is every file the code units of the plan may change, in plan
+// order, each once.
+func (r *Run) codeScope() []string {
+	var out []string
+	for _, u := range r.units {
+		if u.tests {
+			continue
+		}
+		for _, p := range u.scope {
+			if !slices.Contains(out, p) {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}
+
 // blamed is the tests unit at the head of the plan whose files a code
 // unit's failure blames, or -1.
 func (r *Run) blamed(c carried, head int, results []carried) int {
@@ -683,7 +700,14 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 		return c, fmt.Errorf("%s: the candidate could not be kept: %v", u.id, err)
 	}
 	_ = os.WriteFile(filepath.Join(c.store, "pack.md"), []byte("# Goal\n\n"+r.goal(u)+"\n\n"+pack.String()), 0o644)
-	task := harness.Task{Workspace: ws, Goal: r.goal(u), Scope: u.scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
+	scope := u.scope
+	if i == len(r.units)-1 && !u.tests {
+		// The last unit completes the change: the whole suite must pass
+		// after it, and what keeps it from passing may be in any code the
+		// change writes. It may mend all of that code — never the tests.
+		scope = r.codeScope()
+	}
+	task := harness.Task{Workspace: ws, Goal: r.goal(u), Scope: scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
 	switch {
 	case ok && u.tests && prof.vet != nil:
 		// Tests written first cannot build, since what they call does not
@@ -722,7 +746,7 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	}
 	var outside []string
 	for _, ch := range changes {
-		if !inScope(ch.Path, u.scope) {
+		if !inScope(ch.Path, scope) {
 			outside = append(outside, ch.Path)
 		}
 		c.paths = append(c.paths, ch.Path)

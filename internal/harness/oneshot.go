@@ -329,7 +329,10 @@ func tail(s string, n int) string {
 }
 
 var (
-	faultAt = regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.\w+):\d+(?::\d+)?:`)
+	// faultAt is a line that blames a file for not building: path, line
+	// and column. A failed assertion names its line and no column, and
+	// blames the code it judges, not the test that says so.
+	faultAt = regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.\w+):\d+:\d+:`)
 	// A name missing, and whose: a package's name, or a type's, before it
 	// says where it was looked for.
 	undefinedIn = regexp.MustCompile(`undefined: (?:(\w+)\.)?\w+`)
