@@ -412,7 +412,7 @@ func TestNumbersAreTakenOnce(t *testing.T) {
 // Tests written first may fail to build only for what the contract
 // promises; anything else they got wrong goes back to their agent.
 func TestTestsWrittenFirstAreJudgedByTheContract(t *testing.T) {
-	r := &Run{units: []unit{{id: "WU-001-02", provides: []string{"func Shout(n string) string", "func (p *project) closeTop() bool", "key.NameN"}}}}
+	r := &Run{units: []unit{{id: "WU-001-03", scope: []string{"internal/notify/notify.go"}}, {id: "WU-001-02", provides: []string{"func Shout(n string) string", "func (p *project) closeTop() bool", "key.NameN"}}}}
 	judge := r.judgeTests()
 	if ok, why := judge(false, "vet: ./shout_test.go:5:9: undefined: Shout\n./x_test.go:9:4: p.closeTop undefined (type *project has no field or method closeTop)\n"); !ok {
 		t.Errorf("a missing promised name was held against the tests: %s", why)
@@ -422,6 +422,12 @@ func TestTestsWrittenFirstAreJudgedByTheContract(t *testing.T) {
 	}
 	if ok, why := judge(false, "vet: ./shortcuts_test.go:53:40: undefined: key.NameN\n"); ok || !strings.Contains(why, "key.NameN") {
 		t.Errorf("a name a library does not have passed: %v %s", ok, why)
+	}
+	if ok, why := judge(false, "internal/ui/notify_test.go:6:2: no required module provides package ex.com/m/internal/notify; to add it:\n"); !ok {
+		t.Errorf("a package a code unit creates was held against the tests: %s", why)
+	}
+	if ok, _ := judge(false, "internal/ui/notify_test.go:6:2: no required module provides package ex.com/m/internal/elsewhere; to add it:\n"); ok {
+		t.Error("a package no unit creates passed")
 	}
 	if ok, _ := judge(false, "vet: x_test.go:11:15: not enough arguments in call to testUI\n"); ok {
 		t.Error("the wrong arguments to a function that exists passed")

@@ -628,6 +628,17 @@ func (r *Run) execute(ctx context.Context) error {
 	return nil
 }
 
+// createdBy reports whether an import path names a directory a code unit
+// of the plan writes into.
+func createdBy(path string, created map[string]bool) bool {
+	for dir := range created {
+		if dir != "." && (path == dir || strings.HasSuffix(path, "/"+dir)) {
+			return true
+		}
+	}
+	return false
+}
+
 // blamed is the tests unit at the head of the plan whose files a code
 // unit's failure blames, or -1.
 func (r *Run) blamed(c carried, head int, results []carried) int {
@@ -1169,6 +1180,16 @@ func (r *Run) judgeTests() func(bool, string) (bool, string) {
 		}
 	}
 	local := harness.Packages(r.repo)
+	// A package a code unit creates may be missing too: the tests import
+	// it before it exists.
+	created := map[string]bool{}
+	for _, u := range r.units {
+		if !u.tests {
+			for _, p := range u.scope {
+				created[filepath.ToSlash(filepath.Dir(p))] = true
+			}
+		}
+	}
 	return func(passed bool, out string) (bool, string) {
 		if passed {
 			return true, ""
@@ -1184,6 +1205,9 @@ func (r *Run) judgeTests() func(bool, string) (bool, string) {
 			if m := undefinedName.FindStringSubmatch(line); m != nil && promised[m[1]+m[2]] && harness.MissingHere(line, local) {
 				continue
 			}
+			if m := missingPackage.FindStringSubmatch(line); m != nil && createdBy(m[1]+m[2], created) {
+				continue
+			}
 			theirs = append(theirs, strings.TrimSpace(line))
 		}
 		if len(theirs) == 0 {
@@ -1195,7 +1219,8 @@ func (r *Run) judgeTests() func(bool, string) (bool, string) {
 }
 
 var (
-	identifier    = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
-	faultLine     = regexp.MustCompile(`^\s*(?:vet: )?[\w./-]+\.\w+:\d+:\d+: `)
-	undefinedName = regexp.MustCompile(`undefined: (?:\w+\.)?(\w+)|has no field or method (\w+)`)
+	identifier     = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
+	faultLine      = regexp.MustCompile(`^\s*(?:vet: )?[\w./-]+\.\w+:\d+:\d+: `)
+	missingPackage = regexp.MustCompile(`no required module provides package ([^\s;]+)|could not import ([^\s;]+)`)
+	undefinedName  = regexp.MustCompile(`undefined: (?:\w+\.)?(\w+)|has no field or method (\w+)`)
 )
