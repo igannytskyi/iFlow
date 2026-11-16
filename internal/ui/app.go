@@ -534,6 +534,7 @@ func (u *UI) taskRow(p *project, key, title, state, spent string, c *workspace.C
 				return layout.Flex{Alignment: layout.Middle, Gap: gtx.Dp(8)}.Layout(gtx,
 					layout.Rigid(dot(u.stateColor(state), 7)),
 					layout.Flexed(1, u.oneLine(sizeSmall, u.p.Text, title)),
+					layout.Rigid(u.attention(p, state, c)),
 					layout.Rigid(u.oneLine(sizeSmall, u.p.Faint, spent)),
 				)
 			})))
