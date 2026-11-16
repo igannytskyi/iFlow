@@ -139,8 +139,7 @@ func (r *run) add(rule string, s Severity, format string, args ...any) {
 	r.findings = append(r.findings, Finding{Rule: rule, Severity: s, Message: fmt.Sprintf(format, args...)})
 }
 
-func (r *run) doc(s artifact.Stage) *artifact.Doc { return r.c.Doc(s) }
-func (r *run) has(s artifact.Stage) bool          { return r.c.Has(s) }
+func (r *run) has(s artifact.Stage) bool { return r.c.Has(s) }
 
 // Check runs every check against one change, in the order the rules were
 // written.
@@ -176,11 +175,14 @@ var recordRules = []string{"B1", "B4", "R4"}
 // Closed reports whether a person closed the change — the last line of its
 // record says so — and why.
 func Closed(c *artifact.Change) (why string, ok bool) {
-	rows := c.Record.Rows("Stage")
-	if len(rows) == 0 || rows[len(rows)-1].Cell("Stage") != "closed" {
-		return "", false
+	// The last crossing of the change itself: a migration into the data
+	// model is not one.
+	for i := len(c.Meta.Record) - 1; i >= 0; i-- {
+		if cr := c.Meta.Record[i]; cr.Stage != "migrated" {
+			return cr.Note, cr.Stage == "closed"
+		}
 	}
-	return rows[len(rows)-1].Cell("Note"), true
+	return "", false
 }
 
 // AreaOf is the area of responsibility a rule's check judges the output of,
@@ -207,7 +209,7 @@ func Rules() []string {
 // registry is every check, in the order the rules were written.
 var registry = []check{
 	{"stage order", 0, []string{"B1"}, stageOrder},
-	{"headers present", 0, []string{"B1"}, headersPresent},
+	{"documents read whole", 0, []string{"B1"}, readable},
 	{"criteria vocabulary", 1, []string{"R19"}, criteriaVocabulary},
 	{"evidence plan", 3, []string{"R16", "CONVENTIONS"}, evidencePlan},
 	{"arbiter inputs", 3, []string{"R7b"}, arbiterInputs},

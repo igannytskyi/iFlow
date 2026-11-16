@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
+	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
@@ -153,6 +154,8 @@ func (r *Run) plan(ctx context.Context) error {
 		units[i].aoe = fmt.Sprintf("%d file(s) reached firmly, %d on a name alone, derived, medium", firm, len(reach)-firm)
 	}
 	r.units = units
+	// doc is the plan described, for plan.md; record, below, is the plan's
+	// record in the data model.
 	doc := artifact.PlanDoc{Name: r.slug, Spec: r.id("SPEC"), Phases: "1",
 		Intermediate: "yes — the tests alone fail and nothing ships on them; each code unit leaves the estate building",
 		Residue:      "none — remove the new tests and what the code units added",
@@ -160,12 +163,16 @@ func (r *Run) plan(ctx context.Context) error {
 			len(all), totalReach, totalFirm),
 		Approach: approach, Planner: planner}
 	for _, u := range units {
-		doc.Units = append(doc.Units, artifact.UnitRow{ID: u.id, Phase: "1", Class: u.class, Scope: strings.Join(u.scope, ", "),
-			AreaOfEffect: u.aoe, Criteria: joinIDs(u.criteria), DependsOn: u.dependsOn, PreparatoryFor: u.preparatoryFor})
 		doc.Briefs = append(doc.Briefs, artifact.Part{Title: u.id + " — " + u.title, Text: u.brief})
 		r.say(2, u.id, "%s: %s — %s", u.id, u.title, strings.Join(u.scope, ", "))
 	}
-	if err := artifact.Write(r.dir, artifact.Plan, doc.Markdown()); err != nil {
+	record := meta.Plan{Schema: meta.SchemaVersion, Name: r.slug, Specification: r.id("SPEC"), Phases: 1,
+		IntermediateValid: doc.Intermediate, Residue: doc.Residue, CoverageText: doc.Coverage, Planner: planner}
+	for _, u := range units {
+		record.Units = append(record.Units, meta.WorkUnit{ID: u.id, Phase: 1, Class: meta.Class(u.class), Scope: u.scope,
+			AreaOfEffect: u.aoe, Criteria: u.criteria, DependsOn: splitIDs(u.dependsOn), PreparatoryFor: splitIDs(u.preparatoryFor)})
+	}
+	if err := artifact.Save(r.dir, artifact.Plan, record); err != nil {
 		return r.fail(2, "the plan could not be written: %v", err)
 	}
 	_ = os.WriteFile(filepath.Join(r.dir, artifact.PlanFile), []byte(doc.Document()), 0o644)
@@ -363,4 +370,15 @@ func planText(units []unit, approach []artifact.Part) string {
 		fmt.Fprintf(&b, "\n## %s — %s (%s)\nScope: %s\nCriteria: %s\n\n%s", u.id, u.title, kind, strings.Join(u.scope, ", "), joinIDs(u.criteria), u.brief)
 	}
 	return b.String()
+}
+
+// splitIDs is a list of identifiers written "A, B".
+func splitIDs(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

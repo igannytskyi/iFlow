@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "id": "INT-001",
+  "name": "greet-the-world",
+  "stated_by": "the example's author",
+  "deciding_authority": "the example's author",
+  "priority": "normal",
+  "deadline": "none",
+  "statement": "When nobody is named, the greeting greets the world instead of greeting an empty name.",
+  "status": "satisfied"
+}

@@ -3,11 +3,14 @@ package artifact
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
+
+	"github.com/igannytskyi/iflow/internal/meta"
 )
 
 // What is written here is written in the columns the templates declare and
@@ -418,55 +421,34 @@ func (d LandingDoc) Markdown() string {
 		"\n## Unplanned state\n\n" + table([]string{"Occurred", "Area of effect halted", "Resolved by"}, [][]string{{"no", "", ""}})
 }
 
-// Crossing is one line of record.md.
-type Crossing struct{ At, Stage, Object, Note string }
+// Crossing is one line of the record.
+type Crossing = meta.Crossing
 
-// Record is record.md, appended to and never rewritten.
+// Record is a change's record, appended to and never rewritten.
 type Record struct {
 	Name string
 	Dir  string
 }
 
-// Append adds crossings to the record, writing its header the first time.
-// Ordinals continue from the last line, whatever is already there.
+// Append adds crossings to the record, each numbered after the last. A
+// record kept only as Markdown, by a change not yet migrated, is read into
+// record.jsonl first, so that the ordinals go on from its last line.
 func (r Record) Append(lines ...Crossing) error {
-	p := filepath.Join(r.Dir, "record.md")
-	n := 0
-	// A line is written in the columns the record already has: an older
-	// record keeps a Digest column a newer one does not, and a line written
-	// in the wrong shape puts its note under the wrong heading.
-	columns := []string{"#", "At", "Stage", "Object", "Note"}
-	if b, err := os.ReadFile(p); err == nil {
-		doc := ParseDoc(string(b))
-		n = len(doc.Rows("#", "Stage"))
-		for _, t := range doc.All() {
-			if slices.Contains(t.Headers, "Stage") && slices.Contains(t.Headers, "#") {
-				columns = t.Headers
+	if _, err := os.Stat(filepath.Join(r.Dir, RecordFile)); errors.Is(err, fs.ErrNotExist) {
+		if b, err := os.ReadFile(filepath.Join(r.Dir, "record.md")); err == nil {
+			was, problems := DecodeRecord(string(b))
+			if len(problems) > 0 {
+				return fmt.Errorf("record.md cannot be read into the data model: %s", strings.Join(problems, "; "))
+			}
+			if err := keep(r.Dir, "record.md"); err != nil {
+				return err
+			}
+			if err := writeRecord(r.Dir, was); err != nil {
+				return err
 			}
 		}
-	} else {
-		head := "# Record — " + r.Name + "\n\nAppend-only. Each crossing of a stage boundary is one line.\n\n| # | At | Stage | Object | Note |\n|---|---|---|---|---|\n"
-		if err := os.WriteFile(p, []byte(head), 0o644); err != nil {
-			return err
-		}
 	}
-	f, err := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	for _, l := range lines {
-		n++
-		value := map[string]string{"#": fmt.Sprint(n), "At": l.At, "Stage": l.Stage, "Object": l.Object, "Note": l.Note}
-		cells := make([]string, len(columns))
-		for i, c := range columns {
-			cells[i] = cell(value[c])
-		}
-		if _, err := fmt.Fprintf(f, "| %s |\n", strings.Join(cells, " | ")); err != nil {
-			return err
-		}
-	}
-	return nil
+	return AppendRecord(r.Dir, r.Name, lines...)
 }
 
 // Write writes one stage of a change.

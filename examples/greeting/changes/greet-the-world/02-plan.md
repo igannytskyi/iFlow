@@ -11,8 +11,8 @@
 
 | Id | Phase | Class | Scope | Area of effect | Criteria | Depends on | Preparatory for |
 |---|---|---|---|---|---|---|---|
-| WU-001-01 | 1 | C2 | greeting_world_test.go | the arbiter only, derived, high | CR-001-01 | | WU-001-02 |
-| WU-001-02 | 1 | C2 | greeting.go | the package, derived, high — one file, one function | CR-001-01, CR-001-02, CR-001-03 | WU-001-01 | |
+| WU-001-01 | 1 | C2 | greeting_world_test.go | the arbiter only, derived, high | CR-001-01 |  | WU-001-02 |
+| WU-001-02 | 1 | C2 | greeting.go | the package, derived, high — one file, one function | CR-001-01, CR-001-02, CR-001-03 | WU-001-01 |  |
 
 ## Coverage
 

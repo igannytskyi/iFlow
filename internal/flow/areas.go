@@ -19,6 +19,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/gate"
 	"github.com/igannytskyi/iflow/internal/harness"
+	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
@@ -353,7 +354,7 @@ func (d draft) problem() string {
 		return "it names no scope"
 	case d.Document.Summary == "" || len(d.Document.Flows) == 0 || len(d.Document.Requirements) == 0 || len(d.Document.Interfaces) == 0 || len(d.Document.Components) == 0:
 		return "it does not specify the change: summary, flows, requirements, interfaces or components are empty"
-	case !slices.Contains([]string(gate.Codes["class"]), d.Class):
+	case !meta.Allowed("Class", d.Class):
 		return "class " + d.Class + " is not one of C1P, C1T, C2, C3, C4, C5"
 	}
 	for _, t := range d.NewTests {
@@ -380,24 +381,24 @@ func (r *Run) writeIntent(d draft) error {
 	_ = os.WriteFile(filepath.Join(dir, RunningFile), []byte(fmt.Sprint(os.Getpid())), 0o644)
 	r.keepCosts()
 	first := !fileExists(filepath.Join(dir, "00-intent.md"))
-	err := artifact.Write(dir, artifact.Intent, artifact.IntentDoc{
+	err := artifact.Save(dir, artifact.Intent, meta.Intent{Schema: meta.SchemaVersion,
 		Name: r.slug, ID: r.id("INT"), StatedBy: r.cfg.Person, Authority: r.cfg.Person,
-		Priority: "normal", Deadline: "none", Statement: d.Statement, Status: "open"}.Markdown())
+		Priority: "normal", Deadline: "none", Statement: d.Statement, Status: meta.Open})
 	if err != nil {
 		return err
 	}
-	spec := artifact.SpecDoc{Name: r.slug, ID: r.id("SPEC"), Intent: r.id("INT"), Class: d.Class, Prose: d.Prose,
-		Included: d.Scope, Excluded: append(slices.Clone(d.NewTests), d.SuiteTests...),
+	spec := meta.Specification{Schema: meta.SchemaVersion, Name: r.slug, ID: r.id("SPEC"), Intent: r.id("INT"), Class: meta.Class(d.Class), Prose: d.Prose,
+		Scope: meta.Scope{Included: d.Scope, Excluded: append(slices.Clone(d.NewTests), d.SuiteTests...)},
 	}
 	var byNew, bySuite []string
 	for i, c := range d.Criteria {
 		id := r.id("CR", i+1)
-		plan := c.Plan
-		if plan != "required" {
-			plan = "not-required"
+		plan := meta.NotRequired
+		if c.Plan == "required" {
+			plan = meta.Required
 		}
-		spec.Criteria = append(spec.Criteria, artifact.CriterionRow{ID: id, Criterion: c.Criterion, When: c.When,
-			Then: c.Then, Plan: plan, Procedure: "machine", Evidence: "test-run", Threshold: c.Threshold})
+		spec.Criteria = append(spec.Criteria, meta.Criterion{ID: id, Criterion: c.Criterion, When: c.When,
+			Then: c.Then, Plan: plan, Procedure: meta.Machine, Evidence: meta.TestRun, Threshold: c.Threshold})
 		if c.New && len(d.NewTests) > 0 {
 			byNew = append(byNew, id)
 		} else {
@@ -409,10 +410,10 @@ func (r *Run) writeIntent(d draft) error {
 		if action != "escalate" {
 			action = "stop"
 		}
-		spec.Termination = append(spec.Termination, [2]string{t.Condition, action})
+		spec.Termination = append(spec.Termination, meta.Termination{Condition: t.Condition, Action: action})
 	}
 	for _, t := range d.NewTests {
-		spec.Arbiter = append(spec.Arbiter, artifact.ArbiterRow{Path: t, Arbitrates: joinIDs(byNew)})
+		spec.Arbiters = append(spec.Arbiters, meta.Arbiter{Path: t, Arbitrates: joinIDs(byNew)})
 	}
 	suite := d.SuiteTests
 	if len(suite) == 0 {
@@ -421,12 +422,12 @@ func (r *Run) writeIntent(d draft) error {
 		}
 	}
 	for _, t := range suite {
-		spec.Arbiter = append(spec.Arbiter, artifact.ArbiterRow{Path: t, Arbitrates: joinIDs(bySuite)})
+		spec.Arbiters = append(spec.Arbiters, meta.Arbiter{Path: t, Arbitrates: joinIDs(bySuite)})
 	}
 	for _, s := range d.Scope {
-		spec.Inputs = append(spec.Inputs, [2]string{s, "yes — what the tests judge is what changes"})
+		spec.Inputs = append(spec.Inputs, meta.ArbiterInput{Input: s, InScope: "yes — what the tests judge is what changes"})
 	}
-	if err := artifact.Write(dir, artifact.Specification, spec.Markdown()); err != nil {
+	if err := artifact.Save(dir, artifact.Specification, spec); err != nil {
 		return err
 	}
 	// The change described is a document of its own, beside the method's
@@ -455,32 +456,34 @@ func (r *Run) writeIntent(d draft) error {
 // evidence plan fixed from the area of effect, the prior state captured.
 func (r *Run) admit(ctx context.Context) error {
 	r.set(3, Working)
-	digest, err := artifact.DigestFile(filepath.Join(r.dir, "01-specification.md"))
+	// The specification as admitted is its JSON: R1 compares against this
+	// digest ever after.
+	digest, err := artifact.DigestFile(artifact.JSONFile(r.dir, artifact.Specification))
 	if err != nil {
 		return r.fail(3, "the specification could not be read: %v", err)
 	}
-	doc := artifact.AdmissionDoc{Name: r.slug, Digest: digest,
-		Review: [4]string{"yes", r.cfg.Person, today(), "accepted in the workbench before any work"}}
+	doc := meta.Admission{Schema: meta.SchemaVersion, Name: r.slug, Digest: digest,
+		Reviews: []meta.Review{{Reviewed: "yes", By: r.cfg.Person, At: today(), Note: "accepted in the workbench before any work"}}}
 	for i, u := range r.units {
 		cond := "permission"
 		if i > 0 {
 			cond = "conflict"
 		}
-		doc.Decisions = append(doc.Decisions, [4]string{u.id, "admitted", cond, "medium"})
+		doc.Decisions = append(doc.Decisions, meta.Decision{Unit: u.id, Outcome: meta.Admitted, Condition: cond, Confidence: "medium"})
 	}
 	if len(r.units) > 1 {
 		var ids []string
 		for _, u := range r.units {
 			ids = append(ids, u.id)
 		}
-		doc.Conflicts = append(doc.Conflicts, [4]string{joinIDs(ids), "none", "none", "ordering"})
+		doc.Conflicts = append(doc.Conflicts, meta.Conflict{Units: joinIDs(ids), Region: "none", Invalidates: "none", Resolution: "ordering"})
 	}
 	// Other changes in flight in the same estate whose scope meets this
 	// one's: whichever lands second finds the ground moved under it, and the
 	// landing says so rather than undoing the first.
 	for _, other := range r.inFlight() {
-		doc.Conflicts = append(doc.Conflicts, [4]string{r.id("SPEC") + ", " + other.name, strings.Join(other.shared, ", "),
-			"the evidence of whichever lands second", "ordering: the second landing re-checks the ground and stops if it moved"})
+		doc.Conflicts = append(doc.Conflicts, meta.Conflict{Units: r.id("SPEC") + ", " + other.name, Region: strings.Join(other.shared, ", "),
+			Invalidates: "the evidence of whichever lands second", Resolution: "ordering: the second landing merges onto the ground as it is then, and stops if their edits overlap"})
 		r.say(3, "", "in flight beside it: %s, which may also change %s; whichever lands second checks the ground first", other.name, strings.Join(other.shared, ", "))
 	}
 	observed, err := r.observed()
@@ -489,9 +492,9 @@ func (r *Run) admit(ctx context.Context) error {
 	}
 	for i, c := range r.spec.Criteria {
 		if c.Plan == "required" {
-			doc.EvidencePlan = append(doc.EvidencePlan, [6]string{r.id("CR", i+1), observed,
-				"the tests written first, run once before the change and once after", "the behaviour stands as it does now",
-				"the area of effect of " + strings.Join(r.spec.Scope, ", ") + ", derived, medium", today()})
+			doc.Plans = append(doc.Plans, meta.EvidencePlan{Criterion: r.id("CR", i+1), Observed: observed,
+				Method: "the tests written first, run once before the change and once after", Unchanged: "the behaviour stands as it does now",
+				DerivedFrom: "the area of effect of " + strings.Join(r.spec.Scope, ", ") + ", derived, medium", FixedAt: today()})
 		}
 	}
 	base := filepath.Join(r.dir, "baseline")
@@ -510,9 +513,9 @@ func (r *Run) admit(ctx context.Context) error {
 		if err := os.WriteFile(filepath.Join(r.dir, to), src, 0o644); err != nil {
 			return r.fail(3, "the prior state could not be captured: %v", err)
 		}
-		doc.Captured = append(doc.Captured, [3]string{r.id("CR", 1), what, to})
+		doc.Prior = append(doc.Prior, meta.Capture{Criterion: r.id("CR", 1), Artefact: what, CapturedTo: to})
 	}
-	if err := artifact.Write(r.dir, artifact.Admission, doc.Markdown()); err != nil {
+	if err := artifact.Save(r.dir, artifact.Admission, doc); err != nil {
 		return r.fail(3, "the admission could not be written: %v", err)
 	}
 	for _, u := range r.units {
@@ -560,7 +563,7 @@ func (r *Run) observed() (string, error) {
 func (r *Run) execute(ctx context.Context) error {
 	r.set(4, Working)
 	prof, ok := detect(r.repo)
-	doc := artifact.ExecutionDoc{Name: r.slug}
+	doc := meta.Execution{Schema: meta.SchemaVersion, Name: r.slug}
 	// The tests units at the head of the plan rely on nothing any unit
 	// writes, so they are carried out at once, each by its own agent in its
 	// own copy of the estate; the code units after them each rely on the one
@@ -583,9 +586,9 @@ func (r *Run) execute(ctx context.Context) error {
 	var overlays []string
 	keep := func(i int) {
 		c, u := results[i], r.units[i]
-		run := artifact.RunRow{Unit: u.id, Executor: r.cfg.Executor.Name(), Version: r.cfg.Executor.Version(), Terminal: c.res.Terminal, Candidate: c.ca}
-		cand := artifact.CandidateRow{ID: c.ca, Unit: u.id, StoredAt: "candidates/" + c.ca + "/", Artefacts: strings.Join(c.paths, ", "), ProducedAt: today()}
-		if j := slices.IndexFunc(doc.Runs, func(x artifact.RunRow) bool { return x.Unit == u.id }); j >= 0 {
+		run := meta.Run{Unit: u.id, Executor: r.cfg.Executor.Name(), Version: r.cfg.Executor.Version(), Terminal: meta.Terminal(c.res.Terminal), Candidate: c.ca}
+		cand := meta.Candidate{ID: c.ca, Unit: u.id, StoredAt: "candidates/" + c.ca + "/", Artefacts: strings.Join(c.paths, ", "), ProducedAt: today()}
+		if j := slices.IndexFunc(doc.Runs, func(x meta.Run) bool { return x.Unit == u.id }); j >= 0 {
 			doc.Runs[j], doc.Candidates[j] = run, cand // carried again: the last carrying stands
 			return
 		}
@@ -623,7 +626,7 @@ func (r *Run) execute(ctx context.Context) error {
 		}
 		c := results[i]
 		keep(i)
-		if err := artifact.Write(r.dir, artifact.Execution, doc.Markdown()); err != nil {
+		if err := artifact.Save(r.dir, artifact.Execution, doc); err != nil {
 			return r.fail(4, "the execution could not be written: %v", err)
 		}
 		if err := r.record("execution", c.ca, c.res.Summary); err != nil {
@@ -951,7 +954,7 @@ func (r *Run) assure(ctx context.Context) error {
 		return r.fail(5, "a workspace could not be made: %v", err)
 	}
 	defer os.RemoveAll(ws)
-	doc := artifact.AssuranceDoc{Name: r.slug}
+	doc := meta.Assurance{Schema: meta.SchemaVersion, Name: r.slug}
 	passed := map[string]bool{} // evidence id → passed
 	byCriterion := map[string]string{}
 	for i, prep := range r.units {
@@ -966,10 +969,10 @@ func (r *Run) assure(ctx context.Context) error {
 		r.cost(artifact.Cost{Area: 5, Unit: prep.id, What: ev + ": the tests written first", Actor: prof.name}, model.Usage{}, took)
 		passed[ev] = ok
 		r.keepOutput(ev, out)
-		doc.Evidence = append(doc.Evidence, artifact.EvidenceRow{ID: ev, Subject: "candidate", Kind: "test-run", Producer: shown(cmd),
-			Independence: "independent-by-precommitment",
+		doc.Evidence = append(doc.Evidence, meta.Evidence{ID: ev, Subject: meta.OfCandidate, Kind: meta.TestRun, Producer: shown(cmd),
+			Independence: meta.ByPrecommitment,
 			How:          "written by " + prep.id + " and failed against the unchanged estate before the change existed — candidates/" + ca + "/failing-before.txt",
-			Repeatable:   "yes", ObtainedAt: today(), ValidUntil: "next change to " + strings.Join(r.spec.Scope, ", ")})
+			Repeatable:   meta.Yes, ObtainedAt: today(), ValidUntil: "next change to " + strings.Join(r.spec.Scope, ", ")})
 		for _, c := range prep.criteria {
 			byCriterion[c] = ev
 		}
@@ -980,9 +983,9 @@ func (r *Run) assure(ctx context.Context) error {
 	r.cost(artifact.Cost{Area: 5, What: suite + ": the whole suite", Actor: prof.name}, model.Usage{}, took)
 	passed[suite] = ok2
 	r.keepOutput(suite, out)
-	doc.Evidence = append(doc.Evidence, artifact.EvidenceRow{ID: suite, Subject: "candidate", Kind: "test-run", Producer: shown(prof.suite),
-		Independence: "independent-by-executor", How: "the estate's own suite, written before this change and outside everything it touched",
-		Repeatable: "yes", ObtainedAt: today(), ValidUntil: "next change to the estate"})
+	doc.Evidence = append(doc.Evidence, meta.Evidence{ID: suite, Subject: meta.OfCandidate, Kind: meta.TestRun, Producer: shown(prof.suite),
+		Independence: meta.ByExecutor, How: "the estate's own suite, written before this change and outside everything it touched",
+		Repeatable: meta.Yes, ObtainedAt: today(), ValidUntil: "next change to the estate"})
 	r.say(5, suite, "%s: %s %s", suite, shown(prof.suite), verdictWord(ok2))
 	n := 0
 	allMet := true
@@ -993,26 +996,26 @@ func (r *Run) assure(ctx context.Context) error {
 				ev = suite
 			}
 			n++
-			outcome := "met"
+			outcome := meta.Met
 			if !passed[ev] {
-				outcome, allMet = "failed", false
+				outcome, allMet = meta.Failed, false
 			}
 			ve := r.id("VE", n)
-			doc.Verdicts = append(doc.Verdicts, artifact.VerdictRow{ID: ve, Unit: u.id, Criterion: c, Outcome: outcome, Evidence: ev, State: "settled"})
+			doc.Verdicts = append(doc.Verdicts, meta.Verdict{ID: ve, Unit: u.id, Criterion: c, Outcome: outcome, Evidence: []string{ev}, State: meta.Settled})
 			r.say(5, ve, "%s: %s on %s — %s, on %s", ve, u.id, c, outcome, ev)
 		}
 	}
 	if allMet {
 		for _, ref := range r.settles {
-			doc.Settled = append(doc.Settled, [3]string{ref, "this change", "every criterion met; started to close it"})
+			doc.Settled = append(doc.Settled, meta.Settlement{Escalation: ref, ResolvedBy: "this change", Note: "every criterion met; started to close it"})
 			r.say(5, ref, "%s is closed by this change", ref)
 		}
 	}
-	if err := artifact.Write(r.dir, artifact.Assurance, doc.Markdown()); err != nil {
+	if err := artifact.Save(r.dir, artifact.Assurance, doc); err != nil {
 		return r.fail(5, "the assurance could not be written: %v", err)
 	}
 	for _, v := range doc.Verdicts {
-		if err := r.record("assurance", v.ID, v.Outcome); err != nil {
+		if err := r.record("assurance", v.ID, string(v.Outcome)); err != nil {
 			return err
 		}
 	}
@@ -1043,7 +1046,7 @@ func (r *Run) keepOutput(ev, out string) {
 // order the plan gave, while its evidence still holds.
 func (r *Run) land(ctx context.Context) error {
 	r.set(6, Working)
-	doc := artifact.LandingDoc{Name: r.slug}
+	doc := meta.Landing{Schema: meta.SchemaVersion, Name: r.slug}
 	// The estate may have moved since admission: another change landed on
 	// the same ground. Entering whole files now would undo it, and the
 	// evidence was gathered against ground that is no longer there. Where
@@ -1070,11 +1073,11 @@ func (r *Run) land(ctx context.Context) error {
 				}
 			}
 		}
-		doc.Entries = append(doc.Entries, artifact.EntryRow{Order: fmt.Sprint(i + 1), Unit: u.id, VerdictState: "settled",
+		doc.Entries = append(doc.Entries, meta.Entry{Order: i + 1, Unit: u.id, VerdictState: "settled",
 			StillValid: "yes", EnteredAt: today(), Invalidated: "nothing the evidence relies on"})
 		r.say(6, u.id, "%s entered", u.id)
 	}
-	if err := artifact.Write(r.dir, artifact.Landing, doc.Markdown()); err != nil {
+	if err := artifact.Save(r.dir, artifact.Landing, doc); err != nil {
 		return r.fail(6, "the landing could not be written: %v", err)
 	}
 	for _, u := range r.units {

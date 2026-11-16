@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "name": "greet-the-world",
+  "evidence": [
+    {
+      "id": "EV-001-01-01",
+      "subject": "candidate",
+      "kind": "test-run",
+      "producer": "`test.sh TestGreetTheWorld`",
+      "independence": "independent-by-precommitment",
+      "how_established": "the reproduction was written and failed against the unchanged greeting before the repair existed — candidates/CA-001-01/failing-before.txt",
+      "repeatable": "yes",
+      "obtained_at": "2026-11-14",
+      "valid_until": "next change to greeting.go"
+    },
+    {
+      "id": "EV-001-02-01",
+      "subject": "candidate",
+      "kind": "test-run",
+      "producer": "`test.sh`",
+      "independence": "independent-by-executor",
+      "how_established": "the estate's own suite, written before this change and lying outside everything it touched",
+      "repeatable": "yes",
+      "obtained_at": "2026-11-14",
+      "valid_until": "next change to greeting.go"
+    }
+  ],
+  "verdicts": [
+    {
+      "id": "VE-001-01",
+      "unit": "WU-001-02",
+      "criterion": "CR-001-01",
+      "outcome": "met",
+      "evidence": [
+        "EV-001-01-01"
+      ],
+      "state": "settled"
+    },
+    {
+      "id": "VE-001-02",
+      "unit": "WU-001-02",
+      "criterion": "CR-001-02",
+      "outcome": "met",
+      "evidence": [
+        "EV-001-02-01"
+      ],
+      "state": "settled"
+    },
+    {
+      "id": "VE-001-03",
+      "unit": "WU-001-02",
+      "criterion": "CR-001-03",
+      "outcome": "met",
+      "evidence": [
+        "EV-001-02-01"
+      ],
+      "state": "settled"
+    },
+    {
+      "id": "VE-001-04",
+      "unit": "WU-001-01",
+      "criterion": "CR-001-01",
+      "outcome": "met",
+      "evidence": [
+        "EV-001-01-01"
+      ],
+      "state": "settled"
+    }
+  ],
+  "escalations_raised": [
+    {
+      "n": 1,
+      "standing": "open",
+      "ground": "A name made only of spaces is greeted as it is, and no criterion says whether that is a name — the criteria under-determine the result there, which belongs to area 1",
+      "raised_against": "area 1",
+      "to": "the example's author"
+    }
+  ]
+}

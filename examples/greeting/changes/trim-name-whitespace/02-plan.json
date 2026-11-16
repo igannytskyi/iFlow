@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "name": "trim-name-whitespace",
+  "specification": "SPEC-002",
+  "phases": 1,
+  "intermediate_states_valid": "yes — the tests alone fail and nothing ships on them",
+  "residue_on_abandonment": "none — remove the new tests",
+  "units": [
+    {
+      "id": "WU-002-01",
+      "phase": 1,
+      "class": "C3",
+      "scope": [
+        "greeting_trim_test.go"
+      ],
+      "area_of_effect": "the arbiter only, derived, high",
+      "criteria": [
+        "CR-002-01",
+        "CR-002-02"
+      ],
+      "preparatory_for": [
+        "WU-002-02"
+      ]
+    },
+    {
+      "id": "WU-002-02",
+      "phase": 1,
+      "class": "C3",
+      "scope": [
+        "greeting.go"
+      ],
+      "area_of_effect": "0 file(s) reached firmly, 2 on a name alone, derived, medium",
+      "criteria": [
+        "CR-002-01",
+        "CR-002-02",
+        "CR-002-03"
+      ],
+      "depends_on": [
+        "WU-002-01"
+      ]
+    }
+  ],
+  "coverage_text": "The units cover all 3 criteria. The estate reached 2 file(s) from the scope, 0 of them firmly."
+}

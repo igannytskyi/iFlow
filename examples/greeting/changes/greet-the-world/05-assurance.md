@@ -11,10 +11,10 @@
 
 | Id | Unit | Criterion | Outcome | Evidence | State | Window | Baseline |
 |---|---|---|---|---|---|---|---|
-| VE-001-01 | WU-001-02 | CR-001-01 | met | EV-001-01-01 | settled | | |
-| VE-001-02 | WU-001-02 | CR-001-02 | met | EV-001-02-01 | settled | | |
-| VE-001-03 | WU-001-02 | CR-001-03 | met | EV-001-02-01 | settled | | |
-| VE-001-04 | WU-001-01 | CR-001-01 | met | EV-001-01-01 | settled | | |
+| VE-001-01 | WU-001-02 | CR-001-01 | met | EV-001-01-01 | settled |  |  |
+| VE-001-02 | WU-001-02 | CR-001-02 | met | EV-001-02-01 | settled |  |  |
+| VE-001-03 | WU-001-02 | CR-001-03 | met | EV-001-02-01 | settled |  |  |
+| VE-001-04 | WU-001-01 | CR-001-01 | met | EV-001-01-01 | settled |  |  |
 
 ## Escalations
 

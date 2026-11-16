@@ -15,6 +15,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/gate"
 	"github.com/igannytskyi/iflow/internal/harness"
+	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
@@ -217,6 +218,21 @@ func TestATaskTravelsThePath(t *testing.T) {
 	c, err := artifact.Load(v.Dir)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Every document the run wrote is in the data model: JSON beside its
+	// Markdown, read back whole and breaking nothing of the model.
+	for _, st := range artifact.Stages {
+		if _, err := os.Stat(artifact.JSONFile(v.Dir, st)); err != nil {
+			t.Errorf("%s was not written in the data model: %v", st, err)
+		}
+	}
+	if len(c.Meta.Problems) > 0 || c.Meta.Landing == nil || len(c.Meta.Record) == 0 || c.Meta.Specification.Criteria[0].ID != "CR-001-01" {
+		t.Errorf("the change does not read back in the model: %v", c.Meta.Problems)
+	}
+	for _, d := range []any{c.Meta.Intent, c.Meta.Specification, c.Meta.Plan, c.Meta.Admission, c.Meta.Execution, c.Meta.Assurance, c.Meta.Landing} {
+		if ps := meta.Validate(d); len(ps) > 0 {
+			t.Errorf("a document breaks the model: %v", ps)
+		}
 	}
 	rep := cfg.Gate.Check(context.Background(), c)
 	if !rep.Passed() {

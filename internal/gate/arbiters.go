@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/igannytskyi/iflow/internal/meta"
 )
 
 // The framework's own arbiters are its Go tests. Running them is one action,
@@ -108,7 +110,7 @@ func Unused(home string) (columns map[string][]string, codes []string, err error
 		}
 	}
 	checked := map[string]bool{}
-	for _, values := range Codes {
+	for _, values := range meta.Codes {
 		for _, v := range values {
 			checked[v] = true
 		}

@@ -72,22 +72,26 @@ func (g *Gate) standing(ctx context.Context, c *artifact.Change) Standing {
 	if p := c.Present(); len(p) > 0 {
 		s.Reached = string(p[len(p)-1])
 	}
-	for _, row := range c.Doc(artifact.Admission).Rows("Outcome") {
-		switch row.Cell("Outcome") {
-		case "held":
-			s.Held++
-		case "awaiting-authority":
-			s.Waiting++
+	if ad := c.Meta.Admission; ad != nil {
+		for _, d := range ad.Decisions {
+			switch d.Outcome {
+			case "held":
+				s.Held++
+			case "awaiting-authority":
+				s.Waiting++
+			}
 		}
 	}
-	for _, row := range c.Doc(artifact.Assurance).Rows("Outcome", "Criterion") {
-		if row.Cell("Outcome") == "undecided" {
-			s.Undecided++
+	if as := c.Meta.Assurance; as != nil {
+		for _, v := range as.Verdicts {
+			if v.Outcome == "undecided" {
+				s.Undecided++
+			}
 		}
-	}
-	for _, row := range c.Doc(artifact.Assurance).Rows("Standing") {
-		if row.Cell("Standing") == "open" {
-			s.Owed++
+		for _, e := range as.Raised {
+			if e.Standing == "open" {
+				s.Owed++
+			}
 		}
 	}
 	return s

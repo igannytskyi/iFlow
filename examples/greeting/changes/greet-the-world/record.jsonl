@@ -1,0 +1,14 @@
+{"n":1,"at":"2026-11-14","stage":"intent","object":"INT-001","note":"asked to greet nobody, the greeting greets an empty name"}
+{"n":2,"at":"2026-11-14","stage":"specification","object":"SPEC-001","note":"class C2; three criteria, a reproduction first"}
+{"n":3,"at":"2026-11-14","stage":"plan","object":"SPEC-001","note":"two units: the reproduction, then the repair"}
+{"n":4,"at":"2026-11-14","stage":"admission","object":"WU-001-01","note":"admitted"}
+{"n":5,"at":"2026-11-14","stage":"admission","object":"WU-001-02","note":"admitted behind it"}
+{"n":6,"at":"2026-11-14","stage":"execution","object":"CA-001-01","note":"the reproduction, failing for the stated reason"}
+{"n":7,"at":"2026-11-14","stage":"execution","object":"CA-001-02","note":"the repair"}
+{"n":8,"at":"2026-11-14","stage":"assurance","object":"VE-001-01","note":"met"}
+{"n":9,"at":"2026-11-14","stage":"assurance","object":"VE-001-02","note":"met"}
+{"n":10,"at":"2026-11-14","stage":"assurance","object":"VE-001-03","note":"met — the suite as it stood"}
+{"n":11,"at":"2026-11-14","stage":"landing","object":"WU-001-01","note":"entered"}
+{"n":12,"at":"2026-11-14","stage":"landing","object":"WU-001-02","note":"entered"}
+{"n":13,"at":"2026-11-14","stage":"assurance","object":"VE-001-04","note":"the reproduction's own verdict, missing at first: the gate refused the landing without it (A6)"}
+{"n":14,"at":"2026-11-16","stage":"migrated","object":"the data model","digest":"3519490f41b1adb3","note":"its documents written in the data model, schema 1; the Markdown they were read from is kept under legacy/"}

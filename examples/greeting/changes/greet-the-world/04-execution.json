@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "name": "greet-the-world",
+  "runs": [
+    {
+      "unit": "WU-001-01",
+      "executor": "Claude Opus 5.5",
+      "version": "claude-opus-5-5",
+      "terminal_state": "candidate",
+      "candidate": "CA-001-01"
+    },
+    {
+      "unit": "WU-001-02",
+      "executor": "Claude Opus 5.5",
+      "version": "claude-opus-5-5",
+      "terminal_state": "candidate",
+      "candidate": "CA-001-02"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "CA-001-01",
+      "unit": "WU-001-01",
+      "stored_at": "candidates/CA-001-01/",
+      "artefacts": "the reproduction, greeting_world_test.go, and its failing run",
+      "produced_at": "2026-11-14"
+    },
+    {
+      "id": "CA-001-02",
+      "unit": "WU-001-02",
+      "stored_at": "candidates/CA-001-02/",
+      "artefacts": "the repair to the greeting, its patch, and its passing run",
+      "produced_at": "2026-11-14"
+    }
+  ],
+  "prose": "The reproduction was run against the greeting as it stood and failed for the stated reason: it greeted an empty name. The repair was run beside it in a copy of the estate, never in the live tree."
+}

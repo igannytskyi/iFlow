@@ -7,8 +7,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/igannytskyi/iflow/internal/meta"
 )
 
 // Stage is one file of a change, named as it is on disk.
@@ -111,8 +114,30 @@ type Change struct {
 	Docs map[Stage]*Doc
 	// Record is record.md, or nil when there is none.
 	Record *Doc
-	// SpecDigest is the digest of the specification as it is now.
+	// SpecDigest is the digest of the specification as it is now: of its
+	// JSON, where it has been written in the data model.
 	SpecDigest string
+	// LegacySpecDigest is the digest of the specification's Markdown as it
+	// was before the change was migrated into the data model, kept under
+	// legacy/; empty for a change never migrated.
+	LegacySpecDigest string
+	// Meta is the change in the data model: read from its JSON, or, for a
+	// change not yet migrated, from its Markdown.
+	Meta Meta
+}
+
+// Meta is every document of a change in the data model; a stage absent is nil.
+type Meta struct {
+	Intent        *meta.Intent
+	Specification *meta.Specification
+	Plan          *meta.Plan
+	Admission     *meta.Admission
+	Execution     *meta.Execution
+	Assurance     *meta.Assurance
+	Landing       *meta.Landing
+	Record        []meta.Crossing
+	// Problems are what could not be read into the model.
+	Problems []string
 }
 
 // Load reads a change folder. A folder that does not exist is an error; a
@@ -137,22 +162,89 @@ func Load(dir string) (*Change, error) {
 	c.Root = filepath.Dir(filepath.Dir(abs))
 	for _, s := range Stages {
 		b, err := os.ReadFile(filepath.Join(dir, string(s)+".md"))
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			if _, err := os.Stat(JSONFile(dir, s)); err != nil {
+				continue // the stage is not there, in either form
+			}
+		case err != nil:
+			return nil, err
+		default:
+			c.Docs[s] = ParseDoc(string(b))
+			if s == Specification {
+				c.SpecDigest = Digest(b)
+			}
 		}
-		if err != nil {
+		if err := c.loadMeta(s, b); err != nil {
 			return nil, err
 		}
-		c.Docs[s] = ParseDoc(string(b))
-		if s == Specification {
-			c.SpecDigest = Digest(b)
-		}
+	}
+	if b, err := os.ReadFile(JSONFile(dir, Specification)); err == nil {
+		c.SpecDigest = Digest(b)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, LegacyDir, string(Specification)+".md")); err == nil {
+		c.LegacySpecDigest = Digest(b)
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "record.md")); err == nil {
 		c.Record = ParseDoc(string(b))
 	}
+	if _, err := os.Stat(filepath.Join(dir, RecordFile)); err == nil {
+		rec, err := ReadRecord(dir)
+		if err != nil {
+			return nil, err
+		}
+		c.Meta.Record = rec
+	} else if b, err := os.ReadFile(filepath.Join(dir, "record.md")); err == nil {
+		var problems []string
+		c.Meta.Record, problems = DecodeRecord(string(b))
+		c.Meta.Problems = append(c.Meta.Problems, problems...)
+	}
 	return c, nil
 }
+
+// loadMeta reads one stage into the model: its JSON where it has one, its
+// Markdown where it has not been migrated.
+func (c *Change) loadMeta(s Stage, md []byte) error {
+	name := c.Name()
+	read := func(d any, decoded func() (any, []string)) error {
+		ok, err := LoadJSON(c.Dir, s, d)
+		if err != nil || ok {
+			return err
+		}
+		v, problems := decoded()
+		c.Meta.Problems = append(c.Meta.Problems, problems...)
+		reflectSet(d, v)
+		return nil
+	}
+	switch s {
+	case Intent:
+		c.Meta.Intent = &meta.Intent{}
+		return read(c.Meta.Intent, func() (any, []string) { return DecodeIntent(name, string(md)) })
+	case Specification:
+		c.Meta.Specification = &meta.Specification{}
+		return read(c.Meta.Specification, func() (any, []string) { return DecodeSpecification(name, string(md)) })
+	case Plan:
+		c.Meta.Plan = &meta.Plan{}
+		return read(c.Meta.Plan, func() (any, []string) { return DecodePlan(name, string(md)) })
+	case Admission:
+		c.Meta.Admission = &meta.Admission{}
+		return read(c.Meta.Admission, func() (any, []string) { return DecodeAdmission(name, string(md)) })
+	case Execution:
+		c.Meta.Execution = &meta.Execution{}
+		return read(c.Meta.Execution, func() (any, []string) { return DecodeExecution(name, string(md)) })
+	case Assurance:
+		c.Meta.Assurance = &meta.Assurance{}
+		return read(c.Meta.Assurance, func() (any, []string) { return DecodeAssurance(name, string(md)) })
+	case Landing:
+		c.Meta.Landing = &meta.Landing{}
+		return read(c.Meta.Landing, func() (any, []string) { return DecodeLanding(name, string(md)) })
+	}
+	return nil
+}
+
+// reflectSet stores v, a document value, where d, a pointer to one of its
+// type, points.
+func reflectSet(d, v any) { reflect.ValueOf(d).Elem().Set(reflect.ValueOf(v)) }
 
 // Digest is the name the method gives content: the first sixteen hex digits
 // of its SHA-256.
@@ -162,7 +254,26 @@ func Digest(b []byte) string {
 }
 
 // Has reports whether a stage is present.
-func (c *Change) Has(s Stage) bool { _, ok := c.Docs[s]; return ok }
+func (c *Change) Has(s Stage) bool {
+	m := c.Meta
+	switch s {
+	case Intent:
+		return m.Intent != nil
+	case Specification:
+		return m.Specification != nil
+	case Plan:
+		return m.Plan != nil
+	case Admission:
+		return m.Admission != nil
+	case Execution:
+		return m.Execution != nil
+	case Assurance:
+		return m.Assurance != nil
+	case Landing:
+		return m.Landing != nil
+	}
+	return false
+}
 
 // Doc returns a stage, or nil; every Doc method is safe on nil.
 func (c *Change) Doc(s Stage) *Doc { return c.Docs[s] }

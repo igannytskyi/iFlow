@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "name": "greet-the-world",
+  "specification_digest": "2595638150f37955",
+  "criteria_review": [
+    {
+      "reviewed_before_admission": "yes",
+      "by": "the example's author",
+      "at": "2026-11-14",
+      "note": "the three criteria read before any work"
+    }
+  ],
+  "decisions": [
+    {
+      "unit": "WU-001-01",
+      "outcome": "admitted",
+      "deciding_condition": "permission",
+      "confidence_of_edges": "high"
+    },
+    {
+      "unit": "WU-001-02",
+      "outcome": "admitted",
+      "deciding_condition": "conflict",
+      "confidence_of_edges": "high"
+    }
+  ],
+  "conflicts": [
+    {
+      "units": "WU-001-01, WU-001-02",
+      "intersecting_region": "none",
+      "evidence_it_would_invalidate": "none",
+      "resolution": "ordering"
+    }
+  ],
+  "evidence_plan": [
+    {
+      "criterion": "CR-001-01",
+      "observed": "greeting.go, the greeting with no name",
+      "method": "the reproduction, run once before the repair and once after",
+      "unchanged_means": "the greeting still reads \"Hello, !\"",
+      "derived_from": "the area of effect of greeting.go, derived, high",
+      "fixed_at": "2026-11-14"
+    }
+  ],
+  "prior_state": [
+    {
+      "criterion": "CR-001-01",
+      "artefact": "greeting.go as it stood",
+      "captured_to": "baseline/greeting.go.before"
+    }
+  ]
+}

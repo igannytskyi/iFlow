@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/estate"
+	"github.com/igannytskyi/iflow/internal/meta"
 )
 
 // These are the gate's arbiters. One change is built that passes, from the
@@ -44,47 +46,48 @@ func fixture(t *testing.T) (root, dir string) {
 		}
 	}
 	must(os.MkdirAll(dir, 0o755))
-	must(artifact.Write(dir, artifact.Intent, artifact.IntentDoc{Name: "c", ID: "INT-001", StatedBy: "a person", Authority: "a person",
-		Priority: "normal", Deadline: "none", Statement: "A answers one.", Status: "open"}.Markdown()))
-	must(artifact.Write(dir, artifact.Specification, artifact.SpecDoc{Name: "c", ID: "SPEC-001", Intent: "INT-001", Class: "C3",
-		Criteria: []artifact.CriterionRow{
-			{ID: "CR-001-01", Criterion: "The answer is one", When: "A is asked", Then: "it answers one", Plan: "required", Procedure: "machine", Evidence: "test-run", Threshold: "exactly"},
-			{ID: "CR-001-02", Criterion: "Nothing else moves", When: "the suite is run", Then: "it stands", Plan: "not-required", Procedure: "machine", Evidence: "test-run", Threshold: "identical"},
+	must(artifact.Save(dir, artifact.Intent, meta.Intent{Schema: meta.SchemaVersion, Name: "c", ID: "INT-001", StatedBy: "a person", Authority: "a person",
+		Priority: "normal", Deadline: "none", Statement: "A answers one.", Status: meta.Open}))
+	must(artifact.Save(dir, artifact.Specification, meta.Specification{Schema: meta.SchemaVersion, Name: "c", ID: "SPEC-001", Intent: "INT-001", Class: "C3",
+		Criteria: []meta.Criterion{
+			{ID: "CR-001-01", Criterion: "The answer is one", When: "A is asked", Then: "it answers one", Plan: meta.Required, Procedure: meta.Machine, Evidence: meta.TestRun, Threshold: "exactly"},
+			{ID: "CR-001-02", Criterion: "Nothing else moves", When: "the suite is run", Then: "it stands", Plan: meta.NotRequired, Procedure: meta.Machine, Evidence: meta.TestRun, Threshold: "identical"},
 		},
-		Termination: [][2]string{{"one cannot be answered", "stop"}},
-		Included:    []string{"src/a.go"}, Excluded: []string{"src/a_test.go"},
-		Arbiter: []artifact.ArbiterRow{{Path: "src/a_test.go", Arbitrates: "CR-001-01, CR-001-02"}},
-		Inputs:  [][2]string{{"src/a.go", "yes"}},
-	}.Markdown()))
-	must(artifact.Write(dir, artifact.Plan, artifact.PlanDoc{Name: "c", Spec: "SPEC-001", Phases: "1", Intermediate: "yes", Residue: "none",
-		Coverage: "The unit covers both criteria.",
-		Units:    []artifact.UnitRow{{ID: "WU-001-01", Phase: "1", Class: "C3", Scope: "src/a.go", AreaOfEffect: "src, derived, high", Criteria: "CR-001-01, CR-001-02"}},
-	}.Markdown()))
-	digest, err := artifact.DigestFile(filepath.Join(dir, "01-specification.md"))
+		Termination: []meta.Termination{{Condition: "one cannot be answered", Action: "stop"}},
+		Scope:       meta.Scope{Included: []string{"src/a.go"}, Excluded: []string{"src/a_test.go"}},
+		Arbiters:    []meta.Arbiter{{Path: "src/a_test.go", Arbitrates: "CR-001-01, CR-001-02"}},
+		Inputs:      []meta.ArbiterInput{{Input: "src/a.go", InScope: "yes"}},
+	}))
+	must(artifact.Save(dir, artifact.Plan, meta.Plan{Schema: meta.SchemaVersion, Name: "c", Specification: "SPEC-001", Phases: 1, IntermediateValid: "yes", Residue: "none",
+		CoverageText: "The unit covers both criteria.",
+		Units:        []meta.WorkUnit{{ID: "WU-001-01", Phase: 1, Class: "C3", Scope: []string{"src/a.go"}, AreaOfEffect: "src, derived, high", Criteria: []string{"CR-001-01", "CR-001-02"}}},
+	}))
+	digest, err := artifact.DigestFile(artifact.JSONFile(dir, artifact.Specification))
 	must(err)
 	write(t, filepath.Join(dir, "baseline", "a.go.before"), "package src\n")
-	must(artifact.Write(dir, artifact.Admission, artifact.AdmissionDoc{Name: "c", Digest: digest,
-		Review:       [4]string{"yes", "a person", "2026-11-15", ""},
-		Decisions:    [][4]string{{"WU-001-01", "admitted", "permission", "high"}},
-		EvidencePlan: [][6]string{{"CR-001-01", "src/a.go", "the test, before and after", "it answers as before", "the area of effect of src/a.go, derived, high", "2026-11-15"}},
-		Captured:     [][3]string{{"CR-001-01", "src/a.go as it stood", "baseline/a.go.before"}},
-	}.Markdown()))
+	must(artifact.Save(dir, artifact.Admission, meta.Admission{Schema: meta.SchemaVersion, Name: "c", Digest: digest,
+		Reviews:   []meta.Review{{Reviewed: "yes", By: "a person", At: "2026-11-15"}},
+		Decisions: []meta.Decision{{Unit: "WU-001-01", Outcome: meta.Admitted, Condition: "permission", Confidence: "high"}},
+		Plans: []meta.EvidencePlan{{Criterion: "CR-001-01", Observed: "src/a.go", Method: "the test, before and after", Unchanged: "it answers as before",
+			DerivedFrom: "the area of effect of src/a.go, derived, high", FixedAt: "2026-11-15"}},
+		Prior: []meta.Capture{{Criterion: "CR-001-01", Artefact: "src/a.go as it stood", CapturedTo: "baseline/a.go.before"}},
+	}))
 	write(t, filepath.Join(dir, "candidates", "CA-001-01", "a.go"), "package src\n\nfunc A() int { return 1 }\n")
-	must(artifact.Write(dir, artifact.Execution, artifact.ExecutionDoc{Name: "c",
-		Runs:       []artifact.RunRow{{Unit: "WU-001-01", Executor: "an agent", Version: "1", Terminal: "candidate", Candidate: "CA-001-01"}},
-		Candidates: []artifact.CandidateRow{{ID: "CA-001-01", Unit: "WU-001-01", StoredAt: "candidates/CA-001-01/", Artefacts: "the answer", ProducedAt: "2026-11-15"}},
-	}.Markdown()))
-	must(artifact.Write(dir, artifact.Assurance, artifact.AssuranceDoc{Name: "c",
-		Evidence: []artifact.EvidenceRow{{ID: "EV-001-01-01", Subject: "candidate", Kind: "test-run", Producer: "`go test ./...`",
-			Independence: "independent-by-precommitment", How: "written and failing before the candidate", Repeatable: "yes", ObtainedAt: "2026-11-15"}},
-		Verdicts: []artifact.VerdictRow{
-			{ID: "VE-001-01", Unit: "WU-001-01", Criterion: "CR-001-01", Outcome: "met", Evidence: "EV-001-01-01", State: "settled"},
-			{ID: "VE-001-02", Unit: "WU-001-01", Criterion: "CR-001-02", Outcome: "met", Evidence: "EV-001-01-01", State: "settled"},
+	must(artifact.Save(dir, artifact.Execution, meta.Execution{Schema: meta.SchemaVersion, Name: "c",
+		Runs:       []meta.Run{{Unit: "WU-001-01", Executor: "an agent", Version: "1", Terminal: meta.CandidateEnd, Candidate: "CA-001-01"}},
+		Candidates: []meta.Candidate{{ID: "CA-001-01", Unit: "WU-001-01", StoredAt: "candidates/CA-001-01/", Artefacts: "the answer", ProducedAt: "2026-11-15"}},
+	}))
+	must(artifact.Save(dir, artifact.Assurance, meta.Assurance{Schema: meta.SchemaVersion, Name: "c",
+		Evidence: []meta.Evidence{{ID: "EV-001-01-01", Subject: meta.OfCandidate, Kind: meta.TestRun, Producer: "`go test ./...`",
+			Independence: meta.ByPrecommitment, How: "written and failing before the candidate", Repeatable: meta.Yes, ObtainedAt: "2026-11-15"}},
+		Verdicts: []meta.Verdict{
+			{ID: "VE-001-01", Unit: "WU-001-01", Criterion: "CR-001-01", Outcome: meta.Met, Evidence: []string{"EV-001-01-01"}, State: meta.Settled},
+			{ID: "VE-001-02", Unit: "WU-001-01", Criterion: "CR-001-02", Outcome: meta.Met, Evidence: []string{"EV-001-01-01"}, State: meta.Settled},
 		},
-	}.Markdown()))
-	must(artifact.Write(dir, artifact.Landing, artifact.LandingDoc{Name: "c",
-		Entries: []artifact.EntryRow{{Order: "1", Unit: "WU-001-01", VerdictState: "settled", StillValid: "yes", EnteredAt: "2026-11-15"}},
-	}.Markdown()))
+	}))
+	must(artifact.Save(dir, artifact.Landing, meta.Landing{Schema: meta.SchemaVersion, Name: "c",
+		Entries: []meta.Entry{{Order: 1, Unit: "WU-001-01", VerdictState: "settled", StillValid: "yes", EnteredAt: "2026-11-15"}},
+	}))
 	rec := artifact.Record{Name: "c", Dir: dir}
 	for _, s := range []artifact.Crossing{{At: "2026-11-15", Stage: "intent", Object: "INT-001"}, {At: "2026-11-15", Stage: "specification", Object: "SPEC-001"},
 		{At: "2026-11-15", Stage: "plan", Object: "SPEC-001"}, {At: "2026-11-15", Stage: "admission", Object: "WU-001-01"}, {At: "2026-11-15", Stage: "execution", Object: "CA-001-01"},
@@ -103,16 +106,36 @@ func gateOf(t *testing.T, dir string, opts ...Option) Report {
 	return New(estate.NewLocal(), append([]Option{WithHome(t.TempDir())}, opts...)...).Check(context.Background(), c)
 }
 
-func edit(t *testing.T, path, old, new string) {
+// alter changes one document of the fixture as a hand would: its JSON
+// rewritten, nothing checked on the way, which is what the gate is for.
+func alter[T any](t *testing.T, dir string, s artifact.Stage, f func(*T)) {
 	t.Helper()
-	b, err := os.ReadFile(path)
+	var d T
+	if ok, err := artifact.LoadJSON(dir, s, &d); err != nil || !ok {
+		t.Fatalf("%s does not read: %v", s, err)
+	}
+	f(&d)
+	b, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), old) {
-		t.Fatalf("%s does not hold %q", filepath.Base(path), old)
+	write(t, artifact.JSONFile(dir, s), string(b))
+}
+
+// alterRecord changes the record as a hand would.
+func alterRecord(t *testing.T, dir string, f func([]meta.Crossing)) {
+	t.Helper()
+	cs, err := artifact.ReadRecord(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	write(t, path, strings.Replace(string(b), old, new, 1))
+	f(cs)
+	var b strings.Builder
+	for _, c := range cs {
+		line, _ := json.Marshal(c)
+		b.Write(append(line, '\n'))
+	}
+	write(t, filepath.Join(dir, artifact.RecordFile), b.String())
 }
 
 func rules(fs []Finding) []string {
@@ -141,12 +164,20 @@ func TestAChangeBuiltFromTheShapesPasses(t *testing.T) {
 
 func TestEachRuleIsNamedWhenBroken(t *testing.T) {
 	needGo(t)
-	file := func(dir string, s artifact.Stage) string { return filepath.Join(dir, string(s)+".md") }
+	type (
+		spec = meta.Specification
+		adm  = meta.Admission
+		ex   = meta.Execution
+		as   = meta.Assurance
+	)
 	cases := []struct {
 		rule   string
 		break_ func(t *testing.T, root, dir string)
 	}{
-		{"B1", func(t *testing.T, _, dir string) { os.Remove(file(dir, artifact.Plan)) }},
+		{"B1", func(t *testing.T, _, dir string) {
+			os.Remove(artifact.JSONFile(dir, artifact.Plan))
+			os.Remove(filepath.Join(dir, string(artifact.Plan)+".md"))
+		}},
 		{"R23", func(t *testing.T, _, dir string) {
 			if err := artifact.AppendCost(dir, artifact.Cost{Area: 1, What: "the specification", Input: 100, Output: 10,
 				Provenance: "derived", Handed: 90, Kept: "handed/01-author.md"}); err != nil {
@@ -154,67 +185,72 @@ func TestEachRuleIsNamedWhenBroken(t *testing.T) {
 			}
 		}},
 		{"R19", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Specification), "| The answer is one |", "| src/a.go returns one |")
+			alter(t, dir, artifact.Specification, func(d *spec) { d.Criteria[0].Criterion = "src/a.go returns one" })
 		}},
 		{"R16", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Admission), "| CR-001-01 | src/a.go | the test", "| CR-001-09 | src/a.go | the test")
+			alter(t, dir, artifact.Admission, func(d *adm) { d.Plans[0].Criterion = "CR-001-09" })
 		}},
 		{"CONVENTIONS", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Specification), "| required | machine |", "| required | robot |")
+			alter(t, dir, artifact.Specification, func(d *spec) { d.Criteria[0].Procedure = "robot" })
 		}},
 		{"R7b", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Admission), "| CR-001-01 | src/a.go as it stood | baseline/a.go.before |", "| CR-001-01 | nothing | nowhere |")
+			alter(t, dir, artifact.Admission, func(d *adm) {
+				d.Prior[0] = meta.Capture{Criterion: "CR-001-01", Artefact: "nothing", CapturedTo: "nowhere"}
+			})
 		}},
 		{"R11", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Specification), "| src/a_test.go | CR-001-01, CR-001-02 |", "| src/a_test.go | CR-001-01 |")
+			alter(t, dir, artifact.Specification, func(d *spec) { d.Arbiters[0].Arbitrates = "CR-001-01" })
 		}},
 		{"R1", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Specification), "| Default class | C3 |", "| Default class | C2 |")
+			alter(t, dir, artifact.Specification, func(d *spec) { d.Class = "C2" })
 		}},
 		{"R2", func(t *testing.T, _, dir string) { os.RemoveAll(filepath.Join(dir, "candidates")) }},
 		{"R7", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Specification), "| src/a_test.go | CR-001-01, CR-001-02 |", "| src/a_test.go | CR-001-01, CR-001-02 |\n| src/a.go | CR-001-01 |")
+			alter(t, dir, artifact.Specification, func(d *spec) {
+				d.Arbiters = append(d.Arbiters, meta.Arbiter{Path: "src/a.go", Arbitrates: "CR-001-01"})
+			})
 		}},
 		{"R3", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Assurance), "| written and failing before the candidate |", "|  |")
+			alter(t, dir, artifact.Assurance, func(d *as) { d.Evidence[0].How = "" })
 		}},
 		{"R3b", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Assurance), "| `go test ./...` |", "| `go test ./...` over src/a.go |")
+			alter(t, dir, artifact.Assurance, func(d *as) { d.Evidence[0].Producer = "`go test ./...` over src/a.go" })
 		}},
 		{"B2", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Assurance), "| met | EV-001-01-01 | settled |", "| met | EV-001-09-09 | settled |")
+			alter(t, dir, artifact.Assurance, func(d *as) { d.Verdicts[0].Evidence = []string{"EV-001-09-09"} })
 		}},
 		{"R17", func(t *testing.T, _, dir string) {
-			b, _ := os.ReadFile(file(dir, artifact.Assurance))
-			write(t, file(dir, artifact.Assurance), string(b)+"\n## Refusals\n\n| Id | Object | Boundary | Refused by | Ground | At |\n|---|---|---|---|---|---|\n| RF-001-01 | CA-001-01 | execution to assurance | person | not what was asked | 2026-11-15 |\n")
+			alter(t, dir, artifact.Assurance, func(d *as) {
+				d.Refusals = []meta.Refusal{{ID: "RF-001-01", Object: "CA-001-01", Boundary: "execution to assurance", By: "person", Ground: "not what was asked", At: "2026-11-15"}}
+			})
 		}},
 		{"R18", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Admission), "| yes | a person |", "| maybe | a person |")
+			alter(t, dir, artifact.Admission, func(d *adm) { d.Reviews[0].Reviewed = "maybe" })
 		}},
 		{"R13", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Assurance), "| `go test ./...` |", "| the suite, run by hand |")
+			alter(t, dir, artifact.Assurance, func(d *as) { d.Evidence[0].Producer = "the suite, run by hand" })
 		}},
 		{"R14", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Assurance), "| yes | 2026-11-15 |", "| no | 2026-11-15 |")
+			alter(t, dir, artifact.Assurance, func(d *as) { d.Evidence[0].Repeatable = meta.No })
 		}},
 		{"R6", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Assurance), "| met | EV-001-01-01 | settled |", "| met | EV-001-01-01 | deferred |")
+			alter(t, dir, artifact.Assurance, func(d *as) { d.Verdicts[0].State = meta.Deferred })
 		}},
 		{"A5", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Assurance), "| VE-001-02 | WU-001-01 | CR-001-02 | met | EV-001-01-01 | settled |  |  |\n", "")
+			alter(t, dir, artifact.Assurance, func(d *as) { d.Verdicts = d.Verdicts[:1] })
 		}},
 		{"A6", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Assurance), "| CR-001-02 | met |", "| CR-001-02 | failed |")
+			alter(t, dir, artifact.Assurance, func(d *as) { d.Verdicts[1].Outcome = meta.Failed })
 		}},
 		{"R10", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Assurance), "| CR-001-02 | met |", "| CR-001-02 | undecided |")
+			alter(t, dir, artifact.Assurance, func(d *as) { d.Verdicts[1].Outcome = meta.Undecided })
 		}},
-		{"R4", func(t *testing.T, _, dir string) { edit(t, filepath.Join(dir, "record.md"), "| 2 |", "| 9 |") }},
+		{"R4", func(t *testing.T, _, dir string) { alterRecord(t, dir, func(cs []meta.Crossing) { cs[1].N = 9 }) }},
 		{"R8", func(t *testing.T, _, dir string) {
-			edit(t, file(dir, artifact.Execution), "| the answer |", "| the answer, and src/a_test.go |")
+			alter(t, dir, artifact.Execution, func(d *ex) { d.Candidates[0].Artefacts = "the answer, and src/a_test.go" })
 		}},
 		{"B4", func(t *testing.T, _, dir string) {
-			edit(t, filepath.Join(dir, "record.md"), "| landing | WU-001-01 |", "| landed | WU-001-01 |")
+			alterRecord(t, dir, func(cs []meta.Crossing) { cs[len(cs)-1].Stage = "landed" })
 		}},
 		{"R21", func(t *testing.T, root, dir string) {
 			write(t, filepath.Join(root, "other", "b.go"), "package other\n\nfunc B() {}\n")
@@ -247,7 +283,7 @@ func TestEachRuleIsNamedWhenBroken(t *testing.T) {
 func TestASuppressedRuleIsNotSaid(t *testing.T) {
 	needGo(t)
 	_, dir := fixture(t)
-	edit(t, filepath.Join(dir, "record.md"), "| 2 |", "| 9 |")
+	alterRecord(t, dir, func(cs []meta.Crossing) { cs[1].N = 9 })
 	if got := rules(gateOf(t, dir, Suppress("R4")).Problems()); slices.Contains(got, "R4") {
 		t.Errorf("a suppressed rule was said: %v", got)
 	}
@@ -258,7 +294,7 @@ func TestASuppressedRuleIsNotSaid(t *testing.T) {
 func TestAClosedChangeIsHeldToItsRecord(t *testing.T) {
 	needGo(t)
 	_, dir := fixture(t)
-	edit(t, filepath.Join(dir, string(artifact.Specification)+".md"), "| src/a_test.go | CR-001-01, CR-001-02 |", "| src/a_test.go | CR-001-01 |")
+	alter(t, dir, artifact.Specification, func(d *meta.Specification) { d.Arbiters[0].Arbitrates = "CR-001-01" })
 	if gateOf(t, dir).Passed() {
 		t.Fatal("the broken fixture passes before it is closed")
 	}

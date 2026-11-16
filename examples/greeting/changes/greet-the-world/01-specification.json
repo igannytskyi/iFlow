@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "id": "SPEC-001",
+  "name": "greet-the-world",
+  "intent": "INT-001",
+  "default_class": "C2",
+  "prose": "Asked to greet nobody, the greeting today says \"Hello, !\". A defect repair: the wrong behaviour is made right and nothing else moves, so a reproduction is written first and must fail against the greeting as it stands.",
+  "criteria": [
+    {
+      "id": "CR-001-01",
+      "criterion": "Nobody named, the world is greeted",
+      "when": "a greeting is asked for with no name",
+      "then": "it reads \"Hello, world!\"",
+      "plan": "required",
+      "procedure": "machine",
+      "required_evidence": "test-run",
+      "threshold": "exactly that text"
+    },
+    {
+      "id": "CR-001-02",
+      "criterion": "A person named is still greeted by name",
+      "when": "a greeting is asked for with a name",
+      "then": "it reads \"Hello, \" then the name then \"!\"",
+      "plan": "not-required",
+      "procedure": "machine",
+      "required_evidence": "test-run",
+      "threshold": "exactly that text"
+    },
+    {
+      "id": "CR-001-03",
+      "criterion": "Nothing else in the package moves",
+      "when": "the whole suite is run",
+      "then": "it stands as it did before",
+      "plan": "not-required",
+      "procedure": "machine",
+      "required_evidence": "test-run",
+      "threshold": "identical outcome"
+    }
+  ],
+  "termination": [
+    {
+      "condition": "greeting the world needs a change to how a name is passed in",
+      "action": "stop"
+    }
+  ],
+  "scope": {
+    "included": [
+      "greeting.go"
+    ],
+    "excluded": [
+      "greeting_test.go"
+    ]
+  },
+  "arbiters": [
+    {
+      "path": "greeting_world_test.go",
+      "arbitrates": "CR-001-01"
+    },
+    {
+      "path": "greeting_test.go",
+      "arbitrates": "CR-001-02, CR-001-03"
+    }
+  ],
+  "arbiter_inputs": [
+    {
+      "input": "greeting.go",
+      "in_scope": "yes — the reproduction judges the greeting, which is what changes"
+    }
+  ]
+}
