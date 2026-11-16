@@ -2,18 +2,16 @@ package harness
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/igannytskyi/iflow/internal/model"
 )
@@ -33,7 +31,19 @@ type workspace struct {
 	dir   string
 	scope []string
 	check []string
+	judge func(passed bool, output string) (ok bool, why string)
 	ctx   context.Context
+}
+
+// run runs the check in the workspace and judges it as the unit's task
+// says: whether it passes, what it said, and why it does not pass where a
+// judge says so.
+func (w *workspace) run() (ok bool, out, why string) {
+	ok, out = check(w.ctx, w.dir, w.check)
+	if w.judge != nil {
+		ok, why = w.judge(ok, out)
+	}
+	return ok, out, why
 }
 
 // errRefused marks a call the harness would not carry out.
@@ -159,30 +169,71 @@ var tools = []tool{
 			if err != nil {
 				return "", err
 			}
-			switch n := bytes.Count(b, []byte(a["old"])); {
-			case a["old"] == "" || n == 0:
-				return "", fmt.Errorf("old text not found in %s", rel)
-			case n > 1:
-				return "", fmt.Errorf("old text occurs %d times in %s; give more of it", n, rel)
+			out, how, err := replaceOnce(string(b), a["old"], a["new"])
+			if err != nil {
+				return "", fmt.Errorf("%s: %w", rel, err)
 			}
-			return "edited", os.WriteFile(p, bytes.Replace(b, []byte(a["old"]), []byte(a["new"]), 1), 0o644)
+			return "edited" + how, os.WriteFile(p, []byte(out), 0o644)
 		}},
-	{"run_check", "Run the repository's own tests and see the result.", `{"type":"object","properties":{}}`,
+	{"run_check", "Run the unit's check — the repository's own tests or build — and see the result.", `{"type":"object","properties":{}}`,
 		func(w *workspace, _ map[string]string) (string, error) {
 			if len(w.check) == 0 {
 				return "", errRefused{"there is no check command for this estate"}
 			}
-			ctx, cancel := context.WithTimeout(w.ctx, 5*time.Minute)
-			defer cancel()
-			cmd := exec.CommandContext(ctx, w.check[0], w.check[1:]...)
-			cmd.Dir = w.dir
-			out, err := cmd.CombinedOutput()
+			ok, out, why := w.run()
 			status := "passed"
-			if err != nil {
-				status = "failed: " + err.Error()
+			if !ok {
+				status = "failed"
+				if why != "" {
+					status += ": " + why
+				}
 			}
-			return status + "\n" + clip(string(out), 6000), nil
+			return status + "\n" + tail(out, 120), nil
 		}},
+}
+
+// replaceOnce replaces the one place old occurs in s with new. Where old
+// does not occur exactly, it is matched line by line with the indentation
+// and trailing space ignored — models copy code with its spacing changed
+// more often than with its words changed — and the second value says so.
+func replaceOnce(s, old, new string) (string, string, error) {
+	if strings.TrimSpace(old) == "" {
+		return "", "", errors.New("old text is empty; to write a new file use write_file")
+	}
+	switch n := strings.Count(s, old); {
+	case n == 1:
+		return strings.Replace(s, old, new, 1), "", nil
+	case n > 1:
+		return "", "", fmt.Errorf("old text occurs %d times; give more of it", n)
+	}
+	lines := strings.Split(s, "\n")
+	want := strings.Split(strings.Trim(old, "\n"), "\n")
+	at, found := -1, 0
+	for i := 0; i+len(want) <= len(lines); i++ {
+		same := true
+		for j, w := range want {
+			if strings.TrimSpace(lines[i+j]) != strings.TrimSpace(w) {
+				same = false
+				break
+			}
+		}
+		if same {
+			at, found = i, found+1
+		}
+	}
+	switch found {
+	case 0:
+		return "", "", errors.New("old text not found; read the file again and copy it exactly")
+	case 1:
+	default:
+		return "", "", fmt.Errorf("old text occurs %d times once spacing is ignored; give more of it", found)
+	}
+	repl := strings.Split(strings.Trim(new, "\n"), "\n")
+	if strings.TrimSpace(new) == "" {
+		repl = nil
+	}
+	out := append(append(slices.Clone(lines[:at]), repl...), lines[at+len(want):]...)
+	return strings.Join(out, "\n"), " (matched with spacing ignored)", nil
 }
 
 func numbered(s string) string {

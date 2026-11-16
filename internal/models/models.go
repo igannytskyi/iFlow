@@ -192,15 +192,30 @@ func (m Config) Flow(base flow.Config) (flow.Config, string) {
 	base.Model = pick("author", roles.Author, m.Effort.Author)
 	base.Reviewer = pick("reviewer", roles.Reviewer, m.Effort.Reviewer)
 	base.Planner = pick("planner", roles.Planner, m.Effort.Planner)
-	exec := harness.Oneshot{Model: pick("executor", roles.Executor, m.Effort.Executor)}
-	if m.Roles.Stronger != "" {
-		exec.Stronger = pick("stronger executor", m.Roles.Stronger, m.Effort.Executor)
+	cheap := pick("executor", roles.Executor, m.Effort.Executor)
+	agent := cheap
+	if roles.Stronger != "" {
+		agent = pick("stronger executor", roles.Stronger, m.Effort.Executor)
 	}
-	base.Executor = exec
+	// A unit goes first to one question of the cheap model; what that cannot
+	// carry goes to an agent that reads, runs the check and tries again.
+	base.Executor = harness.Ladder{First: harness.Oneshot{Model: cheap, Attempts: 2}, Then: Agent(agent)}
 	if os.Getenv("IFLOW_EXECUTOR") == "agent" {
 		base.Executor = harness.ClaudeCode{Model: "sonnet"}
 	}
 	return base, strings.Join(problems, "\n")
+}
+
+// Agent is the executor that works with tools on a model: Claude Code's own
+// agent for a model it runs, this method's loop for any other.
+func Agent(m model.Model) harness.Executor {
+	switch md := m.(type) {
+	case model.ClaudeCode:
+		return harness.ClaudeCode{Model: md.Model}
+	case harness.Chatter:
+		return harness.Loop{Model: md}
+	}
+	return harness.Oneshot{Model: m}
 }
 
 // Choice is a model one can pick for a role, with what it costs.
