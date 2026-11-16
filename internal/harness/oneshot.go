@@ -90,6 +90,9 @@ func (w written) text() string {
 func (w written) apply(dst string) error {
 	before, err := os.ReadFile(dst)
 	if w.edits == nil {
+		if markers.MatchString(w.content) {
+			return fmt.Errorf("%s was written whole with SEARCH/REPLACE markers inside it; a FILE block holds the file itself, an EDIT block the changes", w.path)
+		}
 		if err == nil && strings.Count(string(before), "\n") > 150 && len(w.content) < len(before)/2 {
 			return fmt.Errorf("%s was written whole and lost more than half of what it held; change it with EDIT blocks instead", w.path)
 		}
@@ -103,18 +106,20 @@ func (w written) apply(dst string) error {
 	}
 	text := string(before)
 	for _, e := range w.edits {
-		switch n := strings.Count(text, e[0]); {
-		case e[0] == "":
-			return fmt.Errorf("an edit of %s searches for nothing", w.path)
-		case n == 0:
-			return fmt.Errorf("an edit of %s searches for lines that are not in it:\n%s", w.path, e[0])
-		case n > 1:
-			return fmt.Errorf("an edit of %s searches for lines that occur %d times; give more of them", w.path, n)
+		out, _, err := replaceOnce(text, e[0], e[1])
+		if err != nil {
+			return fmt.Errorf("an edit of %s: %v:\n%s", w.path, err, e[0])
 		}
-		text = strings.Replace(text, e[0], e[1], 1)
+		text = out
+	}
+	if markers.MatchString(text) {
+		return fmt.Errorf("an edit of %s left SEARCH/REPLACE markers in it", w.path)
 	}
 	return os.WriteFile(dst, []byte(text), 0o644)
 }
+
+// markers are the lines of an edit block, which never belong in a file.
+var markers = regexp.MustCompile(`(?m)^(?:<<<<<<< SEARCH|>>>>>>> REPLACE)\s*$`)
 
 // parseFiles reads an answer in the form oneshotSystem asks for.
 func parseFiles(answer string) (files []written, summary string) {

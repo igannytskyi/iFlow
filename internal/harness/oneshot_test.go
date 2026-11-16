@@ -141,3 +141,23 @@ func TestEditsTruncationAndFaultsOutside(t *testing.T) {
 		t.Errorf("a missing name this unit was to define ended the run: %+v after %d answers", res, len(asked))
 	}
 }
+
+// A file written whole with an edit's markers inside it is refused, and an
+// edit copied with its indentation changed still lands.
+func TestMarkersAreRefusedAndSpacingForgiven(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "a.go")
+	if err := os.WriteFile(dst, []byte("package a\n\nfunc A() int {\n\treturn 1\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	whole := written{path: "a.go", content: "package a\n<<<<<<< SEARCH\nx\n=======\ny\n>>>>>>> REPLACE\n"}
+	if err := whole.apply(dst); err == nil || !strings.Contains(err.Error(), "markers") {
+		t.Errorf("a file holding markers was written: %v", err)
+	}
+	edit := written{path: "a.go", edits: [][2]string{{"    return 1", "\treturn 2"}}}
+	if err := edit.apply(dst); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(dst); !strings.Contains(string(b), "\treturn 2") {
+		t.Errorf("the edit did not land:\n%s", b)
+	}
+}
