@@ -32,6 +32,9 @@ func evidencePlan(r *run) {
 		}
 	}
 	needs = distinct(needs)
+	if !r.has(a.Admission) {
+		return // the evidence plan is fixed at admission, which is not reached
+	}
 	planned := map[string]a.Row{}
 	for _, row := range r.doc(a.Admission).Rows("Observed", "Derived from") {
 		planned[row.Cell("Criterion")] = row

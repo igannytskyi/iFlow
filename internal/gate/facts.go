@@ -135,6 +135,13 @@ func ProducerCommand(c *artifact.Change, id string) []string {
 	return nil
 }
 
+// producerNamed reports whether an evidence names, in backticks, something
+// to re-run — whether or not it can be found now.
+func producerNamed(c *artifact.Change, id string) bool {
+	_, said := Producers(c)
+	return backticked.MatchString(said[id])
+}
+
 // readmissionRecorded reports whether the record shows the specification
 // written again after an admission.
 func readmissionRecorded(c *artifact.Change) bool {

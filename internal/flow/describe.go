@@ -98,6 +98,14 @@ func Describe(ctx context.Context, cfg Config, repo, dir string) error {
 	if err := os.WriteFile(filepath.Join(dir, artifact.ChangeFile), []byte(doc.Markdown()), 0o644); err != nil {
 		return err
 	}
-	return artifact.Record{Name: c.Name(), Dir: dir}.Append(artifact.Crossing{At: today(), Stage: "specification", Object: artifact.ChangeFile,
+	rec := artifact.Record{Name: c.Name(), Dir: dir}
+	var lines []artifact.Crossing
+	if !fileExists(filepath.Join(dir, "record.md")) && fileExists(filepath.Join(dir, string(artifact.Intent)+".md")) {
+		// A change that kept no record had its intent all the same; the
+		// record begins with it, said to be written after the fact.
+		lines = append(lines, artifact.Crossing{At: today(), Stage: "intent", Object: string(artifact.Intent) + ".md", Note: "recorded after the fact: the change kept no record of its own"})
+	}
+	lines = append(lines, artifact.Crossing{At: today(), Stage: "specification", Object: artifact.ChangeFile,
 		Note: "the change described after the fact, by " + cfg.Model.Name() + ", from what the change kept"})
+	return rec.Append(lines...)
 }

@@ -31,7 +31,9 @@ func criteriaVocabulary(r *run) {
 // arbiterInputs — R7b: an arbiter input inside the scope needs its prior
 // state captured.
 func arbiterInputs(r *run) {
-	if !r.has(a.Specification) {
+	// The prior state is captured at admission: a change that has not
+	// reached it owes none yet.
+	if !r.has(a.Specification) || !r.has(a.Admission) {
 		return
 	}
 	reads := newOrdered[string]()

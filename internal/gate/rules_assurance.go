@@ -142,6 +142,11 @@ func repeatability(r *run) {
 			r.fail("R13", "%s does not say whether the run behind it repeats", id)
 		case !Codes["repeatable"].allows(v):
 			r.fail("R13", "%s: Repeatable = %s is not a defined value", id, quote(v))
+		case v == "yes" && ProducerCommand(r.c, id) == nil && r.has(a.Landing) && producerNamed(r.c, id):
+			// It named what to re-run, and that has gone since the change
+			// landed — the code it ran was rewritten. The claim stands as it
+			// was tested then; nothing now can test it again.
+			r.note("R13", "%s named what to re-run, which is gone since the change landed; the claim stands as it was tested then", id)
 		case v == "yes" && ProducerCommand(r.c, id) == nil:
 			// A claim to repeat is worth nothing unless it says what to re-run.
 			r.fail("R13", "%s claims to repeat and names nothing that can be re-run, so the claim cannot be tested", id)

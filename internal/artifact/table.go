@@ -145,7 +145,10 @@ func lines(text string) []string {
 	return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 }
 
-var slot = regexp.MustCompile(`<[^<>]*>`)
+// slot is a cell a template left to be filled: one slot, or one word with a
+// slot in it (CR-<nnn>-01). Prose that names a slot in passing — a message
+// "iFlow — <project name>" an intent describes — is filled, not a slot.
+var slot = regexp.MustCompile(`^<[^<>]*>$|^[^\s<>]*<[^<>\s]*>[^\s<>]*$`)
 
 // unchosen reports whether a cell still offers the template's alternatives,
 // as in "machine · human".
