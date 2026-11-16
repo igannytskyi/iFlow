@@ -496,3 +496,43 @@ func TestWrongTestsAreCarriedAgain(t *testing.T) {
 		t.Error("the code did not land")
 	}
 }
+
+// A change whose ground moved, where the other change's edits are apart
+// from its own, lands merged with them: neither undoes the other, and the
+// record says the suite passed on the merged ground.
+func TestAMovedChangeLandsMerged(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	other := "// Package greet greets.\npackage greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n"
+	cfg := Config{
+		Model: stubModel{answer: spec},
+		Executor: stubExecutor{files: map[string]string{
+			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":      "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return \"HELLO, \" + strings.ToUpper(n) }\n\nvar _ = strings.ToUpper\n",
+		}, meanwhile: func() { _ = os.WriteFile(filepath.Join(repo, "greet.go"), []byte(other), 0o644) }},
+		Estate: est, Gate: gate.New(est), Person: "a test",
+	}
+	// The stub's greet.go needs strings imported; the import goes where
+	// the other change does not reach.
+	files := cfg.Executor.(stubExecutor).files
+	files["greet.go"] = strings.Replace(files["greet.go"], "package greet\n\nfunc Greet", "package greet\n\nimport \"strings\"\n\nfunc Greet", 1)
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		for _, s := range run.View().Steps {
+			t.Logf("%d %s", s.Area, s.Text)
+		}
+		t.Fatalf("the change did not land: %v", err)
+	}
+	b, _ := os.ReadFile(filepath.Join(repo, "greet.go"))
+	if s := string(b); !strings.Contains(s, "// Package greet greets.") || !strings.Contains(s, "func Shout") {
+		t.Errorf("one change undid the other:\n%s", s)
+	}
+	if rec, _ := os.ReadFile(filepath.Join(run.View().Dir, "record.md")); !strings.Contains(string(rec), "merged onto the estate as it is now") {
+		t.Errorf("the record does not say the change was merged:\n%s", rec)
+	}
+}

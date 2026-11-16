@@ -1013,14 +1013,29 @@ func (r *Run) land(ctx context.Context) error {
 	doc := artifact.LandingDoc{Name: r.slug}
 	// The estate may have moved since admission: another change landed on
 	// the same ground. Entering whole files now would undo it, and the
-	// evidence was gathered against ground that is no longer there.
-	if moved := r.moved(); len(moved) > 0 {
-		_ = r.record("landing", r.id("SPEC"), "stopped: the estate moved under it — "+strings.Join(moved, "; "))
-		return r.fail(6, "the estate moved since this change was admitted, so its evidence no longer holds and entering it would undo another change: %s. Carry it again from the estate as it is now", strings.Join(moved, "; "))
+	// evidence was gathered against ground that is no longer there. Where
+	// the two changes' edits are apart, they are merged and the whole suite
+	// is run on the estate as it is now with the change on it; where they
+	// overlap, or the suite fails, the change stops.
+	merged, moved, why := r.rebased(ctx)
+	if why != "" {
+		_ = r.record("landing", r.id("SPEC"), "stopped: the estate moved under it — "+why)
+		return r.fail(6, "the estate moved since this change was admitted (%s), and it cannot be laid on the estate as it is now: %s. Carry it again from the estate as it is now", strings.Join(moved, "; "), why)
+	}
+	if len(merged) > 0 {
+		r.say(6, r.id("SPEC"), "the estate moved under it (%s); merged with what moved it, the whole suite passes on the estate as it is now", strings.Join(moved, "; "))
+		_ = r.record("landing", r.id("SPEC"), "merged onto the estate as it is now: "+strings.Join(moved, "; ")+"; the whole suite passed on the merged ground")
 	}
 	for i, u := range r.units {
 		if err := copyInto(r.cands[u.id], r.repo); err != nil {
 			return r.fail(6, "%s could not be entered: %v", u.id, err)
+		}
+		for rel, b := range merged {
+			if inScope(rel, u.scope) || slices.Contains(r.codeScope(), rel) {
+				if err := os.WriteFile(filepath.Join(r.repo, filepath.FromSlash(rel)), b, 0o644); err != nil {
+					return r.fail(6, "%s could not be entered merged: %v", rel, err)
+				}
+			}
 		}
 		doc.Entries = append(doc.Entries, artifact.EntryRow{Order: fmt.Sprint(i + 1), Unit: u.id, VerdictState: "settled",
 			StillValid: "yes", EnteredAt: today(), Invalidated: "nothing the evidence relies on"})
@@ -1164,41 +1179,6 @@ func closedChange(dir string) bool {
 	return err == nil && strings.Contains(string(b), "| closed |")
 }
 
-// moved is every file this change would enter that is no longer what it
-// was when the change was admitted: changed, created or removed by
-// something else since.
-func (r *Run) moved() []string {
-	var out []string
-	for _, u := range r.units {
-		dir := r.cands[u.id]
-		_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() || d.Name() == "CHANGES" {
-				return err
-			}
-			rel, _ := filepath.Rel(dir, p)
-			if u.tests || !slices.Contains(r.spec.Scope, filepath.ToSlash(rel)) {
-				return nil // what no baseline holds is the change's own
-			}
-			base := filepath.Join(r.dir, "baseline", path.Base(filepath.ToSlash(rel)))
-			now, err := os.ReadFile(filepath.Join(r.repo, rel))
-			switch {
-			case fileExists(base + ".before"):
-				was, _ := os.ReadFile(base + ".before")
-				if err != nil {
-					out = append(out, rel+" was removed")
-				} else if !bytes.Equal(was, now) {
-					out = append(out, rel+" was changed")
-				}
-			case fileExists(base + ".absent"):
-				if err == nil {
-					out = append(out, rel+" was created by something else")
-				}
-			}
-			return nil
-		})
-	}
-	return out
-}
 
 // judgeTests accepts a vet of tests written before their code when every
 // failure it names is a name the units' contract promises, and returns the
