@@ -15,7 +15,18 @@ import (
 // dependencies, derived material, and the changes carried against the
 // estate — which hold what will judge the work, and an executor that could
 // read its own judge could shape itself to it.
-var skipped = map[string]bool{".git": true, "node_modules": true, ".estate": true, "changes": true, ".venv": true, "venv": true, "__pycache__": true}
+var skipped = map[string]bool{".git": true, "node_modules": true, ".estate": true, ".venv": true, "venv": true, "__pycache__": true}
+
+// skip reports whether a folder is left out of a copy of the estate rooted
+// at root: the dependencies and derived material wherever they are, and the
+// estate's own changes folder — only at its root, since a changes folder
+// deeper down (an example's) is part of the estate its tests read.
+func skipFolder(root, p string, d os.DirEntry) bool {
+	if p == root || !d.IsDir() {
+		return false
+	}
+	return skipped[d.Name()] || (d.Name() == "changes" && filepath.Dir(p) == root)
+}
 
 // Snapshot copies an estate into a fresh directory for one unit, and lays
 // the given candidates over it. It returns the directory, which the caller
@@ -50,7 +61,7 @@ func copyTree(src, dst string, skip bool) error {
 		}
 		rel, _ := filepath.Rel(src, p)
 		if d.IsDir() {
-			if skip && skipped[d.Name()] && p != src {
+			if skip && skipFolder(src, p, d) {
 				return filepath.SkipDir
 			}
 			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
@@ -110,7 +121,7 @@ func Diff(estate, workspace string) ([]Change, error) {
 		}
 		rel, _ := filepath.Rel(workspace, p)
 		if d.IsDir() {
-			if skipped[d.Name()] && p != workspace {
+			if skipFolder(workspace, p, d) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -133,7 +144,7 @@ func Diff(estate, workspace string) ([]Change, error) {
 		}
 		rel, _ := filepath.Rel(estate, p)
 		if d.IsDir() {
-			if skipped[d.Name()] && p != estate {
+			if skipFolder(estate, p, d) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -173,7 +184,7 @@ func Manifest(dir string) (map[string][32]byte, error) {
 			return err
 		}
 		if d.IsDir() {
-			if skipped[d.Name()] && p != dir {
+			if skipFolder(dir, p, d) {
 				return filepath.SkipDir
 			}
 			return nil

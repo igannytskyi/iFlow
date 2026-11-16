@@ -124,9 +124,20 @@ func TestEditsTruncationAndFaultsOutside(t *testing.T) {
 	asked = nil
 	m = scripted{asked: &asked, answers: []string{"=== FILE: a.go\nx\n=== END\n=== SUMMARY: s", "unused", "unused"}}
 	res, _ = Oneshot{Model: m}.Run(context.Background(),
-		Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: []string{"sh", "-c", "echo 'tests/a_test.go:3:5: undefined: Thing'; exit 1"}},
+		Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: []string{"sh", "-c", "echo 'tests/a_test.go:3:5: syntax error: unexpected }'; exit 1"}},
 		func(Event) {})
 	if res.Terminal != FailedTask || len(asked) != 1 || !strings.Contains(res.Summary, "tests/a_test.go") {
 		t.Errorf("a fault outside the scope did not end the run at once: %+v after %d answers", res, len(asked))
+	}
+
+	// A test finding a name missing that this unit was to define is this
+	// unit's to mend: the run goes on to its next agent.
+	asked = nil
+	m = scripted{asked: &asked, answers: []string{"=== FILE: a.go\nx\n=== END\n=== SUMMARY: s", "=== FILE: a.go\ny\n=== END\n=== SUMMARY: s"}}
+	res, _ = Oneshot{Model: m, Attempts: 2}.Run(context.Background(),
+		Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: []string{"sh", "-c", "grep -q y a.go || { echo 'tests/a_test.go:3:5: undefined: Thing'; exit 1; }"}},
+		func(Event) {})
+	if res.Terminal != Candidate || len(asked) != 2 {
+		t.Errorf("a missing name this unit was to define ended the run: %+v after %d answers", res, len(asked))
 	}
 }

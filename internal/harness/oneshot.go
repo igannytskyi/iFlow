@@ -323,15 +323,23 @@ func tail(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-var faultAt = regexp.MustCompile(`(?m)^\s*(?:# )?([\w./-]+\.\w+):\d+(?::\d+)?:`)
+var (
+	faultAt     = regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.\w+):\d+(?::\d+)?:`)
+	missingName = regexp.MustCompile(`undefined: |has no field or method `)
+)
 
 // faultsOutside is every file a check's output blames that is outside the
-// scope, when it blames nothing inside it.
+// scope, when it blames nothing inside it. A name another file finds
+// missing is no fault of that file: it is what this unit was to define.
 func faultsOutside(out string, scope []string) []string {
 	var outside []string
-	for _, m := range faultAt.FindAllStringSubmatch(out, -1) {
+	for _, line := range strings.Split(out, "\n") {
+		m := faultAt.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
 		p := strings.TrimPrefix(m[1], "./")
-		if allowed(p, scope) {
+		if allowed(p, scope) || missingName.MatchString(line) {
 			return nil
 		}
 		if !slices.Contains(outside, p) {
