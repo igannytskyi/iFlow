@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -31,11 +32,13 @@ func (c chatting) Chat(_ context.Context, msgs []model.Message, _ []model.Tool) 
 
 func askAndWait(t *testing.T, th *Thread, m model.Model, text string) {
 	t.Helper()
-	done := make(chan struct{})
-	if err := th.Ask(context.Background(), m, text, func() { close(done) }); err != nil {
+	changed := make(chan struct{}, 64)
+	if err := th.Ask(context.Background(), m, text, func() { changed <- struct{}{} }); err != nil {
 		t.Fatal(err)
 	}
-	<-done
+	for th.Waiting() {
+		<-changed
+	}
 }
 
 // A task's conversation is kept beside the task and goes on where it was
@@ -114,5 +117,42 @@ func TestTheModelReadsBeforeItAnswers(t *testing.T) {
 	got := th.Messages()[1]
 	if !strings.Contains(got.Text, "the secret is 42") || turns != 2 || got.Usage.CostUSD < 0.019 {
 		t.Errorf("answered %+v after %d turns", got, turns)
+	}
+}
+
+// streaming hands its answer over in two pieces, and holds the second until
+// the test has seen the first.
+type streaming struct{ hold chan struct{} }
+
+func (s streaming) Name() string { return "streaming" }
+func (s streaming) Ask(context.Context, string, string) (string, model.Usage, error) {
+	panic("a model that streams is asked in turns")
+}
+func (s streaming) Chat(context.Context, []model.Message, []model.Tool) (model.Message, model.Usage, error) {
+	panic("a model that streams is streamed")
+}
+func (s streaming) Stream(_ context.Context, _ []model.Message, _ []model.Tool, said func(string)) (model.Message, model.Usage, error) {
+	said("Hel")
+	<-s.hold
+	said("lo")
+	return model.Message{Content: "Hello"}, model.Usage{}, nil
+}
+
+// An answer is shown as it is written, and kept whole once written.
+func TestAnAnswerIsShownAsItIsWritten(t *testing.T) {
+	th := Open("", nil)
+	m := streaming{hold: make(chan struct{})}
+	if err := th.Ask(context.Background(), m, "hi", nil); err != nil {
+		t.Fatal(err)
+	}
+	for th.Partial() != "Hel" {
+		runtime.Gosched()
+	}
+	close(m.hold)
+	for th.Waiting() {
+		runtime.Gosched()
+	}
+	if got := th.Messages(); len(got) != 2 || got[1].Text != "Hello" || th.Partial() != "" {
+		t.Errorf("kept %+v, partial %q", got, th.Partial())
 	}
 }

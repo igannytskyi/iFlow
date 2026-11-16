@@ -99,3 +99,39 @@ func TestUsageNamesEachModelOnce(t *testing.T) {
 		t.Errorf("named %q", u.Model)
 	}
 }
+
+// An answer streamed in pieces is handed over piece by piece and comes
+// back whole, its tool calls put together and its cost counted.
+func TestAStreamedAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req["stream"] != true {
+			t.Error("the request did not ask for a stream")
+		}
+		for _, l := range []string{
+			`: OPENROUTER PROCESSING`,
+			`data: {"choices":[{"delta":{"content":"Hel"}}]}`,
+			`data: {"choices":[{"delta":{"content":"lo"}}]}`,
+			`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"read_file","arguments":"{\"pa"}}]}}]}`,
+			`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\":\"a\"}"}}]}}]}`,
+			`data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":3,"cost":0.001}}`,
+			`data: [DONE]`,
+		} {
+			fmt.Fprintln(w, l)
+			fmt.Fprintln(w)
+		}
+	}))
+	defer srv.Close()
+	var pieces []string
+	m, u, err := OpenAI{BaseURL: srv.URL, Model: "m"}.Stream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, func(s string) { pieces = append(pieces, s) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Content != "Hello" || len(pieces) != 2 || u.CostUSD != 0.001 || u.Output != 3 {
+		t.Errorf("got %+v, %v, %+v", m, pieces, u)
+	}
+	if len(m.ToolCalls) != 1 || m.ToolCalls[0].Function.Arguments != `{"path":"a"}` || m.ToolCalls[0].ID != "c1" {
+		t.Errorf("tool calls %+v", m.ToolCalls)
+	}
+}

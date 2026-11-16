@@ -48,6 +48,19 @@ type Thread struct {
 	mu      sync.Mutex
 	msgs    []Message
 	waiting bool
+	partial strings.Builder // the answer so far, while it is written
+}
+
+// Partial is the answer being written now, as far as it has come.
+func (t *Thread) Partial() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.partial.String()
+}
+
+// streamer is a model that hands over its answer as it writes it.
+type streamer interface {
+	Stream(ctx context.Context, msgs []model.Message, tools []model.Tool, said func(string)) (model.Message, model.Usage, error)
 }
 
 // Open reads the conversation kept at path, or starts one.
@@ -103,10 +116,11 @@ const system = `You are talking with the person who runs this project through iF
 // question; the oldest turns go first.
 const historyRunes = 24000
 
-// Ask puts the person's text to the model and keeps both, calling done when
-// the answer has come. It returns at once; the model is asked in its own
-// goroutine.
-func (t *Thread) Ask(ctx context.Context, m model.Model, text string, done func()) error {
+// Ask puts the person's text to the model and keeps both, calling changed
+// whenever the thread changes: a piece of the answer as it is written, and
+// the answer once it has come. It returns at once; the model is asked in
+// its own goroutine.
+func (t *Thread) Ask(ctx context.Context, m model.Model, text string, changed func()) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
@@ -127,7 +141,15 @@ func (t *Thread) Ask(ctx context.Context, m model.Model, text string, done func(
 		if t.About != nil {
 			about = t.About()
 		}
-		answer, u, err := ask(ctx, m, about, t.Root, history)
+		said := func(piece string) {
+			t.mu.Lock()
+			t.partial.WriteString(piece)
+			t.mu.Unlock()
+			if changed != nil {
+				changed() // a new frame shows the piece
+			}
+		}
+		answer, u, err := ask(ctx, m, about, t.Root, history, said)
 		a := Message{At: time.Now(), Role: "model", Text: strings.TrimSpace(answer), Usage: u}
 		if err != nil {
 			a.Text, a.Err = err.Error(), true
@@ -135,10 +157,11 @@ func (t *Thread) Ask(ctx context.Context, m model.Model, text string, done func(
 		t.mu.Lock()
 		t.msgs = append(t.msgs, a)
 		t.waiting = false
+		t.partial.Reset()
 		t.mu.Unlock()
 		t.keep(a)
-		if done != nil {
-			done()
+		if changed != nil {
+			changed()
 		}
 	}()
 	return nil
@@ -146,7 +169,7 @@ func (t *Thread) Ask(ctx context.Context, m model.Model, text string, done func(
 
 // ask hands the model the subject and the conversation: as turns, to a
 // model that holds a conversation, and as one prompt to one that does not.
-func ask(ctx context.Context, m model.Model, about, root string, history []Message) (string, model.Usage, error) {
+func ask(ctx context.Context, m model.Model, about, root string, history []Message, said func(string)) (string, model.Usage, error) {
 	sys := system
 	if about != "" {
 		sys += "\n\n# What you are handed\n\n" + about
@@ -164,11 +187,17 @@ func ask(ctx context.Context, m model.Model, about, root string, history []Messa
 			}
 			msgs = append(msgs, model.Message{Role: role, Content: h.Text})
 		}
+		turn := func(msgs []model.Message, tools []model.Tool) (model.Message, model.Usage, error) {
+			if s, ok := m.(streamer); ok {
+				return s.Stream(ctx, msgs, tools, said)
+			}
+			return c.Chat(ctx, msgs, tools)
+		}
 		if root == "" {
-			r, u, err := c.Chat(ctx, msgs, nil)
+			r, u, err := turn(msgs, nil)
 			return r.Content, u, err
 		}
-		return look(ctx, c, harness.NewReader(ctx, root), msgs)
+		return look(turn, harness.NewReader(ctx, root), msgs)
 	}
 	var b strings.Builder
 	for _, h := range history[:len(history)-1] {
@@ -189,7 +218,7 @@ const lookRounds = 12
 // look lets the model read the repository before it answers: each turn
 // that calls a tool is answered and the model asked again, until it
 // answers in words or has read as much as it may.
-func look(ctx context.Context, c harness.Chatter, r harness.Reader, msgs []model.Message) (string, model.Usage, error) {
+func look(turn func([]model.Message, []model.Tool) (model.Message, model.Usage, error), r harness.Reader, msgs []model.Message) (string, model.Usage, error) {
 	msgs[0].Content += "\n\nYou may read the repository with the tools you are given — a file, a folder, a search — before you answer; read what the question needs and no more."
 	var total model.Usage
 	tools := r.Tools()
@@ -197,7 +226,7 @@ func look(ctx context.Context, c harness.Chatter, r harness.Reader, msgs []model
 		if round == lookRounds {
 			tools = nil // enough reading: answer with what has been read
 		}
-		reply, u, err := c.Chat(ctx, msgs, tools)
+		reply, u, err := turn(msgs, tools)
 		total = total.Add(u)
 		if err != nil || len(reply.ToolCalls) == 0 {
 			return reply.Content, total, err
