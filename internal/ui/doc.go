@@ -105,8 +105,19 @@ func (u *UI) prose(path, from string) []W {
 			return nil
 		}
 	}
+	return u.markdown(lines[start:])
+}
+
+// unstarred is text without the stars that make it bold in Markdown,
+// which a label cannot show.
+func unstarred(s string) string { return strings.ReplaceAll(s, "**", "") }
+
+// markdown is Markdown for a reader: headings, paragraphs, points and code,
+// without tables, which the inspector shows as objects.
+func (u *UI) markdown(lines []string) []W {
 	var out []W
-	var para []string
+	var para, code []string
+	fenced := false
 	// A heading waits for something under it: one over nothing but a table
 	// says nothing here.
 	var heading W
@@ -119,12 +130,25 @@ func (u *UI) prose(path, from string) []W {
 	}
 	flush := func() {
 		if len(para) > 0 {
-			emit(u.text(sizeBody, u.p.Text, strings.Join(para, " ")))
+			emit(u.text(sizeBody, u.p.Text, unstarred(strings.Join(para, " "))))
 			para = nil
 		}
 	}
-	for _, raw := range lines[start:] {
+	for _, raw := range lines {
 		l := strings.TrimSpace(raw)
+		if strings.HasPrefix(l, "```") {
+			flush()
+			if fenced {
+				emit(box(u.p.Sunken, colorNRGBA{}, 6, 8, u.mono(sizeSmall, u.p.Text, strings.Join(code, "\n"))))
+				code = nil
+			}
+			fenced = !fenced
+			continue
+		}
+		if fenced {
+			code = append(code, strings.TrimRight(raw, " \t"))
+			continue
+		}
 		switch {
 		case l == "" || strings.HasPrefix(l, "|"):
 			flush()
@@ -136,9 +160,9 @@ func (u *UI) prose(path, from string) []W {
 		case strings.HasPrefix(l, "### "), strings.HasPrefix(l, "#### "):
 			flush()
 			emit(u.strong(sizeBody, u.p.Text, strings.TrimLeft(l, "# ")))
-		case strings.HasPrefix(l, "- "):
+		case strings.HasPrefix(l, "- "), strings.HasPrefix(l, "* "):
 			flush()
-			emit(u.point("•", strings.TrimPrefix(l, "- ")))
+			emit(u.point("•", unstarred(l[2:])))
 		case len(l) > 2 && l[0] >= '0' && l[0] <= '9' && strings.Contains(l[:min(4, len(l))], ". "):
 			flush()
 			n, rest, _ := strings.Cut(l, ". ")
@@ -151,6 +175,9 @@ func (u *UI) prose(path, from string) []W {
 		}
 	}
 	flush()
+	if len(code) > 0 {
+		emit(box(u.p.Sunken, colorNRGBA{}, 6, 8, u.mono(sizeSmall, u.p.Text, strings.Join(code, "\n"))))
+	}
 	return out
 }
 
