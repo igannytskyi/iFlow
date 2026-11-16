@@ -6,23 +6,24 @@ import (
 	"slices"
 	"strings"
 
+	"gioui.org/font"
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/unit"
+	"gioui.org/widget/material"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/flow"
 )
 
 // graph is the path as what it is: six areas, each depending on the one
-// before, each naming the objects it hands to the next. A node says how
-// its area stands, what it cost and how long it took; an edge lights up
-// once its objects have crossed. Choosing a node opens its area below.
+// before. A node says how its area stands, how long it took and what it
+// cost, how many objects it made, and while it works what it is doing now;
+// an edge lights up once its objects have crossed. Choosing a node opens
+// its area below.
 func (u *UI) graph(p *project, s shown) W {
 	return func(gtx C) D {
-		// Every node is as tall as the tallest was last frame, so the path
-		// reads as one row however its names wrap.
-		p.nodeH, p.nextH = p.nextH, 0
 		var children []layout.FlexChild
 		for n := 1; n <= 6; n++ {
 			if n > 1 {
@@ -85,42 +86,77 @@ func (u *UI) node(p *project, s shown, n int) W {
 		if s.c != nil {
 			objects = len(s.c.InArea(n))
 		}
-		var facts []string
+		var cost []string
 		if took != "" {
-			facts = append(facts, took)
+			cost = append(cost, took)
 		}
 		if spent > 0 {
-			facts = append(facts, money(spent))
+			cost = append(cost, money(spent))
 		}
+		count := ""
 		if objects > 0 {
-			facts = append(facts, plural(objects, "object"))
+			count = plural(objects, "object")
 		}
-		hands := ""
-		if n < 6 {
-			hands = "→ " + strings.Join(u.crossing(n, n+1), ", ")
-		}
-		handColor := u.p.Faint
-		if status == flow.Done {
-			handColor = u.p.OK
+		// While the area works, what is being done in it now: the latest
+		// thing its run said.
+		now := ""
+		if s.live && status == flow.Working {
+			for _, st := range s.v.Steps {
+				if st.Area == n {
+					now = st.Text
+				}
+			}
 		}
 		return btn.Layout(gtx, func(gtx C) D {
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			return box(bg, border, 8, 10, func(gtx C) D {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				want := max(gtx.Dp(76), p.nodeH)
-				gtx.Constraints.Min.Y = 0
-				d := column(4,
-					row(6, u.mono(sizeSmall, u.p.Accent, fmt.Sprintf("%02d", n)), u.oneLine(sizeSmall, u.stateText(status), statusWord(status))),
-					u.strong(sizeBody, u.p.Text, a.Name),
-					u.text(sizeSmall, u.p.Muted, strings.Join(facts, " · ")),
-					u.text(sizeSmall, handColor, hands),
-				)(gtx)
-				p.nextH = max(p.nextH, d.Size.Y)
-				d.Size.Y = max(d.Size.Y, want)
-				return d
+				// Every node has the same rows at the same heights, so that
+				// what one node says stands level with the same in the next.
+				small := gtx.Sp(sizeSmall) * 3 / 2
+				body := gtx.Sp(sizeBody) * 3 / 2
+				rows := []W{
+					slot(small, row(6, u.mono(sizeSmall, u.p.Accent, fmt.Sprintf("%02d", n)), u.oneLine(sizeSmall, u.stateText(status), statusWord(status)))),
+					slot(body*2, u.clipped(sizeBody, u.p.Text, a.Name, 2, true)),
+					slot(small, u.oneLine(sizeSmall, u.p.Muted, dash(strings.Join(cost, " · ")))),
+					slot(small, u.oneLine(sizeSmall, u.p.Faint, count)),
+				}
+				if s.live && !s.v.Finished {
+					rows = append(rows, slot(small*2, u.clipped(sizeSmall, u.p.Accent, now, 2, false)))
+				}
+				return column(2, rows...)(gtx)
 			})(gtx)
 		})
 	}
+}
+
+// slot lays w in a row exactly h high, so that rows line up across nodes.
+func slot(h int, w W) W {
+	return func(gtx C) D {
+		gtx.Constraints.Min.Y, gtx.Constraints.Max.Y = 0, h
+		d := w(gtx)
+		d.Size.Y = h
+		return d
+	}
+}
+
+// clipped is text cut to at most n lines.
+func (u *UI) clipped(size unit.Sp, c colorNRGBA, s string, n int, strong bool) W {
+	return func(gtx C) D {
+		l := material.Label(u.th, size, s)
+		l.Color, l.MaxLines = c, n
+		if strong {
+			l.Font.Weight = font.SemiBold
+		}
+		return l.Layout(gtx)
+	}
+}
+
+func dash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
 }
 
 func (u *UI) stateText(s flow.Status) colorNRGBA {
@@ -160,8 +196,11 @@ func (u *UI) edge(crossed bool) W {
 
 // statusWord is how an area stands, said to a person.
 func statusWord(s flow.Status) string {
-	if s == flow.Idle {
+	switch s {
+	case flow.Idle:
 		return "not yet"
+	case flow.Waiting:
+		return "waiting" // for you: the node is too narrow to say so
 	}
 	return string(s)
 }
