@@ -144,53 +144,82 @@ func (u *UI) statusChip(s flow.Status) W {
 	return u.chip(u.p.Sunken, u.p.Faint, "not reached")
 }
 
-// composer is where a task is typed, at the foot of every view of a project.
-// While one runs it waits, and offers to stop it.
+// composer is the box at the foot of every view of a project: it asks a
+// model about what is on view, with the conversation so far above it, or
+// starts a task. While a task runs, starting another waits, and the box
+// offers to stop it; asking never waits for a task.
 func (u *UI) composer(p *project) W {
 	return func(gtx C) D {
-		busy := p.running()
+		key, dir := u.subject(p)
+		chatting := u.asking(p, key)
+		busy := p.running() && !chatting
+		ed := &p.task
+		if chatting {
+			ed = &p.talk.box
+			ed.Submit = true
+		}
 		for {
-			e, ok := p.task.Update(gtx)
+			e, ok := ed.Update(gtx)
 			if !ok {
 				break
 			}
 			if s, ok := e.(widget.SubmitEvent); ok && !busy {
 				u.acted = true
-				u.send(p, s.Text)
+				u.enter(p, chatting, key, dir, s.Text)
 			}
 		}
 		send, stop := u.clicks.of("run/send/"+p.path), u.clicks.of("run/stop/"+p.path)
 		if u.clicked(gtx, send) && !busy {
-			u.send(p, p.task.Text())
+			u.enter(p, chatting, key, dir, ed.Text())
 		}
 		if u.clicked(gtx, stop) && busy && p.cancel != nil {
 			p.cancel()
 		}
 		hint := "What should change in " + p.name + "? Enter runs it."
+		label := "Run"
 		switch {
 		case u.flowConfig == nil:
-			hint = "No model is configured, so nothing can be run from here."
+			hint = "No model is configured, so nothing can be asked or run from here."
+		case chatting && key == "":
+			hint, label = "Ask about "+p.name+" — Enter sends. Each task has its own conversation.", "Send"
+		case chatting:
+			hint, label = "Ask about this task — what it was handed, why it stopped, what to do. Enter sends.", "Send"
 		case busy:
 			hint = "A task is running in " + p.name + " — wait for it to end, or stop it, before the next."
 		}
 		button := func(gtx C) D {
-			return u.pressable(gtx, send, false, 8, box(u.p.Accent, colorNRGBA{}, 8, 0, inset(9, 18, u.strong(sizeBody, u.p.Surface, "Run"))))
+			return u.pressable(gtx, send, false, 8, box(u.p.Accent, colorNRGBA{}, 8, 0, inset(9, 18, u.strong(sizeBody, u.p.Surface, label))))
 		}
 		if busy {
 			button = func(gtx C) D {
 				return u.pressable(gtx, stop, false, 8, box(u.p.FailSoft, colorNRGBA{}, 8, 0, inset(9, 18, u.strong(sizeBody, u.p.Fail, "Stop"))))
 			}
 		}
-		return layout.Flex{Alignment: layout.End, Gap: gtx.Dp(10)}.Layout(gtx,
-			layout.Flexed(1, box(u.p.Surface, u.p.Line, 8, 10, func(gtx C) D {
-				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				ed := material.Editor(u.th, &p.task, hint)
-				ed.TextSize = sizeBody
-				return ed.Layout(gtx)
-			})),
-			layout.Rigid(button),
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(u.conversation(p)),
+			layout.Rigid(func(gtx C) D {
+				return layout.Flex{Alignment: layout.End, Gap: gtx.Dp(10)}.Layout(gtx,
+					layout.Rigid(u.modes(p, key)),
+					layout.Flexed(1, box(u.p.Surface, u.p.Line, 8, 10, func(gtx C) D {
+						gtx.Constraints.Min.X = gtx.Constraints.Max.X
+						e := material.Editor(u.th, ed, hint)
+						e.TextSize = sizeBody
+						return e.Layout(gtx)
+					})),
+					layout.Rigid(button),
+				)
+			}),
 		)
 	}
+}
+
+// enter is what Enter does in the box: asks, or starts a task.
+func (u *UI) enter(p *project, chatting bool, key, dir, text string) {
+	if chatting {
+		u.ask(p, key, dir, text)
+		return
+	}
+	u.send(p, text)
 }
 
 // send starts what was typed and shows its run.

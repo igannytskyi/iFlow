@@ -46,6 +46,27 @@ iflow models                            # which model does each piece of work
 
 The workbench shows each area as the task passes through it, every object it hands on, what the gate said at each boundary, what the agent did step by step, and what each step cost — model, tokens and money.
 
+### Starting the workbench
+
+From a clone of this repository:
+
+```bash
+go install ./cmd/iflow                  # puts iflow in $(go env GOPATH)/bin, which must be on PATH
+iflow models                            # every role should say "ready"; if not, add the key as above
+iflow desk ~/code/my-project            # opens the window with that project in it
+```
+
+`iflow desk` with no project opens the projects it remembers from last time, or the examples that come with the framework when there are none. More projects are added with **+** beside *Projects* in the window, and are remembered. If `iflow` is not found, run it as `$(go env GOPATH)/bin/iflow desk`.
+
+In the window:
+
+- **+ New intent** under a project, or Cmd/Ctrl+N: type what should change, Enter starts it; the specification waits for you to accept it or send it back.
+- The box at the foot is **Chat** or **Intent**. Chat talks with the model about what is on view: each task has its own conversation, handed that task's specification, plan and record, and the model may read the repository before it answers. *Make it an intent* turns an answer into a task.
+- Cmd/Ctrl+1…9 choose a project; Escape closes the open object, handover, foundation page, then the settings.
+- **Settings** at the bottom left: which model does each piece of work, and what each costs.
+
+On a Mac the window can also live in an app bundle; after copying a new `iflow` into it, sign the bundle again (`codesign --force -s <identity> <bundle>`), or macOS starts the program without showing its window.
+
 ```bash
 iflow check <changes/slug>              # one change, against every rule
 iflow check --status [dir]              # every change, at a glance

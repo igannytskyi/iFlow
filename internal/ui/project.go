@@ -83,6 +83,9 @@ type project struct {
 	settles []string
 	ground  widget.Editor
 
+	// talk is the project's conversations with a model, one per task.
+	talk talk
+
 	selected string // the task on view: a change's folder, or runKey; "" is the newest
 }
 
