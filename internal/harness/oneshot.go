@@ -336,7 +336,7 @@ var (
 	// A name missing, and whose: a package's name, or a type's, before it
 	// says where it was looked for.
 	undefinedIn = regexp.MustCompile(`undefined: (?:(\w+)\.)?\w+`)
-	noMember    = regexp.MustCompile(`\(type \*?(?:(\w+)\.)?\w+ has no field or method`)
+	noMember    = regexp.MustCompile(`\(type \*?(?:(\w+)\.)?\w+ has no field or method|unknown field \w+ in struct literal of type \*?(?:(\w+)\.)?\w+`)
 )
 
 // MissingHere reports whether a line says a name is missing that code in
@@ -347,7 +347,8 @@ var (
 func MissingHere(line string, local map[string]bool) bool {
 	for _, re := range []*regexp.Regexp{undefinedIn, noMember} {
 		if m := re.FindStringSubmatch(line); m != nil {
-			return m[1] == "" || local[m[1]]
+			pkg := strings.Join(m[1:], "")
+			return pkg == "" || local[pkg]
 		}
 	}
 	if strings.Contains(line, "has no field or method") {

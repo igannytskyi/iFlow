@@ -1245,7 +1245,7 @@ func (r *Run) judgeTests() func(bool, string) (bool, string) {
 			// What the code units will define may be missing; nothing
 			// else may — least of all a name of a library, which no unit
 			// can define.
-			if m := undefinedName.FindStringSubmatch(line); m != nil && promised[m[1]+m[2]] && harness.MissingHere(line, local) {
+			if m := undefinedName.FindStringSubmatch(line); m != nil && promised[m[1]+m[2]+m[3]] && harness.MissingHere(line, local) {
 				continue
 			}
 			if m := missingPackage.FindStringSubmatch(line); m != nil && createdBy(m[1]+m[2], created) {
@@ -1265,5 +1265,5 @@ var (
 	identifier     = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
 	faultLine      = regexp.MustCompile(`^\s*(?:vet: )?[\w./-]+\.\w+:\d+:\d+: `)
 	missingPackage = regexp.MustCompile(`no required module provides package ([^\s;]+)|could not import ([^\s;]+)`)
-	undefinedName  = regexp.MustCompile(`undefined: (?:\w+\.)?(\w+)|has no field or method (\w+)`)
+	undefinedName  = regexp.MustCompile(`undefined: (?:\w+\.)?(\w+)|has no field or method (\w+)|unknown field (\w+) in struct literal`)
 )
