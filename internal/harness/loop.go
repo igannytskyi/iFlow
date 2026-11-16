@@ -46,6 +46,13 @@ How to work:
 - Do not change tests to make them pass unless the unit is the one that writes them.
 - When the check passes, answer without calling a tool, in two sentences: what you changed and why. The harness runs the check once more; if it fails, you are told and go on.`
 
+// idleNudge and idleStop are how many steps without a change an agent is
+// told it has read enough, and stopped.
+const (
+	idleNudge = 15
+	idleStop  = 30
+)
+
 // keepWhole is how many of the latest messages keep their tool answers
 // whole; older answers are cut short, the way agents that run long keep
 // their context from filling with files read long ago.
@@ -73,6 +80,10 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	// reading a file again later — after other reading, or after its old
 	// answer was cut from the conversation — is work, not a loop.
 	last, again := "", 0
+	// Reading is how an agent starts; reading on and on without changing
+	// anything, while the check fails, is how a weak model goes round. It is
+	// told so once, and stopped if it goes on.
+	idle, nudged := 0, false
 	refusedDone := 0
 	for res.Steps < maxSteps {
 		if ctx.Err() != nil {
@@ -142,9 +153,15 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			answer, kind := l.call(ws, call)
 			if answer == "written" || strings.HasPrefix(answer, "edited") {
 				last = "" // the workspace changed: the same call now asks something new
+				idle, nudged = 0, false
+			} else {
+				idle++
 			}
 			emit(Event{At: time.Now(), Kind: kind, Tool: call.Function.Name, Detail: clip(answer, 2000)})
 			msgs = append(msgs, model.Message{Role: "tool", ToolCallID: call.ID, Name: call.Function.Name, Content: answer})
+			if idle >= idleStop {
+				return end(Exhausted, fmt.Sprintf("read for %d steps without changing anything", idle))
+			}
 			// What fails only in files this unit may not change, no agent of
 			// this unit can mend: the run says so now, so that what wrote
 			// them is carried again, rather than spend its steps.
@@ -153,6 +170,12 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+tail(ws.last.out, 8))
 				}
 			}
+		}
+		// After the turn's answers, never between them: the protocol wants
+		// each call answered before anything else is said.
+		if idle >= idleNudge && !nudged {
+			nudged = true
+			msgs = append(msgs, model.Message{Role: "user", Content: fmt.Sprintf("You have taken %d steps without changing anything. You have read enough: change the file that makes the check pass now, or say in one sentence why no change in your scope can.", idle)})
 		}
 	}
 	return end(Exhausted, fmt.Sprintf("stopped after %d steps without finishing", res.Steps))

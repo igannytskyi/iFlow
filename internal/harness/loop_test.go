@@ -128,3 +128,31 @@ func TestALoopIsTheSameCallInARow(t *testing.T) {
 		t.Errorf("the same call three times in a row was not stopped: %+v", res)
 	}
 }
+
+// An agent that only reads is told it has read enough, then stopped.
+func TestAnAgentThatOnlyReadsIsStopped(t *testing.T) {
+	ws := t.TempDir()
+	for _, f := range []string{"a.txt", "b.txt"} {
+		if err := os.WriteFile(filepath.Join(ws, f), []byte(f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var turns []model.Message
+	for i := range idleStop + 5 {
+		turns = append(turns, calling("read_file", map[string]string{"path": []string{"a.txt", "b.txt"}[i%2]}))
+	}
+	var sent [][]model.Message
+	res, _ := Loop{Model: chatting{sent: &sent, turns: turns}}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"a.txt"}}, func(Event) {})
+	if res.Terminal != Exhausted || !strings.Contains(res.Summary, "without changing anything") {
+		t.Fatalf("ended %+v", res)
+	}
+	told := false
+	for _, m := range sent[len(sent)-1] {
+		if m.Role == "user" && strings.Contains(m.Content, "read enough") {
+			told = true
+		}
+	}
+	if !told {
+		t.Error("the agent was never told it had read enough")
+	}
+}
