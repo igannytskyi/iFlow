@@ -69,8 +69,10 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 		emit(Event{At: time.Now(), Kind: Ended, Detail: terminal + ": " + summary, Usage: res.Usage})
 		return res, nil
 	}
-	repeats := map[string]int{}
-	written := 0 // bumps on every write, so reading a file again after changing it is not a loop
+	// A loop is the same call made again and again with nothing between:
+	// reading a file again later — after other reading, or after its old
+	// answer was cut from the conversation — is work, not a loop.
+	last, again := "", 0
 	refusedDone := 0
 	for res.Steps < maxSteps {
 		if ctx.Err() != nil {
@@ -127,16 +129,19 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 		for _, call := range msg.ToolCalls {
 			res.Steps++
 			emit(Event{At: time.Now(), Kind: Called, Tool: call.Function.Name, Detail: clip(call.Function.Arguments, 240)})
-			// The same call made three times with nothing written between is
-			// a loop, not progress: the run stops rather than pay for a fourth.
-			key := fmt.Sprint(written, call.Function.Name, call.Function.Arguments)
-			if repeats[key]++; repeats[key] >= 3 {
-				return end(Terminated, "the same call was made three times — "+call.Function.Name)
+			key := call.Function.Name + call.Function.Arguments
+			if key == last {
+				again++
+			} else {
+				last, again = key, 1
+			}
+			if again >= 3 {
+				return end(Terminated, "the same call was made three times in a row — "+call.Function.Name)
 			}
 			ws.last.ran = false
 			answer, kind := l.call(ws, call)
 			if answer == "written" || strings.HasPrefix(answer, "edited") {
-				written++
+				last = "" // the workspace changed: the same call now asks something new
 			}
 			emit(Event{At: time.Now(), Kind: kind, Tool: call.Function.Name, Detail: clip(answer, 2000)})
 			msgs = append(msgs, model.Message{Role: "tool", ToolCallID: call.ID, Name: call.Function.Name, Content: answer})

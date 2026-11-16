@@ -104,3 +104,27 @@ func TestReplaceOnce(t *testing.T) {
 		}
 	}
 }
+
+// Reading a file again after reading others is work; the same call three
+// times in a row is a loop.
+func TestALoopIsTheSameCallInARow(t *testing.T) {
+	ws := t.TempDir()
+	for _, f := range []string{"a.txt", "b.txt"} {
+		if err := os.WriteFile(filepath.Join(ws, f), []byte(f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(f string) model.Message { return calling("read_file", map[string]string{"path": f}) }
+	var sent [][]model.Message
+	m := chatting{sent: &sent, turns: []model.Message{read("a.txt"), read("b.txt"), read("a.txt"), read("b.txt"), read("a.txt"), {Content: "read"}}}
+	res, _ := Loop{Model: m}.Run(context.Background(), Task{Workspace: ws, Goal: "read", Scope: []string{"a.txt"}}, func(Event) {})
+	if res.Terminal != Candidate {
+		t.Errorf("reading files in turn was taken for a loop: %+v", res)
+	}
+	sent = nil
+	m = chatting{sent: &sent, turns: []model.Message{read("a.txt"), read("a.txt"), read("a.txt"), {Content: "read"}}}
+	res, _ = Loop{Model: m}.Run(context.Background(), Task{Workspace: ws, Goal: "read", Scope: []string{"a.txt"}}, func(Event) {})
+	if res.Terminal != Terminated {
+		t.Errorf("the same call three times in a row was not stopped: %+v", res)
+	}
+}
