@@ -389,3 +389,22 @@ func TestAdmissionNamesChangesInFlight(t *testing.T) {
 		t.Errorf("admission does not name the change in flight on the same ground:\n%s", b)
 	}
 }
+
+// Runs started side by side each take a number of their own.
+func TestNumbersAreTakenOnce(t *testing.T) {
+	repo := t.TempDir()
+	got := make(chan int, 20)
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Go(func() { got <- nextNumber(repo) })
+	}
+	wg.Wait()
+	close(got)
+	seen := map[int]bool{}
+	for n := range got {
+		if seen[n] {
+			t.Fatalf("number %d was taken twice", n)
+		}
+		seen[n] = true
+	}
+}

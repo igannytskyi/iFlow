@@ -64,7 +64,7 @@ type Config struct {
 	Person string
 	// BudgetUSD bounds each unit's execution.
 	BudgetUSD float64
-	// PackTokens bounds what one agent is handed of the estate; 8000 when
+	// PackTokens bounds what one agent is handed of the estate; 16000 when
 	// zero.
 	PackTokens int
 }
@@ -83,7 +83,7 @@ func (c Config) packBudget() int {
 	if c.PackTokens > 0 {
 		return c.PackTokens
 	}
-	return 8000
+	return 16000
 }
 
 // Run is one task on its way along the path.
@@ -365,7 +365,32 @@ var intentID = regexp.MustCompile(`\bINT-(\d{3})\b`)
 // nextNumber is one more than the highest intent number any change of this
 // estate carries.
 func nextNumber(repo string) int {
+	// Runs started side by side would each see the same highest number; a
+	// number is taken by creating its reservation, which only one can do.
+	dir := filepath.Join(repo, "changes")
+	_ = os.MkdirAll(dir, 0o755)
+	for n := highestNumber(repo) + 1; ; n++ {
+		f, err := os.OpenFile(filepath.Join(dir, fmt.Sprintf(".taken-%03d", n)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			f.Close()
+			return n
+		}
+		if !os.IsExist(err) {
+			return n
+		}
+	}
+}
+
+// highestNumber is the largest intent number any change here has used or
+// reserved.
+func highestNumber(repo string) int {
 	n := 0
+	taken, _ := filepath.Glob(filepath.Join(repo, "changes", ".taken-*"))
+	for _, t := range taken {
+		if v, err := strconv.Atoi(strings.TrimPrefix(filepath.Base(t), ".taken-")); err == nil && v > n {
+			n = v
+		}
+	}
 	entries, _ := os.ReadDir(filepath.Join(repo, "changes"))
 	for _, e := range entries {
 		b, err := os.ReadFile(filepath.Join(repo, "changes", e.Name(), "00-intent.md"))
@@ -378,7 +403,7 @@ func nextNumber(repo string) int {
 			}
 		}
 	}
-	return n + 1
+	return n
 }
 
 func (r *Run) id(prefix string, parts ...int) string {

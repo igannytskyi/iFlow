@@ -20,7 +20,7 @@ import (
 // role (see models.Config.Flow), and from the environment
 //
 //	IFLOW_BUDGET_USD    the most one unit may spend (2 when unset)
-//	IFLOW_PACK_TOKENS   the most one agent is handed (8000 when unset)
+//	IFLOW_PACK_TOKENS   the most one agent is handed (16000 when unset)
 //
 // The second value says what is wrong with the choice of models, if
 // anything.

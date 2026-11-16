@@ -104,7 +104,14 @@ func (r *Repo) PackFor(change, read []string, budget int) Pack {
 	var p Pack
 	left := budget
 	for _, s := range whole {
-		if Tokens(s.Body) > left*2/3 {
+		// A file to change is shown whole up to a large bound — an agent
+		// cannot edit what it cannot see — and reduced to its outline only
+		// past that; a file only read is reduced sooner.
+		bound := left * 2 / 3
+		if strings.HasPrefix(s.Title, "May change: ") {
+			bound = max(bound, 30000)
+		}
+		if Tokens(s.Body) > bound {
 			rel := strings.TrimPrefix(strings.TrimPrefix(s.Title, "May change: "), "Read: ")
 			s.Body = r.outline(rel) + "\n(too long to show whole here: its outline, each part with the line it starts on)"
 		}
@@ -215,17 +222,21 @@ func (r *Repo) besideSection(files []string) Section {
 		if !dirs[path.Dir(s)] || slices.Contains(files, s) {
 			continue
 		}
-		line := s
+		// Each name by the first line of its definition: a signature an
+		// agent can call, not a name it must guess the arguments of.
+		lines = append(lines, s+":")
 		if err == nil && ix.Files[s] != nil {
-			var ns []string
+			seen := map[int]bool{}
 			for _, sym := range ix.Files[s].Symbols {
-				ns = append(ns, sym.Name)
-			}
-			if len(ns) > 0 {
-				line += ": " + strings.Join(slices.Compact(ns), ", ")
+				if seen[sym.Start] {
+					continue
+				}
+				seen[sym.Start] = true
+				if ex := r.Excerpt(s, sym.Start, sym.Start, 1); len(ex) == 1 {
+					lines = append(lines, "  "+strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(ex[0].Text), "{")))
+				}
 			}
 		}
-		lines = append(lines, line)
 	}
-	return Section{"Beside it, in the same directory", strings.Join(lines, "\n")}
+	return Section{"Beside it, in the same directory — every definition by its first line", strings.Join(lines, "\n")}
 }

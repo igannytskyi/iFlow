@@ -96,3 +96,37 @@ func TestTheLastAttemptGoesToTheStrongerModel(t *testing.T) {
 		t.Errorf("the cheap model was asked %d times and the stronger %d", len(cheapAsked), len(strongAsked))
 	}
 }
+
+// An existing file is changed by edits; a long one written whole and cut
+// short is refused; and a check failing only outside the scope ends the run
+// at once instead of spending the attempts.
+func TestEditsTruncationAndFaultsOutside(t *testing.T) {
+	ws := t.TempDir()
+	long := strings.Repeat("line\n", 200) + "func Old() {}\n"
+	if err := os.WriteFile(filepath.Join(ws, "big.go"), []byte(long), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var asked []string
+	m := scripted{asked: &asked, answers: []string{
+		"=== FILE: big.go\nfunc New() {}\n=== END\n=== SUMMARY: rewrote it",
+		"=== EDIT: big.go\n<<<<<<< SEARCH\nfunc Old() {}\n=======\nfunc New() {}\n>>>>>>> REPLACE\n=== END\n=== SUMMARY: edited",
+	}}
+	res, err := Oneshot{Model: m}.Run(context.Background(),
+		Task{Workspace: ws, Goal: "rename Old to New", Scope: []string{"big.go"}, Check: []string{"sh", "-c", "grep -q 'func New' big.go && grep -c line big.go | grep -q 200"}},
+		func(Event) {})
+	if err != nil || res.Terminal != Candidate || len(asked) != 2 {
+		t.Fatalf("%+v %v after %d answers", res, err, len(asked))
+	}
+	if !strings.Contains(asked[1], "lost more than half") {
+		t.Errorf("the second agent was not told why the whole file was refused:\n%s", asked[1])
+	}
+
+	asked = nil
+	m = scripted{asked: &asked, answers: []string{"=== FILE: a.go\nx\n=== END\n=== SUMMARY: s", "unused", "unused"}}
+	res, _ = Oneshot{Model: m}.Run(context.Background(),
+		Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: []string{"sh", "-c", "echo 'tests/a_test.go:3:5: undefined: Thing'; exit 1"}},
+		func(Event) {})
+	if res.Terminal != FailedTask || len(asked) != 1 || !strings.Contains(res.Summary, "tests/a_test.go") {
+		t.Errorf("a fault outside the scope did not end the run at once: %+v after %d answers", res, len(asked))
+	}
+}

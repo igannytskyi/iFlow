@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -48,13 +49,72 @@ Answer only in this form. For each file you write, the whole file, from its firs
 <the complete content of the file>
 === END
 
+To change part of a file that exists — and always for one longer than 150 lines, which you must never write whole — use instead, once per file, with as many SEARCH/REPLACE pairs as needed:
+
+=== EDIT: <path>
+<<<<<<< SEARCH
+<lines copied exactly from the file as you were given it, enough of them to occur once>
+=======
+<the lines that take their place>
+>>>>>>> REPLACE
+=== END
+
 Then, last, one line:
 === SUMMARY: <what you did, in one sentence>
 
 Write only files you are allowed to change. Write nothing outside these blocks.`
 
-// written is one file an agent wrote.
-type written struct{ path, content string }
+// written is one file an agent wrote: whole, or as edits to what is there.
+type written struct {
+	path, content string
+	edits         [][2]string // search, replace
+}
+
+// text is the file as the agent wrote it, for the next agent to read.
+func (w written) text() string {
+	if w.edits == nil {
+		return "=== FILE: " + w.path + "\n" + w.content + "=== END\n"
+	}
+	var b strings.Builder
+	b.WriteString("=== EDIT: " + w.path + "\n")
+	for _, e := range w.edits {
+		b.WriteString("<<<<<<< SEARCH\n" + e[0] + "\n=======\n" + e[1] + "\n>>>>>>> REPLACE\n")
+	}
+	return b.String() + "=== END\n"
+}
+
+// apply writes what an agent wrote into the workspace: a whole file as it
+// is, an edit by finding each search once and putting its replacement in
+// its place. A whole file that shortens one already there to under half is
+// refused: an agent shown an outline rewrites what it never saw.
+func (w written) apply(dst string) error {
+	before, err := os.ReadFile(dst)
+	if w.edits == nil {
+		if err == nil && strings.Count(string(before), "\n") > 150 && len(w.content) < len(before)/2 {
+			return fmt.Errorf("%s was written whole and lost more than half of what it held; change it with EDIT blocks instead", w.path)
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(dst, []byte(w.content), 0o644)
+	}
+	if err != nil {
+		return fmt.Errorf("%s does not exist, so it cannot be edited; write it whole with a FILE block", w.path)
+	}
+	text := string(before)
+	for _, e := range w.edits {
+		switch n := strings.Count(text, e[0]); {
+		case e[0] == "":
+			return fmt.Errorf("an edit of %s searches for nothing", w.path)
+		case n == 0:
+			return fmt.Errorf("an edit of %s searches for lines that are not in it:\n%s", w.path, e[0])
+		case n > 1:
+			return fmt.Errorf("an edit of %s searches for lines that occur %d times; give more of them", w.path, n)
+		}
+		text = strings.Replace(text, e[0], e[1], 1)
+	}
+	return os.WriteFile(dst, []byte(text), 0o644)
+}
 
 // parseFiles reads an answer in the form oneshotSystem asks for.
 func parseFiles(answer string) (files []written, summary string) {
@@ -75,7 +135,34 @@ func parseFiles(answer string) (files []written, summary string) {
 					body = body[:n-1]
 				}
 			}
-			files = append(files, written{p, strings.Join(body, "\n") + "\n"})
+			files = append(files, written{path: p, content: strings.Join(body, "\n") + "\n"})
+		case strings.HasPrefix(line, "=== EDIT:"):
+			w := written{path: strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "=== EDIT:")), "`"), edits: [][2]string{}}
+			var search, replace []string
+			mode := ""
+			for i++; i < len(lines) && strings.TrimSpace(lines[i]) != "=== END"; i++ {
+				switch strings.TrimSpace(lines[i]) {
+				case "<<<<<<< SEARCH":
+					mode, search, replace = "search", nil, nil
+				case "=======":
+					if mode == "search" {
+						mode = "replace"
+					} else if mode == "replace" {
+						replace = append(replace, lines[i])
+					}
+				case ">>>>>>> REPLACE":
+					w.edits = append(w.edits, [2]string{strings.Join(search, "\n"), strings.Join(replace, "\n")})
+					mode = ""
+				default:
+					switch mode {
+					case "search":
+						search = append(search, lines[i])
+					case "replace":
+						replace = append(replace, lines[i])
+					}
+				}
+			}
+			files = append(files, w)
 		case strings.HasPrefix(line, "=== SUMMARY:"):
 			summary = strings.TrimSpace(strings.TrimPrefix(line, "=== SUMMARY:"))
 		}
@@ -117,6 +204,7 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			break
 		}
 		files, summary := parseFiles(answer)
+		said = ""
 		if len(files) == 0 {
 			said = "Your answer held no file in the form asked for."
 			emit(Event{At: time.Now(), Kind: Refused, Detail: said})
@@ -129,18 +217,19 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 				continue
 			}
 			dst := filepath.Join(t.Workspace, filepath.FromSlash(f.path))
-			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-				return res, err
-			}
-			if err := os.WriteFile(dst, []byte(f.content), 0o644); err != nil {
-				return res, err
+			if err := f.apply(dst); err != nil {
+				emit(Event{At: time.Now(), Kind: Refused, Tool: "Write", Detail: err.Error()})
+				said += err.Error() + "\n"
+				continue
 			}
 			res.Steps++
 			last = append(last, f)
 			emit(Event{At: time.Now(), Kind: Called, Tool: "Write", Detail: f.path})
 		}
 		if len(last) == 0 {
-			said = "Every file you wrote is outside what you may change."
+			if said == "" {
+				said = "Every file you wrote is outside what you may change."
+			}
 			continue
 		}
 		res.Summary = summary
@@ -154,6 +243,14 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 		emit(Event{At: time.Now(), Kind: Got, Detail: tail(out, 6)})
 		if ok {
 			res.Terminal = Candidate
+			break
+		}
+		if outside := faultsOutside(out, t.Scope); len(outside) > 0 {
+			// What fails is in files this unit may not change — tests
+			// written before it, a unit before it — and no agent of this
+			// unit can mend it: say so now rather than spend the attempts.
+			res.Terminal = FailedTask
+			res.Summary = "the check fails in " + strings.Join(outside, ", ") + ", which this unit may not change; what wrote it must be carried again: " + tail(out, 8)
 			break
 		}
 		said = "The check `" + strings.Join(t.Check, " ") + "` failed after your files were written:\n\n" + tail(out, 60)
@@ -179,7 +276,7 @@ func (o Oneshot) prompt(t Task, last []written, said string) string {
 	if len(last) > 0 {
 		b.WriteString("\n# What the previous agent wrote\n\n")
 		for _, f := range last {
-			b.WriteString("=== FILE: " + f.path + "\n" + f.content + "=== END\n")
+			b.WriteString(f.text())
 		}
 	}
 	if said != "" {
@@ -215,4 +312,22 @@ func tail(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+var faultAt = regexp.MustCompile(`(?m)^\s*(?:# )?([\w./-]+\.\w+):\d+(?::\d+)?:`)
+
+// faultsOutside is every file a check's output blames that is outside the
+// scope, when it blames nothing inside it.
+func faultsOutside(out string, scope []string) []string {
+	var outside []string
+	for _, m := range faultAt.FindAllStringSubmatch(out, -1) {
+		p := strings.TrimPrefix(m[1], "./")
+		if allowed(p, scope) {
+			return nil
+		}
+		if !slices.Contains(outside, p) {
+			outside = append(outside, p)
+		}
+	}
+	return outside
 }
