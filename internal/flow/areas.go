@@ -1179,7 +1179,6 @@ func closedChange(dir string) bool {
 	return err == nil && strings.Contains(string(b), "| closed |")
 }
 
-
 // judgeTests accepts a vet of tests written before their code when every
 // failure it names is a name the units' contract promises, and returns the
 // rest to the tests' agent.
