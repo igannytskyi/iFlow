@@ -136,10 +136,9 @@ func Run(ctx context.Context, o Options) error {
 	}
 }
 
-// frame draws one frame. While any task runs, the next frame is asked for a
-// second later, so that clocks move even when nothing else does.
-func (u *UI) frame(gtx C) {
-	u.keys(gtx)
+// intake starts reading again every project that went stale and takes in
+// what was read, and reports whether any task is running.
+func (u *UI) intake() (running bool) {
 	for _, p := range u.projects {
 		if p.stale.Swap(false) {
 			u.reload(p)
@@ -147,9 +146,17 @@ func (u *UI) frame(gtx C) {
 		if l := p.pending.Swap(nil); l != nil {
 			u.take(p, l)
 		}
-		if p.running() {
-			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
-		}
+		running = running || p.running()
+	}
+	return running
+}
+
+// frame draws one frame. While any task runs, the next frame is asked for a
+// second later, so that clocks move even when nothing else does.
+func (u *UI) frame(gtx C) {
+	u.keys(gtx)
+	if u.intake() {
+		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
 	}
 	if u.cur != nil && u.cur.ws != nil {
 		u.cur.ws.RLock()

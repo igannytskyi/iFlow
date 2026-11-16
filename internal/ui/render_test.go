@@ -233,7 +233,12 @@ func TestRunRenders(t *testing.T) {
 	paint.paint(u, "run-diff")
 	p.area, p.item = 4, p.live.Item("EV-001-01-01")
 	paint.paint(u, "run-execution")
-	waitFor(t, "the gate on the landed change", func() bool { return int(p.checked.Load()) == len(p.ws.Changes) })
+	// What the run wrote is taken in between frames; here no frame is
+	// drawn while waiting, so the wait takes it in itself.
+	waitFor(t, "the gate on the landed change", func() bool {
+		u.intake()
+		return len(p.ws.Changes) == 1 && int(p.checked.Load()) == len(p.ws.Changes)
+	})
 	if len(p.ws.Changes) != 1 {
 		t.Fatalf("the landed change is not among the project's changes: %d", len(p.ws.Changes))
 	}
