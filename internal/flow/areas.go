@@ -662,11 +662,20 @@ func (r *Run) blamed(c carried, head int, results []carried) int {
 	if c.res.Terminal != harness.FailedTask {
 		return -1
 	}
+	// By the path the failure names; by the file's name only where no other
+	// tests unit wrote a file of that name.
+	byName := map[string][]int{}
 	for j := range head {
 		for _, p := range results[j].paths {
-			if strings.Contains(c.res.Summary, filepath.Base(p)) {
+			if strings.Contains(c.res.Summary, p) {
 				return j
 			}
+			byName[filepath.Base(p)] = append(byName[filepath.Base(p)], j)
+		}
+	}
+	for name, js := range byName {
+		if len(js) == 1 && strings.Contains(c.res.Summary, name) {
+			return js[0]
 		}
 	}
 	return -1
