@@ -572,18 +572,48 @@ func (r *Run) execute(ctx context.Context) error {
 	}
 	wg.Wait()
 	var overlays []string
-	for i := range r.units {
+	keep := func(i int) {
+		c, u := results[i], r.units[i]
+		run := artifact.RunRow{Unit: u.id, Executor: r.cfg.Executor.Name(), Version: r.cfg.Executor.Version(), Terminal: c.res.Terminal, Candidate: c.ca}
+		cand := artifact.CandidateRow{ID: c.ca, Unit: u.id, StoredAt: "candidates/" + c.ca + "/", Artefacts: strings.Join(c.paths, ", "), ProducedAt: today()}
+		if j := slices.IndexFunc(doc.Runs, func(x artifact.RunRow) bool { return x.Unit == u.id }); j >= 0 {
+			doc.Runs[j], doc.Candidates[j] = run, cand // carried again: the last carrying stands
+			return
+		}
+		doc.Runs = append(doc.Runs, run)
+		doc.Candidates = append(doc.Candidates, cand)
+		overlays = append(overlays, filepath.Join(c.store, "files"))
+	}
+	carriedAgain := map[int]bool{}
+	for i := 0; i < len(r.units); i++ {
 		if i >= head {
 			results[i], errs[i] = r.carry(ctx, i, overlays, prof, ok)
+			// Code that cannot pass because the tests written first are
+			// wrong — they call what no unit can define, or check what the
+			// specification does not say — sends those tests back, once,
+			// with what it found, and is carried again on what comes back.
+			if j := r.blamed(results[i], head, results); errs[i] != nil && j >= 0 && !carriedAgain[j] {
+				carriedAgain[j] = true
+				r.say(4, r.units[j].id, "%s is carried again: %s found its tests wrong", r.units[j].id, r.units[i].id)
+				if r.again == nil {
+					r.again = map[string]string{}
+				}
+				r.again[r.units[j].id] = results[i].res.Summary
+				_ = os.RemoveAll(results[j].store)
+				results[j], errs[j] = r.carry(ctx, j, nil, prof, ok)
+				if errs[j] != nil {
+					return r.fail(4, "%v", errs[j])
+				}
+				keep(j)
+				i--
+				continue
+			}
 		}
 		if errs[i] != nil {
 			return r.fail(4, "%v", errs[i])
 		}
-		c, u := results[i], r.units[i]
-		doc.Runs = append(doc.Runs, artifact.RunRow{Unit: u.id, Executor: r.cfg.Executor.Name(), Version: r.cfg.Executor.Version(), Terminal: c.res.Terminal, Candidate: c.ca})
-		doc.Candidates = append(doc.Candidates, artifact.CandidateRow{ID: c.ca, Unit: u.id, StoredAt: "candidates/" + c.ca + "/",
-			Artefacts: strings.Join(c.paths, ", "), ProducedAt: today()})
-		overlays = append(overlays, filepath.Join(c.store, "files"))
+		c := results[i]
+		keep(i)
 		if err := artifact.Write(r.dir, artifact.Execution, doc.Markdown()); err != nil {
 			return r.fail(4, "the execution could not be written: %v", err)
 		}
@@ -596,6 +626,22 @@ func (r *Run) execute(ctx context.Context) error {
 	}
 	r.set(4, Done)
 	return nil
+}
+
+// blamed is the tests unit at the head of the plan whose files a code
+// unit's failure blames, or -1.
+func (r *Run) blamed(c carried, head int, results []carried) int {
+	if c.res.Terminal != harness.FailedTask {
+		return -1
+	}
+	for j := range head {
+		for _, p := range results[j].paths {
+			if strings.Contains(c.res.Summary, filepath.Base(p)) {
+				return j
+			}
+		}
+	}
+	return -1
 }
 
 // carried is one unit carried out: its candidate, where it is kept, how the
@@ -772,6 +818,10 @@ func (r *Run) goal(u unit) string {
 	}
 	if len(contract) > 0 {
 		brief += "\n\n## The contract between the units — use these names and signatures exactly; define only those marked you\n\n" + strings.Join(contract, "\n")
+	}
+	if why := r.again[u.id]; u.tests && why != "" {
+		brief += "\n\n## Why you are asked again\n\nTests written for this unit before were found wrong by the code that had to pass them; it could not, because:\n\n" + why +
+			"\n\nWrite them again so that they call only what exists or the contract promises, and check only what the criteria say."
 	}
 	if u.tests {
 		return brief + "\n\nWrite only the tests. The behaviour does not exist yet, and neither does the code that will provide it: " +
@@ -1118,6 +1168,7 @@ func (r *Run) judgeTests() func(bool, string) (bool, string) {
 			}
 		}
 	}
+	local := harness.Packages(r.repo)
 	return func(passed bool, out string) (bool, string) {
 		if passed {
 			return true, ""
@@ -1127,8 +1178,11 @@ func (r *Run) judgeTests() func(bool, string) (bool, string) {
 			if !faultLine.MatchString(line) {
 				continue
 			}
-			if m := undefinedName.FindStringSubmatch(line); m != nil && promised[m[1]+m[2]] {
-				continue // what the code units will define
+			// What the code units will define may be missing; nothing
+			// else may — least of all a name of a library, which no unit
+			// can define.
+			if m := undefinedName.FindStringSubmatch(line); m != nil && promised[m[1]+m[2]] && harness.MissingHere(line, local) {
+				continue
 			}
 			theirs = append(theirs, strings.TrimSpace(line))
 		}
@@ -1136,7 +1190,7 @@ func (r *Run) judgeTests() func(bool, string) (bool, string) {
 			return true, ""
 		}
 		return false, "Your tests do not build for reasons of their own, not because what they call is still to be written — only names the contract promises may be missing:\n\n" +
-			strings.Join(theirs, "\n") + "\n\nUse only what exists, by the signatures you were shown, and what the contract promises."
+			strings.Join(theirs, "\n") + "\n\nUse only what exists, by the signatures you were shown, and what the contract promises. A library's source can be read where the brief says."
 	}
 }
 

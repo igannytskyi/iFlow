@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -70,5 +71,24 @@ func TestASchemaHoldsEveryField(t *testing.T) {
 	}
 	if strings.Contains(string(b), "hidden") {
 		t.Error("an unexported field is in the schema")
+	}
+}
+
+// A server that says "not now" is asked again after the pause it names.
+func TestAServerThatSaysLaterIsAskedAgain(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"yes"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
+	}))
+	defer srv.Close()
+	got, _, err := OpenAI{BaseURL: srv.URL, Model: "m"}.Ask(context.Background(), "s", "q")
+	if err != nil || got != "yes" || calls != 2 {
+		t.Fatalf("got %q, %v after %d call(s)", got, err, calls)
 	}
 }

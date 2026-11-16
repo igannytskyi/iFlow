@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -258,29 +259,9 @@ func (o OpenAI) chat(ctx context.Context, msgs []Message, tools []Tool, format m
 	if err != nil {
 		return Message{}, Usage{}, err
 	}
-	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(o.BaseURL, "/")+"/chat/completions", bytes.NewReader(body))
+	raw, err := o.post(ctx, body)
 	if err != nil {
 		return Message{}, Usage{}, err
-	}
-	hr.Header.Set("Content-Type", "application/json")
-	if o.Key != "" {
-		hr.Header.Set("Authorization", "Bearer "+o.Key)
-	}
-	client := o.Client
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Minute}
-	}
-	resp, err := client.Do(hr)
-	if err != nil {
-		return Message{}, Usage{}, fmt.Errorf("model: %s: %w", o.BaseURL, err)
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return Message{}, Usage{}, err
-	}
-	if resp.StatusCode/100 != 2 {
-		return Message{}, Usage{}, fmt.Errorf("model: %s answered %s: %s", o.BaseURL, resp.Status, strings.TrimSpace(string(raw)))
 	}
 	var r struct {
 		Choices []struct {
@@ -311,6 +292,81 @@ func (o OpenAI) chat(ctx context.Context, msgs []Message, tools []Tool, format m
 		u.CostUSD = (float64(u.Input)*o.Price.In + float64(cached)*o.Price.Cached + float64(u.Output)*o.Price.Out) / 1e6
 	}
 	return r.Choices[0].Message, u, nil
+}
+
+// retries is how many times a request a server turned away for now — too
+// many requests, overloaded, a gateway that timed out — is sent again.
+const retries = 5
+
+// post sends a request, again after a pause where the server says to try
+// later, and returns the body of the answer.
+func (o OpenAI) post(ctx context.Context, body []byte) ([]byte, error) {
+	client := o.Client
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Minute}
+	}
+	for attempt := 0; ; attempt++ {
+		hr, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(o.BaseURL, "/")+"/chat/completions", bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		hr.Header.Set("Content-Type", "application/json")
+		if o.Key != "" {
+			hr.Header.Set("Authorization", "Bearer "+o.Key)
+		}
+		resp, err := client.Do(hr)
+		if err != nil {
+			if ctx.Err() == nil && attempt < retries {
+				if wait(ctx, backoff(attempt, "")) == nil {
+					continue
+				}
+			}
+			return nil, fmt.Errorf("model: %s: %w", o.BaseURL, err)
+		}
+		raw, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode/100 == 2 {
+			return raw, nil
+		}
+		if again(resp.StatusCode) && attempt < retries {
+			if wait(ctx, backoff(attempt, resp.Header.Get("Retry-After"))) == nil {
+				continue
+			}
+		}
+		return nil, fmt.Errorf("model: %s answered %s: %s", o.BaseURL, resp.Status, strings.TrimSpace(string(raw)))
+	}
+}
+
+// again says whether a status means: not now, later.
+func again(status int) bool {
+	switch status {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
+		return true
+	}
+	return false
+}
+
+// backoff is how long to wait before an attempt: what the server asked,
+// or two, four, eight… seconds, never more than a minute.
+func backoff(attempt int, retryAfter string) time.Duration {
+	if s, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && s > 0 {
+		return min(time.Duration(s)*time.Second, time.Minute)
+	}
+	return min(time.Duration(2<<attempt)*time.Second, time.Minute)
+}
+
+func wait(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 // JSON extracts the first JSON object or array from a model's answer, which

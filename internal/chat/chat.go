@@ -1,0 +1,208 @@
+// Package chat is a conversation with a model beside the work: about the
+// project as a whole, or about one task, with what that task has written in
+// front of the model. Each conversation is its own, kept on disk where what
+// it is about is kept, and goes on where it was left.
+package chat
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/igannytskyi/iflow/internal/model"
+)
+
+// File is where a task's conversation is kept, in the task's folder; the
+// project's is kept under the changes folder.
+const File = "chat.jsonl"
+
+// Message is one turn.
+type Message struct {
+	At    time.Time   `json:"at"`
+	Role  string      `json:"role"` // "person" or "model"
+	Text  string      `json:"text"`
+	Usage model.Usage `json:"usage,omitzero"`
+	Err   bool        `json:"err,omitempty"`
+}
+
+// Thread is one conversation. Its methods may be called from any goroutine.
+type Thread struct {
+	// Path is the file the conversation is kept in.
+	Path string
+	// About gathers what the model is handed about the subject, read anew
+	// for each question so that it is never stale.
+	About func() string
+
+	mu      sync.Mutex
+	msgs    []Message
+	waiting bool
+}
+
+// Open reads the conversation kept at path, or starts one.
+func Open(path string, about func() string) *Thread {
+	t := &Thread{Path: path, About: about}
+	f, err := os.Open(path)
+	if err != nil {
+		return t
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 1<<20), 16<<20)
+	for sc.Scan() {
+		var m Message
+		if json.Unmarshal(sc.Bytes(), &m) == nil {
+			t.msgs = append(t.msgs, m)
+		}
+	}
+	return t
+}
+
+// Messages is the conversation so far.
+func (t *Thread) Messages() []Message {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return slices.Clone(t.msgs)
+}
+
+// Waiting reports whether a question is out.
+func (t *Thread) Waiting() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.waiting
+}
+
+// Cost is what the conversation has spent.
+func (t *Thread) Cost() float64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var c float64
+	for _, m := range t.msgs {
+		c += m.Usage.CostUSD
+	}
+	return c
+}
+
+// ErrBusy is asking while the last question is still out.
+var ErrBusy = errors.New("chat: the last question has not been answered")
+
+const system = `You are talking with the person who runs this project through iFlow, a method that carries software changes from intent to landing with one-shot agents. Answer plainly and briefly, in the language the person writes in. You are handed what the project or task says about itself; ground your answers in it and say when it does not say. You cannot change files or run anything; when what the person wants is a change, say so and offer the words of an intent for it.`
+
+// historyRunes bounds how much of the conversation is handed back with each
+// question; the oldest turns go first.
+const historyRunes = 24000
+
+// Ask puts the person's text to the model and keeps both, calling done when
+// the answer has come. It returns at once; the model is asked in its own
+// goroutine.
+func (t *Thread) Ask(ctx context.Context, m model.Model, text string, done func()) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	t.mu.Lock()
+	if t.waiting {
+		t.mu.Unlock()
+		return ErrBusy
+	}
+	t.waiting = true
+	q := Message{At: time.Now(), Role: "person", Text: text}
+	t.msgs = append(t.msgs, q)
+	history := slices.Clone(t.msgs)
+	t.mu.Unlock()
+	t.keep(q)
+	go func() {
+		about := ""
+		if t.About != nil {
+			about = t.About()
+		}
+		answer, u, err := ask(ctx, m, about, history)
+		a := Message{At: time.Now(), Role: "model", Text: strings.TrimSpace(answer), Usage: u}
+		if err != nil {
+			a.Text, a.Err = err.Error(), true
+		}
+		t.mu.Lock()
+		t.msgs = append(t.msgs, a)
+		t.waiting = false
+		t.mu.Unlock()
+		t.keep(a)
+		if done != nil {
+			done()
+		}
+	}()
+	return nil
+}
+
+// ask hands the model the subject and the conversation: as turns, to a
+// model that holds a conversation, and as one prompt to one that does not.
+func ask(ctx context.Context, m model.Model, about string, history []Message) (string, model.Usage, error) {
+	sys := system
+	if about != "" {
+		sys += "\n\n# What you are handed\n\n" + about
+	}
+	history = recent(history)
+	if c, ok := m.(interface {
+		Chat(context.Context, []model.Message, []model.Tool) (model.Message, model.Usage, error)
+	}); ok {
+		msgs := []model.Message{{Role: "system", Content: sys}}
+		for _, h := range history {
+			if h.Err {
+				continue
+			}
+			role := "user"
+			if h.Role == "model" {
+				role = "assistant"
+			}
+			msgs = append(msgs, model.Message{Role: role, Content: h.Text})
+		}
+		r, u, err := c.Chat(ctx, msgs, nil)
+		return r.Content, u, err
+	}
+	var b strings.Builder
+	for _, h := range history[:len(history)-1] {
+		if !h.Err {
+			fmt.Fprintf(&b, "## %s\n\n%s\n\n", h.Role, h.Text)
+		}
+	}
+	prompt := history[len(history)-1].Text
+	if b.Len() > 0 {
+		prompt = "# The conversation so far\n\n" + b.String() + "# The person now\n\n" + prompt
+	}
+	return m.Ask(ctx, sys, prompt)
+}
+
+// recent is the latest turns that fit the bound, the last always.
+func recent(h []Message) []Message {
+	n := 0
+	for i := len(h) - 1; i >= 0; i-- {
+		n += len([]rune(h[i].Text))
+		if n > historyRunes && i < len(h)-1 {
+			return h[i+1:]
+		}
+	}
+	return h
+}
+
+func (t *Thread) keep(m Message) {
+	if t.Path == "" {
+		return
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(t.Path), 0o755)
+	f, err := os.OpenFile(t.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(b, '\n'))
+}

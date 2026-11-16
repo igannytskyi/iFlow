@@ -412,7 +412,7 @@ func TestNumbersAreTakenOnce(t *testing.T) {
 // Tests written first may fail to build only for what the contract
 // promises; anything else they got wrong goes back to their agent.
 func TestTestsWrittenFirstAreJudgedByTheContract(t *testing.T) {
-	r := &Run{units: []unit{{id: "WU-001-02", provides: []string{"func Shout(n string) string", "func (p *project) closeTop() bool"}}}}
+	r := &Run{units: []unit{{id: "WU-001-02", provides: []string{"func Shout(n string) string", "func (p *project) closeTop() bool", "key.NameN"}}}}
 	judge := r.judgeTests()
 	if ok, why := judge(false, "vet: ./shout_test.go:5:9: undefined: Shout\n./x_test.go:9:4: p.closeTop undefined (type *project has no field or method closeTop)\n"); !ok {
 		t.Errorf("a missing promised name was held against the tests: %s", why)
@@ -420,7 +420,73 @@ func TestTestsWrittenFirstAreJudgedByTheContract(t *testing.T) {
 	if ok, why := judge(false, "vet: internal/ui/graph_test.go:32:24: r.Semantic undefined (type *input.Router has no field or method Semantic)\n"); ok || !strings.Contains(why, "Semantic") {
 		t.Errorf("an invented method of a library passed: %v %s", ok, why)
 	}
+	if ok, why := judge(false, "vet: ./shortcuts_test.go:53:40: undefined: key.NameN\n"); ok || !strings.Contains(why, "key.NameN") {
+		t.Errorf("a name a library does not have passed: %v %s", ok, why)
+	}
 	if ok, _ := judge(false, "vet: x_test.go:11:15: not enough arguments in call to testUI\n"); ok {
 		t.Error("the wrong arguments to a function that exists passed")
+	}
+}
+
+// secondTry is an executor whose tests are wrong the first time: the code
+// cannot pass them, says so, and passes the tests written again.
+type secondTry struct {
+	goals *[]string
+	calls map[string]int
+}
+
+func (s secondTry) Name() string    { return "second try" }
+func (s secondTry) Version() string { return "1" }
+func (s secondTry) Run(_ context.Context, t harness.Task, _ func(harness.Event)) (harness.Result, error) {
+	*s.goals = append(*s.goals, t.Goal)
+	scope := t.Scope[0]
+	s.calls[scope]++
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}
+	if scope == "greet.go" && s.calls["shout_test.go"] == 1 {
+		return harness.Result{Terminal: harness.FailedTask, Summary: "the check fails in shout_test.go, which this unit may not change: undefined: strings.Shouty"}, nil
+	}
+	if err := os.WriteFile(filepath.Join(t.Workspace, scope), []byte(files[scope]), 0o644); err != nil {
+		return harness.Result{}, err
+	}
+	return harness.Result{Terminal: harness.Candidate, Summary: "wrote " + scope}, nil
+}
+
+// Tests the code cannot pass, because they are wrong, are carried again
+// with what the code found, and the code is carried on what comes back.
+func TestWrongTestsAreCarriedAgain(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	var goals []string
+	ex := secondTry{goals: &goals, calls: map[string]int{}}
+	cfg := Config{Model: stubModel{answer: spec}, Executor: ex, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		for _, s := range run.View().Steps {
+			t.Logf("%d %s", s.Area, s.Text)
+		}
+		t.Fatalf("the task stopped: %v", err)
+	}
+	if ex.calls["shout_test.go"] != 2 || ex.calls["greet.go"] != 2 {
+		t.Errorf("carried %v", ex.calls)
+	}
+	again := ""
+	for _, g := range goals {
+		if strings.Contains(g, "Why you are asked again") {
+			again = g
+		}
+	}
+	if !strings.Contains(again, "strings.Shouty") {
+		t.Errorf("the tests were not handed what the code found:\n%s", strings.Join(goals, "\n---\n"))
+	}
+	if b, _ := os.ReadFile(filepath.Join(repo, "greet.go")); !strings.Contains(string(b), "Shout") {
+		t.Error("the code did not land")
 	}
 }

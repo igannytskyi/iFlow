@@ -254,7 +254,7 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			res.Summary = "the check still failed after " + fmt.Sprint(n) + " agent(s)"
 			continue
 		}
-		if outside := faultsOutside(out, t.Scope); len(outside) > 0 {
+		if outside := faultsOutside(out, t.Scope, Packages(t.Workspace)); len(outside) > 0 {
 			// What fails is in files this unit may not change — tests
 			// written before it, a unit before it — and no agent of this
 			// unit can mend it: say so now rather than spend the attempts.
@@ -324,14 +324,54 @@ func tail(s string, n int) string {
 }
 
 var (
-	faultAt     = regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.\w+):\d+(?::\d+)?:`)
-	missingName = regexp.MustCompile(`undefined: |has no field or method `)
+	faultAt = regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.\w+):\d+(?::\d+)?:`)
+	// A name missing, and whose: a package's name, or a type's, before it
+	// says where it was looked for.
+	undefinedIn = regexp.MustCompile(`undefined: (?:(\w+)\.)?\w+`)
+	noMember    = regexp.MustCompile(`\(type \*?(?:(\w+)\.)?\w+ has no field or method`)
 )
+
+// MissingHere reports whether a line says a name is missing that code in
+// this repository could define: one of no package, or of a package of the
+// repository. A name missing from a library — key.NameN, a method of
+// widget.Editor — is no name any unit can define: it is a mistake in the
+// file that uses it.
+func MissingHere(line string, local map[string]bool) bool {
+	for _, re := range []*regexp.Regexp{undefinedIn, noMember} {
+		if m := re.FindStringSubmatch(line); m != nil {
+			return m[1] == "" || local[m[1]]
+		}
+	}
+	if strings.Contains(line, "has no field or method") {
+		return true
+	}
+	return false
+}
+
+// Packages is the name of every directory of the workspace that holds Go
+// code, which is how a package of the repository is named where it is used.
+func Packages(dir string) map[string]bool {
+	out := map[string]bool{}
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && (d.Name() == ".git" || d.Name() == "node_modules" || d.Name() == "changes") {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && strings.HasSuffix(p, ".go") {
+			out[filepath.Base(filepath.Dir(p))] = true
+		}
+		return nil
+	})
+	return out
+}
 
 // faultsOutside is every file a check's output blames that is outside the
 // scope, when it blames nothing inside it. A name another file finds
-// missing is no fault of that file: it is what this unit was to define.
-func faultsOutside(out string, scope []string) []string {
+// missing is no fault of that file when it is what this unit was to
+// define; a name missing from a library is.
+func faultsOutside(out string, scope []string, local map[string]bool) []string {
 	var outside []string
 	for _, line := range strings.Split(out, "\n") {
 		m := faultAt.FindStringSubmatch(line)
@@ -339,7 +379,7 @@ func faultsOutside(out string, scope []string) []string {
 			continue
 		}
 		p := strings.TrimPrefix(m[1], "./")
-		if allowed(p, scope) || missingName.MatchString(line) {
+		if allowed(p, scope) || MissingHere(line, local) {
 			return nil
 		}
 		if !slices.Contains(outside, p) {

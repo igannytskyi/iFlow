@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/igannytskyi/iflow/internal/model"
 )
@@ -33,6 +35,51 @@ type workspace struct {
 	check []string
 	judge func(passed bool, output string) (ok bool, why string)
 	ctx   context.Context
+
+	pkgs map[string]bool // the repository's packages, read once
+	// last is how the check went when it was last run.
+	last struct {
+		ran      bool
+		ok       bool
+		out, why string
+	}
+}
+
+// local is the name of every package of the repository.
+func (w *workspace) local() map[string]bool {
+	if w.pkgs == nil {
+		w.pkgs = Packages(w.dir)
+	}
+	return w.pkgs
+}
+
+// libraries is where the source of the libraries a Go repository uses is
+// kept — the module cache and the standard library — which an agent may
+// read, as a person reads a library's source rather than guess its API.
+var libraries = sync.OnceValue(func() []string {
+	out, err := exec.Command("go", "env", "GOMODCACHE", "GOROOT").Output()
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for _, l := range strings.Fields(string(out)) {
+		dirs = append(dirs, filepath.Clean(l))
+	}
+	return dirs
+})
+
+// readable resolves a path the agent may read: one inside the workspace,
+// or a library's source.
+func (w *workspace) readable(p string) (string, error) {
+	if clean := filepath.Clean(p); filepath.IsAbs(clean) {
+		for _, lib := range libraries() {
+			if clean == lib || strings.HasPrefix(clean, lib+string(filepath.Separator)) {
+				return clean, nil
+			}
+		}
+	}
+	abs, _, err := w.within(p)
+	return abs, err
 }
 
 // run runs the check in the workspace and judges it as the unit's task
@@ -43,6 +90,7 @@ func (w *workspace) run() (ok bool, out, why string) {
 	if w.judge != nil {
 		ok, why = w.judge(ok, out)
 	}
+	w.last.ran, w.last.ok, w.last.out, w.last.why = true, ok, out, why
 	return ok, out, why
 }
 
@@ -77,9 +125,9 @@ func (w *workspace) writable(rel string) bool {
 }
 
 var tools = []tool{
-	{"read_file", "Read a file in the repository.", `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`,
+	{"read_file", "Read a file in the repository, or of a library's source by its absolute path.", `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
-			p, _, err := w.within(a["path"])
+			p, err := w.readable(a["path"])
 			if err != nil {
 				return "", err
 			}
@@ -89,9 +137,9 @@ var tools = []tool{
 			}
 			return numbered(string(b)), nil
 		}},
-	{"list_dir", "List a directory in the repository.", `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`,
+	{"list_dir", "List a directory in the repository, or of a library's source by its absolute path.", `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
-			p, _, err := w.within(a["path"])
+			p, err := w.readable(a["path"])
 			if err != nil {
 				return "", err
 			}

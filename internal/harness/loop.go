@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -55,7 +57,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 		return Result{Terminal: FailedSubstrate}, errNoModel
 	}
 	ws := &workspace{dir: t.Workspace, scope: t.Scope, check: t.Check, judge: t.Judge, ctx: ctx}
-	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t)}}
+	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t) + libraryNote(t.Workspace)}}
 	maxSteps := t.MaxSteps
 	if maxSteps <= 0 {
 		maxSteps = 60
@@ -108,7 +110,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 				return end(Candidate, strings.TrimSpace(msg.Content))
 			}
 			if judged == "" {
-				if outside := faultsOutside(out, t.Scope); len(outside) > 0 {
+				if outside := faultsOutside(out, t.Scope, ws.local()); len(outside) > 0 {
 					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+tail(out, 8))
 				}
 			}
@@ -131,15 +133,32 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			if repeats[key]++; repeats[key] >= 3 {
 				return end(Terminated, "the same call was made three times — "+call.Function.Name)
 			}
+			ws.last.ran = false
 			answer, kind := l.call(ws, call)
 			if answer == "written" || strings.HasPrefix(answer, "edited") {
 				written++
 			}
 			emit(Event{At: time.Now(), Kind: kind, Tool: call.Function.Name, Detail: clip(answer, 2000)})
 			msgs = append(msgs, model.Message{Role: "tool", ToolCallID: call.ID, Name: call.Function.Name, Content: answer})
+			// What fails only in files this unit may not change, no agent of
+			// this unit can mend: the run says so now, so that what wrote
+			// them is carried again, rather than spend its steps.
+			if ws.last.ran && !ws.last.ok && ws.last.why == "" {
+				if outside := faultsOutside(ws.last.out, t.Scope, ws.local()); len(outside) > 0 {
+					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+tail(ws.last.out, 8))
+				}
+			}
 		}
 	}
 	return end(Exhausted, fmt.Sprintf("stopped after %d steps without finishing", res.Steps))
+}
+
+// libraryNote says where a Go repository's libraries can be read.
+func libraryNote(dir string) string {
+	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil || len(libraries()) == 0 {
+		return ""
+	}
+	return "\n# Libraries\n\nThe source of the modules go.mod names can be read at " + libraries()[0] + "/<module>@<version>/, and the standard library's at " + libraries()[len(libraries())-1] + "/src/. Read a library's source before you use a name of it you are not sure of.\n"
 }
 
 // compact is the conversation as sent: the system, the unit and the latest

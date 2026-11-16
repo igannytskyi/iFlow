@@ -119,6 +119,9 @@ type Run struct {
 	units      []unit
 	ev         []artifact.EvidenceRow
 	cands      map[string]string // unit → candidate folder
+	// again is, for a tests unit carried again, what the code that could
+	// not pass its tests found wrong with them.
+	again map[string]string
 }
 
 type decision struct {
