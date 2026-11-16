@@ -536,3 +536,11 @@ func TestAMovedChangeLandsMerged(t *testing.T) {
 		t.Errorf("the record does not say the change was merged:\n%s", rec)
 	}
 }
+
+func TestARequirementIsNumberedOnce(t *testing.T) {
+	for _, q := range []string{"FR-2 : Shout shouts.", "FR-2 — Shout shouts.", "FR-2. Shout shouts.", "Shout shouts."} {
+		if got := requirementText(q, 2); got != "Shout shouts." {
+			t.Errorf("%q gave %q", q, got)
+		}
+	}
+}

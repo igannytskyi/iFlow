@@ -149,6 +149,15 @@ type document struct {
 	Questions     []string `json:"open_questions"`
 }
 
+// requirementText is a requirement without the number an author wrote
+// before it, and the colon or dash after that number: the number is
+// written once, by the document.
+func requirementText(q string, n int) string {
+	q = strings.TrimSpace(q)
+	q = strings.TrimPrefix(q, fmt.Sprintf("FR-%d", n))
+	return strings.TrimSpace(strings.TrimLeft(q, " :.—–-"))
+}
+
 // parts is the specification in the order a reader needs it, as product
 // requirements, design document and request for comments write it: why,
 // for whom, what it must do, how it is built, what else was weighed, how it
@@ -157,7 +166,7 @@ type document struct {
 func (d document) parts() []artifact.Part {
 	var reqs []string
 	for i, q := range d.Requirements {
-		reqs = append(reqs, fmt.Sprintf("FR-%d %s", i+1, strings.TrimSpace(strings.TrimPrefix(q, fmt.Sprintf("FR-%d", i+1)))))
+		reqs = append(reqs, fmt.Sprintf("FR-%d %s", i+1, requirementText(q, i+1)))
 	}
 	return []artifact.Part{
 		{Title: "Summary", Text: d.Summary},
