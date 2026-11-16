@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gioui.org/app"
+	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/system"
 	"gioui.org/layout"
@@ -179,14 +180,90 @@ func (u *UI) setTheme(dark bool) {
 	u.th = newTheme(u.p)
 }
 
-// keys: Escape closes what was opened last.
+// shortcut is the whole keyboard contract of the workbench in one
+// dispatcher, free of input, output, rendering and logging: it answers for
+// the keys the workbench claims — the platform shortcut modifier with N,
+// with the digits 1 to 9, and Escape — and reports whether it handled the
+// key. When it returns false, whatever handling follows applies unchanged.
+func (u *UI) shortcut(e key.Event) bool {
+	if e.State != key.Press {
+		return false // a key let go is never a shortcut
+	}
+	switch {
+	// Escape is judged on its name alone: whatever modifiers ride along,
+	// it still closes what was opened last, one layer per press.
+	case e.Name == key.NameEscape:
+		if u.cur == nil {
+			return false
+		}
+		if u.cur.closeTop() {
+			return true
+		}
+		if u.preferring {
+			u.preferring = false
+			return true
+		}
+		return false
+	case e.Modifiers.Contain(key.ModShortcut):
+		switch e.Name {
+		case "N":
+			if u.cur == nil {
+				return false
+			}
+			u.cur.selected = newKey
+			return true
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			n := int(e.Name[0] - '0')
+			if n > len(u.projects) {
+				return false
+			}
+			// The same sequence a project row in the sidebar runs: make
+			// the project current, then clear what it has on view. Its
+			// handover view is left exactly as it was, whether the project
+			// was current already or not.
+			chosen := u.projects[n-1]
+			u.select_(chosen)
+			chosen.selected, chosen.item, chosen.foundation = "", nil, 0
+			return true
+		}
+	}
+	return false
+}
+
+// shortcutKeys are the keys the workbench claims, each named: a filter with
+// no name matches only keys pressed without modifiers, so Cmd+N would never
+// arrive through one.
+var shortcutKeys = func() []event.Filter {
+	fs := []event.Filter{
+		key.Filter{Name: key.NameEscape, Optional: key.ModShift | key.ModCtrl | key.ModAlt | key.ModCommand | key.ModSuper},
+		key.Filter{Name: "N", Required: key.ModShortcut},
+	}
+	for d := '1'; d <= '9'; d++ {
+		fs = append(fs, key.Filter{Name: key.Name(string(d)), Required: key.ModShortcut})
+	}
+	return fs
+}()
+
+// keys: the shortcut dispatcher speaks first for the keys the workbench
+// claims; Escape closes what was opened last.
 func (u *UI) keys(gtx C) {
 	for {
-		ev, ok := gtx.Event(key.Filter{Name: key.NameEscape})
+		ev, ok := gtx.Event(shortcutKeys...)
 		if !ok {
 			return
 		}
-		if e, ok := ev.(key.Event); ok && e.State == key.Press && u.cur != nil {
+		e, ok := ev.(key.Event)
+		if !ok {
+			continue
+		}
+		if u.shortcut(e) {
+			u.acted = true
+			if e.Name == "N" && u.cur != nil {
+				gtx.Execute(key.FocusCmd{Tag: &u.cur.task})
+			}
+			continue
+		}
+		if e.State == key.Press && u.cur != nil && e.Name == key.NameEscape {
 			u.acted = true
 			u.cur.item = nil
 		}

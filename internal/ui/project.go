@@ -86,6 +86,25 @@ type project struct {
 	selected string // the task on view: a change's folder, or runKey; "" is the newest
 }
 
+// closeTop closes at most one of the project's open layers, topmost first:
+// the open object, then the open handover, then the open foundation page.
+// It reports whether a layer was closed. The settings page is outside its
+// authority: it is UI state, not the project's.
+func (p *project) closeTop() bool {
+	switch {
+	case p.item != nil:
+		p.item = nil
+		return true
+	case p.handedView != "":
+		p.handedView = ""
+		return true
+	case p.foundation != 0:
+		p.foundation = 0
+		return true
+	}
+	return false
+}
+
 func newProject(path string) *project {
 	p := &project{path: path, name: filepath.Base(path), area: 1, open: map[string]bool{}}
 	p.task.Submit = true
