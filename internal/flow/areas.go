@@ -639,6 +639,30 @@ func createdBy(path string, created map[string]bool) bool {
 	return false
 }
 
+// arbitrate runs the framework's own tests against it as it is now, where
+// the change landed on the framework itself and nothing has run them since
+// it last changed: R22 holds such a landing until they pass, and running
+// them is the framework's work, not the person's.
+func (r *Run) arbitrate(ctx context.Context) {
+	home := gate.Home()
+	if home == "" || filepath.Clean(home) != filepath.Clean(r.repo) {
+		return
+	}
+	if _, ok := gate.Verified(home)[gate.ArbitersKey(home)]; ok {
+		return
+	}
+	r.say(6, r.id("SPEC"), "the framework changed, so its own tests are run against it as it is now (R22)")
+	began := time.Now()
+	run, err := gate.Arbiters(ctx, home)
+	r.cost(artifact.Cost{Area: 6, What: "the framework's own tests, run against it as it is now", Actor: "go test"}, model.Usage{}, time.Since(began))
+	switch {
+	case err != nil:
+		r.say(6, r.id("SPEC"), "the framework's tests could not be run: %v", err)
+	case !run.Passed:
+		r.say(6, r.id("SPEC"), "the framework's own tests fail against it as it is now")
+	}
+}
+
 // codeScope is every file the code units of the plan may change, in plan
 // order, each once.
 func (r *Run) codeScope() []string {
@@ -1060,6 +1084,7 @@ func (r *Run) land(ctx context.Context) error {
 			}
 		}
 	}
+	r.arbitrate(ctx)
 	if rep, err := r.check(ctx, 6); err != nil || !rep.Passed() {
 		return r.fail(6, "the landing does not pass the gate")
 	}
