@@ -259,7 +259,7 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			res.Summary = "the check still failed after " + fmt.Sprint(n) + " agent(s)"
 			continue
 		}
-		if outside := faultsOutside(out, t.Scope, Packages(t.Workspace)); len(outside) > 0 {
+		if outside := faultsOutside(out, t.Scope, ScopePackages(t.Scope)); len(outside) > 0 {
 			// What fails is in files this unit may not change — tests
 			// written before it, a unit before it — and no agent of this
 			// unit can mend it: say so now rather than spend the attempts.
@@ -356,22 +356,14 @@ func MissingHere(line string, local map[string]bool) bool {
 	return false
 }
 
-// Packages is the name of every directory of the workspace that holds Go
-// code, which is how a package of the repository is named where it is used.
-func Packages(dir string) map[string]bool {
+// ScopePackages is the name of every package the scope writes into: the
+// only packages a name may be missing from because this work is to define
+// it.
+func ScopePackages(scope []string) map[string]bool {
 	out := map[string]bool{}
-	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() && (d.Name() == ".git" || d.Name() == "node_modules" || d.Name() == "changes") {
-			return filepath.SkipDir
-		}
-		if !d.IsDir() && strings.HasSuffix(p, ".go") {
-			out[filepath.Base(filepath.Dir(p))] = true
-		}
-		return nil
-	})
+	for _, p := range scope {
+		out[filepath.Base(filepath.Dir(filepath.FromSlash(p)))] = true
+	}
 	return out
 }
 

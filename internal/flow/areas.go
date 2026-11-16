@@ -1203,16 +1203,13 @@ func (r *Run) judgeTests() func(bool, string) (bool, string) {
 			}
 		}
 	}
-	local := harness.Packages(r.repo)
-	// A package a code unit creates may be missing too: the tests import
-	// it before it exists.
+	// Only a package the code units write into may lack a name, and only a
+	// package a code unit creates may be missing whole: the tests import it
+	// before it exists.
+	local := harness.ScopePackages(r.codeScope())
 	created := map[string]bool{}
-	for _, u := range r.units {
-		if !u.tests {
-			for _, p := range u.scope {
-				created[filepath.ToSlash(filepath.Dir(p))] = true
-			}
-		}
+	for _, p := range r.codeScope() {
+		created[filepath.ToSlash(filepath.Dir(p))] = true
 	}
 	return func(passed bool, out string) (bool, string) {
 		if passed {

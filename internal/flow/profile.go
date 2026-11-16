@@ -166,9 +166,12 @@ func decisions(repo string, budget int) string {
 	return strings.Join(out, "\n")
 }
 
-// goVet vets the packages holding the files named.
+// goVet builds the tests of the packages holding the files named, running
+// none, and has the compiler say every error it finds: go vet stops at the
+// first, and a test's wrong call hides behind the names it rightly finds
+// missing.
 func goVet(files []string) []string {
-	cmd := []string{"go", "vet"}
+	cmd := []string{"go", "test", "-count=1", "-run", "^$", "-gcflags=-e"}
 	seen := map[string]bool{}
 	for _, f := range files {
 		if d := "./" + filepath.ToSlash(filepath.Dir(f)); !seen[d] {

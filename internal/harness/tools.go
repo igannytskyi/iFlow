@@ -45,10 +45,10 @@ type workspace struct {
 	}
 }
 
-// local is the name of every package of the repository.
+// local is the name of every package the scope writes into.
 func (w *workspace) local() map[string]bool {
 	if w.pkgs == nil {
-		w.pkgs = Packages(w.dir)
+		w.pkgs = ScopePackages(w.scope)
 	}
 	return w.pkgs
 }

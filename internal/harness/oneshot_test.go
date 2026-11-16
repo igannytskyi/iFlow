@@ -161,3 +161,22 @@ func TestMarkersAreRefusedAndSpacingForgiven(t *testing.T) {
 		t.Errorf("the edit did not land:\n%s", b)
 	}
 }
+
+// A name missing from a package the unit does not write into is the fault
+// of the file that uses it; one missing from a package it writes into is
+// what the unit is to define.
+func TestWhoseFaultAMissingNameIs(t *testing.T) {
+	scope := []string{"internal/cli/resolve.go"}
+	out := "internal/flow/advise_test.go:177:46: m.usage.Out undefined (type model.Usage has no field or method Out)\n"
+	if got := faultsOutside(out, scope, ScopePackages(scope)); len(got) != 1 {
+		t.Errorf("a field model.Usage does not have was not blamed on the test: %v", got)
+	}
+	out = "internal/cli/resolve_test.go:12:3: undefined: cli.Resolve\n"
+	if got := faultsOutside(out, scope, ScopePackages(scope)); got != nil {
+		t.Errorf("a name the unit is to define was blamed on the test: %v", got)
+	}
+	out = "    advise_test.go:57: got 2 paths, want 3\n"
+	if got := faultsOutside(out, scope, ScopePackages(scope)); got != nil {
+		t.Errorf("a failed assertion was blamed on the test: %v", got)
+	}
+}
