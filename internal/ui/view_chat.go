@@ -2,11 +2,11 @@ package ui
 
 import (
 	"fmt"
+	"image"
 	"path/filepath"
 	"strings"
 
 	"gioui.org/layout"
-	"gioui.org/op"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 
@@ -88,24 +88,21 @@ func (u *UI) conversation(p *project) W {
 				turns = append(turns, u.text(sizeSmall, u.p.Faint, "thinking…"))
 			}
 		}
-		gtx.Constraints.Max.Y = gtx.Constraints.Max.Y * 2 / 5
-		// A short conversation takes the height it needs; a long one the
-		// most it may, scrolled to its newest turn.
-		whole := column(12, turns...)
-		m := op.Record(gtx.Ops)
-		cg := gtx
-		cg.Constraints.Max.Y = 1 << 24
-		d := whole(cg)
-		call := m.Stop()
-		if d.Size.Y <= gtx.Constraints.Max.Y {
-			call.Add(gtx.Ops)
-			return layout.Inset{Bottom: 10}.Layout(gtx, func(C) D { return d })
-		}
+		// The conversation is as tall as the person last dragged it, never
+		// taller than leaves the task above it room to be read.
+		g := u.splitOf("chat", 260, 80, 4000)
+		height := min(gtx.Dp(g.left), gtx.Constraints.Max.Y-gtx.Dp(160))
 		l := u.lists.of("chat/" + p.path + "/" + key)
 		l.Axis, l.ScrollToEnd = layout.Vertical, true
-		return material.List(u.th, l).Layout(gtx, len(turns), func(gtx C, i int) D {
-			return layout.Inset{Top: 6, Bottom: 6}.Layout(gtx, turns[i])
-		})
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx C) D { return g.grip(gtx, u) }),
+			layout.Rigid(func(gtx C) D {
+				gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, max(height, gtx.Dp(60))))
+				return material.List(u.th, l).Layout(gtx, len(turns), func(gtx C, i int) D {
+					return layout.Inset{Top: 6, Bottom: 6}.Layout(gtx, turns[i])
+				})
+			}),
+		)
 	}
 }
 

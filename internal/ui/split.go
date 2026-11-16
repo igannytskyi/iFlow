@@ -103,3 +103,42 @@ func (u *UI) splitOf(name string, initial, lo, hi unit.Dp) *split {
 	u.splits[name] = s
 	return s
 }
+
+// grip is a boundary across the width that a person drags up or down to
+// size the panel under it; the panel's height is the split's size, kept as
+// the side panels' widths are.
+func (s *split) grip(gtx C, u *UI) D {
+	for {
+		e, ok := s.drag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+		if !ok {
+			break
+		}
+		switch e.Kind {
+		case pointer.Press:
+			s.from, s.start = e.Position.Y, s.left
+		case pointer.Drag:
+			// Up makes the panel under the grip taller.
+			delta := unit.Dp((s.from - e.Position.Y) / gtx.Metric.PxPerDp)
+			s.left = min(max(s.start+delta, s.min), s.max)
+		case pointer.Release, pointer.Cancel:
+			if s.moved != nil {
+				s.moved(s.name, s.left)
+			}
+		}
+	}
+	h := gtx.Dp(handle)
+	w := gtx.Constraints.Max.X
+	area := clip.Rect(image.Rect(0, 0, w, h)).Push(gtx.Ops)
+	pointer.CursorRowResize.Add(gtx.Ops)
+	s.drag.Add(gtx.Ops)
+	event.Op(gtx.Ops, s)
+	area.Pop()
+	line := u.p.Line
+	if s.drag.Dragging() {
+		line = u.p.Accent
+	}
+	// A short bar in the middle says it can be taken hold of.
+	mid := w / 2
+	paint.FillShape(gtx.Ops, line, clip.UniformRRect(image.Rect(mid-gtx.Dp(24), h/2-gtx.Dp(1.5), mid+gtx.Dp(24), h/2+gtx.Dp(1.5)), gtx.Dp(2)).Op(gtx.Ops))
+	return D{Size: image.Pt(w, h)}
+}
