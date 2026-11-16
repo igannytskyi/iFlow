@@ -78,3 +78,41 @@ func TestAModelThatChatsIsAskedInTurns(t *testing.T) {
 		t.Errorf("turns sent as %q, want system, user, assistant, user", roles)
 	}
 }
+
+// reading calls read_file once, then answers with what it read.
+type reading struct{ turns *int }
+
+func (r reading) Name() string { return "reading" }
+func (r reading) Ask(context.Context, string, string) (string, model.Usage, error) {
+	panic("a model that chats is asked in turns")
+}
+func (r reading) Chat(_ context.Context, msgs []model.Message, tools []model.Tool) (model.Message, model.Usage, error) {
+	*r.turns++
+	if last := msgs[len(msgs)-1]; last.Role == "tool" {
+		return model.Message{Content: "it says: " + last.Content}, model.Usage{CostUSD: 0.01}, nil
+	}
+	for _, t := range tools {
+		if t.Function.Name == "write_file" {
+			panic("a conversation was offered a tool that writes")
+		}
+	}
+	var call model.ToolCall
+	call.ID, call.Function.Name, call.Function.Arguments = "1", "read_file", `{"path":"notes.txt"}`
+	return model.Message{ToolCalls: []model.ToolCall{call}}, model.Usage{CostUSD: 0.01}, nil
+}
+
+// The model reads the repository before it answers, and may only read.
+func TestTheModelReadsBeforeItAnswers(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("the secret is 42"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	turns := 0
+	th := Open("", nil)
+	th.Root = root
+	askAndWait(t, th, reading{&turns}, "what is the secret?")
+	got := th.Messages()[1]
+	if !strings.Contains(got.Text, "the secret is 42") || turns != 2 || got.Usage.CostUSD < 0.019 {
+		t.Errorf("answered %+v after %d turns", got, turns)
+	}
+}

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
@@ -40,6 +41,9 @@ type Thread struct {
 	// About gathers what the model is handed about the subject, read anew
 	// for each question so that it is never stale.
 	About func() string
+	// Root, where given, is the repository the model may read while it
+	// answers — files, folders, a search — and never change.
+	Root string
 
 	mu      sync.Mutex
 	msgs    []Message
@@ -123,7 +127,7 @@ func (t *Thread) Ask(ctx context.Context, m model.Model, text string, done func(
 		if t.About != nil {
 			about = t.About()
 		}
-		answer, u, err := ask(ctx, m, about, history)
+		answer, u, err := ask(ctx, m, about, t.Root, history)
 		a := Message{At: time.Now(), Role: "model", Text: strings.TrimSpace(answer), Usage: u}
 		if err != nil {
 			a.Text, a.Err = err.Error(), true
@@ -142,15 +146,13 @@ func (t *Thread) Ask(ctx context.Context, m model.Model, text string, done func(
 
 // ask hands the model the subject and the conversation: as turns, to a
 // model that holds a conversation, and as one prompt to one that does not.
-func ask(ctx context.Context, m model.Model, about string, history []Message) (string, model.Usage, error) {
+func ask(ctx context.Context, m model.Model, about, root string, history []Message) (string, model.Usage, error) {
 	sys := system
 	if about != "" {
 		sys += "\n\n# What you are handed\n\n" + about
 	}
 	history = recent(history)
-	if c, ok := m.(interface {
-		Chat(context.Context, []model.Message, []model.Tool) (model.Message, model.Usage, error)
-	}); ok {
+	if c, ok := m.(harness.Chatter); ok {
 		msgs := []model.Message{{Role: "system", Content: sys}}
 		for _, h := range history {
 			if h.Err {
@@ -162,8 +164,11 @@ func ask(ctx context.Context, m model.Model, about string, history []Message) (s
 			}
 			msgs = append(msgs, model.Message{Role: role, Content: h.Text})
 		}
-		r, u, err := c.Chat(ctx, msgs, nil)
-		return r.Content, u, err
+		if root == "" {
+			r, u, err := c.Chat(ctx, msgs, nil)
+			return r.Content, u, err
+		}
+		return look(ctx, c, harness.NewReader(ctx, root), msgs)
 	}
 	var b strings.Builder
 	for _, h := range history[:len(history)-1] {
@@ -176,6 +181,33 @@ func ask(ctx context.Context, m model.Model, about string, history []Message) (s
 		prompt = "# The conversation so far\n\n" + b.String() + "# The person now\n\n" + prompt
 	}
 	return m.Ask(ctx, sys, prompt)
+}
+
+// lookRounds bounds how many times the model may read before it answers.
+const lookRounds = 12
+
+// look lets the model read the repository before it answers: each turn
+// that calls a tool is answered and the model asked again, until it
+// answers in words or has read as much as it may.
+func look(ctx context.Context, c harness.Chatter, r harness.Reader, msgs []model.Message) (string, model.Usage, error) {
+	msgs[0].Content += "\n\nYou may read the repository with the tools you are given — a file, a folder, a search — before you answer; read what the question needs and no more."
+	var total model.Usage
+	tools := r.Tools()
+	for round := 0; ; round++ {
+		if round == lookRounds {
+			tools = nil // enough reading: answer with what has been read
+		}
+		reply, u, err := c.Chat(ctx, msgs, tools)
+		total = total.Add(u)
+		if err != nil || len(reply.ToolCalls) == 0 {
+			return reply.Content, total, err
+		}
+		reply.Role = "assistant"
+		msgs = append(msgs, reply)
+		for _, call := range reply.ToolCalls {
+			msgs = append(msgs, model.Message{Role: "tool", ToolCallID: call.ID, Name: call.Function.Name, Content: r.Call(call)})
+		}
+	}
 }
 
 // recent is the latest turns that fit the bound, the last always.
