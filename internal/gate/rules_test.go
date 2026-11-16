@@ -252,3 +252,31 @@ func TestASuppressedRuleIsNotSaid(t *testing.T) {
 		t.Errorf("a suppressed rule was said: %v", got)
 	}
 }
+
+// A closed change owes nothing more: what it still owed is kept as notes,
+// and it is held to its record — which must say why it was closed.
+func TestAClosedChangeIsHeldToItsRecord(t *testing.T) {
+	needGo(t)
+	_, dir := fixture(t)
+	edit(t, filepath.Join(dir, string(artifact.Specification)+".md"), "| src/a_test.go | CR-001-01, CR-001-02 |", "| src/a_test.go | CR-001-01 |")
+	if gateOf(t, dir).Passed() {
+		t.Fatal("the broken fixture passes before it is closed")
+	}
+	rec := artifact.Record{Name: "x", Dir: dir}
+	if err := rec.Append(artifact.Crossing{At: "2026-11-16", Stage: "closed", Object: "INT-001", Note: "it will not be finished"}); err != nil {
+		t.Fatal(err)
+	}
+	rep := gateOf(t, dir)
+	if !rep.Passed() {
+		t.Errorf("a closed change is still held to what it owed: %v", rep.Problems())
+	}
+	if !slices.ContainsFunc(rep.Notes(), func(f Finding) bool { return f.Rule == "R11" }) {
+		t.Error("what the closed change owed is not kept as a note")
+	}
+	if err := rec.Append(artifact.Crossing{At: "2026-11-16", Stage: "closed", Object: "INT-001", Note: ""}); err != nil {
+		t.Fatal(err)
+	}
+	if gateOf(t, dir).Passed() {
+		t.Error("a change closed without saying why passes")
+	}
+}

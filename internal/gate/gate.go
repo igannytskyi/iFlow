@@ -152,7 +152,35 @@ func (g *Gate) Check(ctx context.Context, c *artifact.Change) Report {
 		}
 		ch.run(r)
 	}
+	if why, ok := Closed(c); ok {
+		// A change closed by a person will not be finished: what it still
+		// owed is history, kept as notes, and what it is judged on is that
+		// its record holds — in order, and saying why it was closed.
+		for i, f := range r.findings {
+			if f.Severity == Fail && !slices.Contains(recordRules, f.Rule) {
+				r.findings[i].Severity = Note
+				r.findings[i].Message = "closed, so owed no more: " + f.Message
+			}
+		}
+		if strings.TrimSpace(why) == "" {
+			r.fail("B4", "the change is closed without saying why")
+		}
+	}
 	return Report{Change: c, Findings: r.findings}
+}
+
+// recordRules are the rules a closed change is still held to: its stages
+// in order and its record whole.
+var recordRules = []string{"B1", "B4", "R4"}
+
+// Closed reports whether a person closed the change — the last line of its
+// record says so — and why.
+func Closed(c *artifact.Change) (why string, ok bool) {
+	rows := c.Record.Rows("Stage")
+	if len(rows) == 0 || rows[len(rows)-1].Cell("Stage") != "closed" {
+		return "", false
+	}
+	return rows[len(rows)-1].Cell("Note"), true
 }
 
 // AreaOf is the area of responsibility a rule's check judges the output of,
