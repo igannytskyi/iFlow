@@ -41,13 +41,15 @@ func (u Usage) Zero() bool { return u.In() == 0 && u.Output == 0 && u.CostUSD ==
 // Add returns the sum of two usages; the model is kept where both name the
 // same one, and both are named where they differ.
 func (u Usage) Add(o Usage) Usage {
-	m := u.Model
-	switch {
-	case m == "":
-		m = o.Model
-	case o.Model != "" && !strings.Contains(m, o.Model):
-		m += ", " + o.Model
+	// Each model named once, compared whole: one model's name may hold
+	// another's (glm-5.3 and glm-5.3-flash).
+	names := slices.DeleteFunc(strings.Split(u.Model, ", "), func(n string) bool { return n == "" })
+	for _, n := range strings.Split(o.Model, ", ") {
+		if n != "" && !slices.Contains(names, n) {
+			names = append(names, n)
+		}
 	}
+	m := strings.Join(names, ", ")
 	return Usage{m, u.Input + o.Input, u.CacheRead + o.CacheRead, u.CacheWrite + o.CacheWrite, u.Output + o.Output, u.CostUSD + o.CostUSD}
 }
 
@@ -239,23 +241,7 @@ func (o OpenAI) Chat(ctx context.Context, msgs []Message, tools []Tool) (Message
 }
 
 func (o OpenAI) chat(ctx context.Context, msgs []Message, tools []Tool, format map[string]any) (Message, Usage, error) {
-	req := map[string]any{"model": o.Model, "messages": msgs, "max_tokens": cmp.Or(o.MaxTokens, 32000)}
-	if format != nil {
-		req["response_format"] = format
-	}
-	if len(tools) > 0 {
-		req["tools"] = tools
-	}
-	if o.openRouter() {
-		// OpenRouter says what an answer cost when asked to account for it.
-		req["usage"] = map[string]any{"include": true}
-		if o.Effort != "" {
-			req["reasoning"] = map[string]any{"effort": o.Effort}
-		}
-	} else if o.Effort != "" {
-		req["reasoning_effort"] = o.Effort
-	}
-	body, err := json.Marshal(req)
+	body, err := o.body(msgs, tools, format, false)
 	if err != nil {
 		return Message{}, Usage{}, err
 	}
@@ -268,15 +254,7 @@ func (o OpenAI) chat(ctx context.Context, msgs []Message, tools []Tool, format m
 			Message Message `json:"message"`
 		} `json:"choices"`
 		Model string `json:"model"`
-		Usage struct {
-			Prompt     int      `json:"prompt_tokens"`
-			Completion int      `json:"completion_tokens"`
-			Cost       *float64 `json:"cost"`
-			Details    struct {
-				Cached int `json:"cached_tokens"`
-			} `json:"prompt_tokens_details"`
-			CacheHit int `json:"prompt_cache_hit_tokens"` // DeepSeek's own name for it
-		} `json:"usage"`
+		Usage served `json:"usage"`
 	}
 	if err := json.Unmarshal(raw, &r); err != nil {
 		return Message{}, Usage{}, fmt.Errorf("model: unreadable answer: %w", err)
@@ -284,14 +262,55 @@ func (o OpenAI) chat(ctx context.Context, msgs []Message, tools []Tool, format m
 	if len(r.Choices) == 0 {
 		return Message{}, Usage{}, errors.New("model: the answer held no choice")
 	}
-	cached := max(r.Usage.Details.Cached, r.Usage.CacheHit)
-	u := Usage{Model: o.Name(), Input: r.Usage.Prompt - cached, CacheRead: cached, Output: r.Usage.Completion}
-	if r.Usage.Cost != nil {
-		u.CostUSD = *r.Usage.Cost
+	return r.Choices[0].Message, o.usage(r.Usage), nil
+}
+
+// served is what a server says an answer used.
+type served struct {
+	Prompt     int      `json:"prompt_tokens"`
+	Completion int      `json:"completion_tokens"`
+	Cost       *float64 `json:"cost"`
+	Details    struct {
+		Cached int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+	CacheHit int `json:"prompt_cache_hit_tokens"` // DeepSeek's own name for it
+}
+
+// usage is what an answer cost: as the server says, or by the price given.
+func (o OpenAI) usage(s served) Usage {
+	cached := max(s.Details.Cached, s.CacheHit)
+	u := Usage{Model: o.Name(), Input: s.Prompt - cached, CacheRead: cached, Output: s.Completion}
+	if s.Cost != nil {
+		u.CostUSD = *s.Cost
 	} else {
 		u.CostUSD = (float64(u.Input)*o.Price.In + float64(cached)*o.Price.Cached + float64(u.Output)*o.Price.Out) / 1e6
 	}
-	return r.Choices[0].Message, u, nil
+	return u
+}
+
+// body is a request for the model's next turn.
+func (o OpenAI) body(msgs []Message, tools []Tool, format map[string]any, stream bool) ([]byte, error) {
+	req := map[string]any{"model": o.Model, "messages": msgs, "max_tokens": cmp.Or(o.MaxTokens, 32000)}
+	if format != nil {
+		req["response_format"] = format
+	}
+	if len(tools) > 0 {
+		req["tools"] = tools
+	}
+	if stream {
+		req["stream"] = true
+		req["stream_options"] = map[string]any{"include_usage": true}
+	}
+	if o.openRouter() {
+		// OpenRouter says what an answer cost when asked to account for it.
+		req["usage"] = map[string]any{"include": true}
+		if o.Effort != "" {
+			req["reasoning"] = map[string]any{"effort": o.Effort}
+		}
+	} else if o.Effort != "" {
+		req["reasoning_effort"] = o.Effort
+	}
+	return json.Marshal(req)
 }
 
 // retries is how many times a request a server turned away for now — too
@@ -301,6 +320,17 @@ const retries = 5
 // post sends a request, again after a pause where the server says to try
 // later, and returns the body of the answer.
 func (o OpenAI) post(ctx context.Context, body []byte) ([]byte, error) {
+	resp, err := o.send(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
+// send sends a request, again after a pause where the server says to try
+// later, and returns the answer whose body is still to be read.
+func (o OpenAI) send(ctx context.Context, body []byte) (*http.Response, error) {
 	client := o.Client
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Minute}
@@ -323,14 +353,11 @@ func (o OpenAI) post(ctx context.Context, body []byte) ([]byte, error) {
 			}
 			return nil, fmt.Errorf("model: %s: %w", o.BaseURL, err)
 		}
-		raw, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, err
-		}
 		if resp.StatusCode/100 == 2 {
-			return raw, nil
+			return resp, nil
 		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		if again(resp.StatusCode) && attempt < retries {
 			if wait(ctx, backoff(attempt, resp.Header.Get("Retry-After"))) == nil {
 				continue

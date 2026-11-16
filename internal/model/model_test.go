@@ -92,3 +92,10 @@ func TestAServerThatSaysLaterIsAskedAgain(t *testing.T) {
 		t.Fatalf("got %q, %v after %d call(s)", got, err, calls)
 	}
 }
+
+func TestUsageNamesEachModelOnce(t *testing.T) {
+	u := Usage{Model: "glm-5.3-flash"}.Add(Usage{Model: "glm-5.3"}).Add(Usage{Model: "glm-5.3-flash"}).Add(Usage{})
+	if u.Model != "glm-5.3-flash, glm-5.3" {
+		t.Errorf("named %q", u.Model)
+	}
+}
