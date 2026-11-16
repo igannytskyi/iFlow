@@ -628,10 +628,17 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	_ = os.WriteFile(filepath.Join(c.store, "pack.md"), []byte("# Goal\n\n"+r.goal(u)+"\n\n"+pack.String()), 0o644)
 	task := harness.Task{Workspace: ws, Goal: r.goal(u), Scope: u.scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
 	switch {
+	case ok && u.tests && prof.vet != nil:
+		// Tests written first cannot build, since what they call does not
+		// exist yet — but only that may keep them from building. They are
+		// vetted, and every failure that is not a name the units' contract
+		// promises goes back to their agent: a function of a library that
+		// has none, the wrong arguments to one that exists.
+		task.Check = resolve(ws, prof.vet(u.scope))
+		task.Judge = r.judgeTests()
 	case !ok || u.tests:
-		// Tests written first are judged afterwards, by failing against the
-		// estate as it stands; code that does not exist yet is a reason for
-		// them not to build, so building is not asked of them.
+		// Without a runner to vet with, tests written first are judged
+		// afterwards, by failing against the estate as it stands.
 	case i == len(r.units)-1:
 		task.Check = resolve(ws, prof.suite) // the last unit completes the change
 	case len(prof.build) > 0:
@@ -1098,3 +1105,43 @@ func (r *Run) moved() []string {
 	}
 	return out
 }
+
+// judgeTests accepts a vet of tests written before their code when every
+// failure it names is a name the units' contract promises, and returns the
+// rest to the tests' agent.
+func (r *Run) judgeTests() func(bool, string) (bool, string) {
+	promised := map[string]bool{}
+	for _, u := range r.units {
+		for _, p := range u.provides {
+			for _, w := range identifier.FindAllString(p, -1) {
+				promised[w] = true
+			}
+		}
+	}
+	return func(passed bool, out string) (bool, string) {
+		if passed {
+			return true, ""
+		}
+		var theirs []string
+		for _, line := range strings.Split(out, "\n") {
+			if !faultLine.MatchString(line) {
+				continue
+			}
+			if m := undefinedName.FindStringSubmatch(line); m != nil && promised[m[1]+m[2]] {
+				continue // what the code units will define
+			}
+			theirs = append(theirs, strings.TrimSpace(line))
+		}
+		if len(theirs) == 0 {
+			return true, ""
+		}
+		return false, "Your tests do not build for reasons of their own, not because what they call is still to be written — only names the contract promises may be missing:\n\n" +
+			strings.Join(theirs, "\n") + "\n\nUse only what exists, by the signatures you were shown, and what the contract promises."
+	}
+}
+
+var (
+	identifier    = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
+	faultLine     = regexp.MustCompile(`^\s*(?:vet: )?[\w./-]+\.\w+:\d+:\d+: `)
+	undefinedName = regexp.MustCompile(`undefined: (?:\w+\.)?(\w+)|has no field or method (\w+)`)
+)

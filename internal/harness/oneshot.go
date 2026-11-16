@@ -238,12 +238,21 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			break
 		}
 		ok, out := check(ctx, t.Workspace, t.Check)
+		judged := ""
+		if t.Judge != nil {
+			ok, judged = t.Judge(ok, out)
+		}
 		res.Steps++
 		emit(Event{At: time.Now(), Kind: Called, Tool: "Check", Detail: strings.Join(t.Check, " ")})
 		emit(Event{At: time.Now(), Kind: Got, Detail: tail(out, 6)})
 		if ok {
 			res.Terminal = Candidate
 			break
+		}
+		if judged != "" {
+			said = judged
+			res.Summary = "the check still failed after " + fmt.Sprint(n) + " agent(s)"
+			continue
 		}
 		if outside := faultsOutside(out, t.Scope); len(outside) > 0 {
 			// What fails is in files this unit may not change — tests

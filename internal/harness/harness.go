@@ -34,6 +34,10 @@ type Task struct {
 	// Check is a command the agent may run to see where it stands — the
 	// estate's own tests. It is not what judges the unit.
 	Check []string
+	// Judge, where given, decides whether the check's outcome is acceptable
+	// in place of its exit status, and says why not: tests written before
+	// their code fail to build, and only some of those failures are theirs.
+	Judge func(passed bool, output string) (ok bool, why string)
 	// BudgetUSD and MaxSteps bound the run; a run that reaches either stops
 	// with what it has and says which it reached.
 	BudgetUSD float64

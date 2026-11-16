@@ -408,3 +408,19 @@ func TestNumbersAreTakenOnce(t *testing.T) {
 		seen[n] = true
 	}
 }
+
+// Tests written first may fail to build only for what the contract
+// promises; anything else they got wrong goes back to their agent.
+func TestTestsWrittenFirstAreJudgedByTheContract(t *testing.T) {
+	r := &Run{units: []unit{{id: "WU-001-02", provides: []string{"func Shout(n string) string", "func (p *project) closeTop() bool"}}}}
+	judge := r.judgeTests()
+	if ok, why := judge(false, "vet: ./shout_test.go:5:9: undefined: Shout\n./x_test.go:9:4: p.closeTop undefined (type *project has no field or method closeTop)\n"); !ok {
+		t.Errorf("a missing promised name was held against the tests: %s", why)
+	}
+	if ok, why := judge(false, "vet: internal/ui/graph_test.go:32:24: r.Semantic undefined (type *input.Router has no field or method Semantic)\n"); ok || !strings.Contains(why, "Semantic") {
+		t.Errorf("an invented method of a library passed: %v %s", ok, why)
+	}
+	if ok, _ := judge(false, "vet: x_test.go:11:15: not enough arguments in call to testUI\n"); ok {
+		t.Error("the wrong arguments to a function that exists passed")
+	}
+}

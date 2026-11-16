@@ -23,6 +23,9 @@ type profile struct {
 	// build passes when the code builds, running nothing; empty where the
 	// estate's language has no such step.
 	build []string
+	// vet checks the packages of the files named without running them;
+	// nil where the estate's language has no such step.
+	vet func(files []string) []string
 	// names finds the tests a file declares.
 	names *regexp.Regexp
 }
@@ -38,16 +41,16 @@ func detect(repo string) (profile, bool) {
 	switch {
 	case has("test.sh"):
 		return profile{"test.sh", []string{"test.sh"},
-			func(n []string) []string { return []string{"test.sh", alternation(n)} }, nil, goTests}, true
+			func(n []string) []string { return []string{"test.sh", alternation(n)} }, nil, nil, goTests}, true
 	case has("go.mod"):
 		return profile{"go test", []string{"go", "test", "-count=1", "./..."},
 			func(n []string) []string { return []string{"go", "test", "-count=1", "-run", alternation(n), "./..."} },
-			[]string{"go", "build", "./..."}, goTests}, true
+			[]string{"go", "build", "./..."}, goVet, goTests}, true
 	case has("pyproject.toml") || has("pytest.ini") || has("setup.py"):
 		return profile{"pytest", []string{"python3", "-m", "pytest", "-q"},
 			func(n []string) []string {
 				return []string{"python3", "-m", "pytest", "-q", "-k", strings.Join(n, " or ")}
-			}, nil, pythonTests}, true
+			}, nil, nil, pythonTests}, true
 	}
 	return profile{}, false
 }
@@ -161,4 +164,17 @@ func decisions(repo string, budget int) string {
 		used += len(lines[i]) / 4
 	}
 	return strings.Join(out, "\n")
+}
+
+// goVet vets the packages holding the files named.
+func goVet(files []string) []string {
+	cmd := []string{"go", "vet"}
+	seen := map[string]bool{}
+	for _, f := range files {
+		if d := "./" + filepath.ToSlash(filepath.Dir(f)); !seen[d] {
+			seen[d] = true
+			cmd = append(cmd, d)
+		}
+	}
+	return cmd
 }
