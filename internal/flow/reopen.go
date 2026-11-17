@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -53,10 +54,7 @@ func Reopen(cfg Config, repo, dir string, from int, notes string, changed func()
 			"\n# The person reopened the change, saying\n\n" + notes +
 			"\n\nWrite the specification again, whole, as the person says; what they do not ask to change stays as it was."
 	case 2:
-		if len(spec.NewTests) == 0 && len(spec.SuiteTests) == 0 {
-			return nil, errors.New("this change was specified before the data model kept which tests judge it; reopen it from its specification")
-		}
-		r.spec = draftOf(in, spec)
+		r.spec = draftOf(in, spec, repo)
 		r.reopened = "\n\n# The person reopened the change after its plan, saying\n\n" + notes +
 			"\n\nPlan the change again, whole, as the person says."
 	}
@@ -71,10 +69,31 @@ func Reopen(cfg Config, repo, dir string, from int, notes string, changed func()
 }
 
 // draftOf is a specification in the model as a run holds one.
-func draftOf(in *meta.Intent, s *meta.Specification) draft {
+func draftOf(in *meta.Intent, s *meta.Specification, repo string) draft {
 	d := draft{Slug: s.Name, Name: s.Name, Statement: in.Statement, Class: string(s.Class), Prose: s.Prose,
 		Scope: s.Scope.Included, NewTests: s.NewTests, SuiteTests: s.SuiteTests}
+	byNew := map[string]bool{}
+	if len(d.NewTests) == 0 && len(d.SuiteTests) == 0 {
+		// A specification written before the model said which tests are
+		// written first says it all the same: they are the arbiters it keeps
+		// out of its scope that the estate does not hold yet, and the
+		// criteria they arbitrate are judged by them.
+		for _, a := range s.Arbiters {
+			if !slices.Contains(s.Scope.Excluded, a.Path) {
+				continue
+			}
+			if fileExists(filepath.Join(repo, a.Path)) {
+				d.SuiteTests = append(d.SuiteTests, a.Path)
+				continue
+			}
+			d.NewTests = append(d.NewTests, a.Path)
+			for _, id := range splitIDs(a.Arbitrates) {
+				byNew[id] = true
+			}
+		}
+	}
 	for _, c := range s.Criteria {
+		c.New = c.New || byNew[c.ID]
 		d.Criteria = append(d.Criteria, struct {
 			Criterion string `json:"criterion"`
 			When      string `json:"when"`
@@ -172,19 +191,19 @@ func Resume(cfg Config, repo, dir string, changed func()) (*Run, error) {
 		r.from = 1 // nothing to keep: the specification is written from the start
 	case m.Plan == nil:
 		r.from, r.resumed = 1, true
-		r.spec = draftOf(m.Intent, m.Specification)
+		r.spec = draftOf(m.Intent, m.Specification, repo)
 	case !whole:
 		r.from = 2
-		r.spec = draftOf(m.Intent, m.Specification)
+		r.spec = draftOf(m.Intent, m.Specification, repo)
 	case m.Execution != nil && executed(m.Execution, units):
 		r.from = 5
-		r.spec, r.units = draftOf(m.Intent, m.Specification), units
+		r.spec, r.units = draftOf(m.Intent, m.Specification, repo), units
 		for _, ca := range m.Execution.Candidates {
 			r.cands[ca.Unit] = filepath.Join(r.dir, ca.StoredAt, "files")
 		}
 	default:
 		r.from = 3
-		r.spec, r.units = draftOf(m.Intent, m.Specification), units
+		r.spec, r.units = draftOf(m.Intent, m.Specification, repo), units
 	}
 	if r.from > 1 { // a specification put to the person again is kept where it is
 		if err := supersedeFrom(r.dir, r.from); err != nil {

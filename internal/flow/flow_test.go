@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -793,4 +794,18 @@ func TestAStoppedChangeIsResumed(t *testing.T) {
 			t.Error("the candidate did not land")
 		}
 	})
+}
+
+// A specification written before the model said which tests are written
+// first says it through its arbiters: those it keeps out of its scope that
+// the estate does not hold yet.
+func TestTheTestsWrittenFirstAreInferred(t *testing.T) {
+	repo := estateFixture(t)
+	s := &meta.Specification{Name: "x", Scope: meta.Scope{Included: []string{"greet.go"}, Excluded: []string{"shout_test.go", "greet_test.go"}},
+		Criteria: []meta.Criterion{{ID: "CR-001-01"}, {ID: "CR-001-02"}},
+		Arbiters: []meta.Arbiter{{Path: "shout_test.go", Arbitrates: "CR-001-01"}, {Path: "greet_test.go", Arbitrates: "CR-001-02"}}}
+	d := draftOf(&meta.Intent{Statement: "s"}, s, repo)
+	if !slices.Equal(d.NewTests, []string{"shout_test.go"}) || !slices.Equal(d.SuiteTests, []string{"greet_test.go"}) || !d.Criteria[0].New || d.Criteria[1].New {
+		t.Errorf("inferred %v, %v, %+v", d.NewTests, d.SuiteTests, d.Criteria)
+	}
 }
