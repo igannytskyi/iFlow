@@ -63,7 +63,6 @@ func (u *UI) specBlock(p *project, s shown) []W {
 		// of what was wanted; with one, the document begins with it.
 		out = append(out, u.strong(sizeTitle, u.p.Text, s.title()))
 	}
-	facts = append(facts, u.lifecycleButton(p, s))
 	out = append(out, u.wrap(12, facts), u.mattersPanel(p, c), u.lifecycle(p, s))
 	if waiting {
 		out = append(out, u.waitingBar(p, s))

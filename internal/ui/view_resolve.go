@@ -7,7 +7,6 @@ import (
 
 	"gioui.org/io/key"
 	"gioui.org/layout"
-	"gioui.org/widget"
 	"gioui.org/widget/material"
 
 	"github.com/igannytskyi/iflow/internal/flow"
@@ -164,44 +163,6 @@ var (
 	errNoModel = errors.New("no model is configured, so nothing can be carried from here")
 	errBusy    = errors.New("a task is running in this project; wait for it to end, or stop it, first")
 )
-
-// lifecycleButton is the one thing to do with a task as it stands, beside
-// its state where it is seen first: Stop a task at work, wherever it runs;
-// Resume one that stopped, from where it stopped.
-func (u *UI) lifecycleButton(p *project, s shown) W {
-	c := s.c
-	if c == nil {
-		return nothing
-	}
-	state := s.state(p)
-	stop, resume := u.clicks.of("life/stop/"+c.Change.Dir), u.clicks.of("life/resume/"+c.Change.Dir)
-	button := func(gtx C, btn *widget.Clickable, label string, bg, fg colorNRGBA) D {
-		return u.small(btn, label, bg, fg)(gtx)
-	}
-	return func(gtx C) D {
-		switch state {
-		case "working", "waiting for you":
-			if u.clicked(gtx, stop) {
-				p.resolveErr = ""
-				if s.live && p.cancel != nil {
-					p.cancel() // this window's own run
-				} else if err := flow.Stop(c.Change.Dir, u.person()); err != nil {
-					p.resolveErr = err.Error()
-				}
-			}
-			return button(gtx, stop, "■ Stop", u.p.FailSoft, u.p.Fail)
-		case "stopped":
-			if u.clicked(gtx, resume) {
-				p.resolveErr = ""
-				if err := u.resume(p, c); err != nil {
-					p.resolveErr = err.Error()
-				}
-			}
-			return button(gtx, resume, "▶ Resume", u.p.AccentSoft, u.p.Accent)
-		}
-		return D{}
-	}
-}
 
 // lifecycle is, under a task that stopped, the other ways on: carried again
 // with something changed, from its specification or its plan, or a new
