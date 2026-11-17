@@ -120,7 +120,7 @@ func (r *Run) plan(ctx context.Context) error {
 	}
 	for round := 1; ; round++ {
 		units, approach, planner = r.planned(ctx, all, byTests, feedback)
-		if units == nil || round > reviewRounds {
+		if units == nil || round > r.cfg.reviewRounds() {
 			break
 		}
 		spec := r.specText()

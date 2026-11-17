@@ -203,7 +203,11 @@ func (m Config) Flow(base flow.Config) (flow.Config, string) {
 	}
 	// A unit goes first to one question of the cheap model; what that cannot
 	// carry goes to an agent that reads, runs the check and tries again.
-	base.Executor = harness.Ladder{First: harness.Oneshot{Model: cheap, Attempts: 2}, Then: Agent(agent)}
+	attempts := base.Attempts
+	if attempts <= 0 {
+		attempts = 2
+	}
+	base.Executor = harness.Ladder{First: harness.Oneshot{Model: cheap, Attempts: attempts}, Then: Agent(agent)}
 	if os.Getenv("IFLOW_EXECUTOR") == "agent" {
 		base.Executor = harness.ClaudeCode{Model: "sonnet"}
 	}

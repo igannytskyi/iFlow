@@ -382,3 +382,30 @@ func TestR22WaitsForArbitersBeingRun(t *testing.T) {
 		t.Error("a run against the framework as it was stood for the framework as it is")
 	}
 }
+
+// A claim to repeat set against what its evidence kept is run once more,
+// and agrees with the kept output only where the two say the same.
+func TestARepeatAgainstWhatWasKept(t *testing.T) {
+	needGo(t)
+	_, dir := fixture(t)
+	c, err := artifact.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := New(estate.NewLocal(), WithHome(t.TempDir()))
+	ids, _ := Producers(c)
+	if len(ids) == 0 {
+		t.Fatal("the fixture claims nothing repeats")
+	}
+	cmd := ProducerCommand(c, ids[0])
+	now := runOnce(context.Background(), c.Root, cmd).raw
+	for kept, same := range map[string]bool{now: true, "FAIL\tsomething else\n": false} {
+		reps, err := g.RepeatAgainst(context.Background(), c, func(string) (string, bool) { return kept, true })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reps[0].Same != same {
+			t.Errorf("kept %q: same %v, want %v", kept, reps[0].Same, same)
+		}
+	}
+}

@@ -70,6 +70,10 @@ type Config struct {
 	// PackTokens bounds what one agent is handed of the estate; 16000 when
 	// zero.
 	PackTokens int
+	// ReviewRounds, Attempts and RepeatOnce are described at reviewRounds.
+	ReviewRounds int
+	Attempts     int
+	RepeatOnce   bool
 }
 
 func (c Config) reviewer() model.Model { return orModel(c.Reviewer, c.Model) }
@@ -80,6 +84,23 @@ func orModel(m, otherwise model.Model) model.Model {
 		return m
 	}
 	return otherwise
+}
+
+// Rounds of review, attempts of the first rung, and how a claim to repeat
+// is tested at landing: what the bench varies to learn what each is worth.
+// Zero is the default.
+//
+//	ReviewRounds  how often a specification or a plan is reviewed and
+//	              written again before the person or the executor sees it; 2
+//	Attempts      how many one-shot answers a unit gets before its agent; 2
+//	RepeatOnce    a claim to repeat is run once more at landing and set
+//	              against the output its evidence kept, not run twice
+
+func (c Config) reviewRounds() int {
+	if c.ReviewRounds > 0 {
+		return c.ReviewRounds
+	}
+	return reviewRounds
 }
 
 func (c Config) packBudget() int {

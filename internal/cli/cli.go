@@ -21,6 +21,9 @@ import (
 const usage = `usage: iflow desk [project...]            the workbench: projects side by side, a task carried through each
        iflow run [--accept|--ask] <estate> <task> carry a task along the path; --ask reads
                                          each answer on stdin: accept, or notes to send it back
+       iflow bench [--only a,b] [--set review=1,attempts=1,repeat=once] [--label name]
+                                         carry the reference tasks (examples/bench.json), every
+                                         question answered yes, and say what each came to and cost
        iflow describe <change>...        write, after the fact, the whole specification of changes
                                          carried before specifications were whole
        iflow close <change> <why>          close a change that will not be finished
@@ -101,6 +104,8 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		return OK
 	case len(args) > 0 && args[0] == "run":
 		return app.RunTask(ctx, args[1:])
+	case len(args) > 0 && args[0] == "bench":
+		return app.Bench(ctx, args[1:])
 	case len(args) > 0 && args[0] == "adopt":
 		return app.Adopt(ctx, args[1:])
 	case len(args) > 0 && args[0] == "baseline":

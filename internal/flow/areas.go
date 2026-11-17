@@ -268,7 +268,7 @@ func (r *Run) specified(ctx context.Context, prompt, feedback string) (draft, er
 		if d, err = r.drafted(ctx, prompt, feedback); err != nil {
 			return d, err
 		}
-		if round > reviewRounds {
+		if round > r.cfg.reviewRounds() {
 			break
 		}
 		spec := r.specText()
@@ -1376,7 +1376,14 @@ func (r *Run) land(ctx context.Context) error {
 	c, err := artifact.Load(r.dir)
 	if err == nil {
 		began := time.Now()
-		reps, err := r.cfg.Gate.Repeat(ctx, c)
+		var kept func(string) (string, bool)
+		if r.cfg.RepeatOnce {
+			kept = func(ev string) (string, bool) {
+				b, err := os.ReadFile(filepath.Join(r.dir, "evidence", ev+".txt"))
+				return string(b), err == nil
+			}
+		}
+		reps, err := r.cfg.Gate.RepeatAgainst(ctx, c, kept)
 		r.cost(artifact.Cost{Area: 6, What: "every claim to repeat, run twice", Actor: "the gate"}, model.Usage{}, time.Since(began))
 		if err == nil {
 			for _, rp := range reps {

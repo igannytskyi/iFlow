@@ -1,0 +1,46 @@
+{
+  "about": "The reference tasks every change of the framework is measured by: each carried from intent to landing with every question answered yes, on a fresh copy of its estate. Simple and many-file, in Go, JavaScript and Python. A task whose expect is holds asks for what the estate does already.",
+  "tasks": [
+    {
+      "name": "go-farewell",
+      "estate": "greeting",
+      "statement": "Add Farewell(name string) string, which says goodbye the way Greet says hello: \"Goodbye, <name>!\", trimming the name, and \"Goodbye, world!\" when nobody is named."
+    },
+    {
+      "name": "go-spanish",
+      "estate": "greeting",
+      "statement": "Greet can greet in Spanish: a new function GreetIn(lang, name string) string returns \"¡Hola, <name>!\" for lang \"es\" and the English greeting for any other language, trimming the name and greeting the world when nobody is named, as Greet does."
+    },
+    {
+      "name": "go-holds",
+      "estate": "greeting",
+      "expect": "holds",
+      "statement": "Greet must not panic or misbehave on a name made of tabs and newlines only; treat it as nobody named, and keep every existing behaviour."
+    },
+    {
+      "name": "go-title-package",
+      "estate": "greeting",
+      "statement": "Names are greeted in title case: a new package example.com/greeting/format provides Title(s string) string, which upper-cases the first letter of every word and lower-cases the rest, and Greet uses it, so that Greet(\"ada LOVELACE\") is \"Hello, Ada Lovelace!\"; nobody named still greets the world."
+    },
+    {
+      "name": "js-farewell",
+      "estate": "greeting-js",
+      "statement": "Add farewell(name), exported beside greet, which says goodbye the way greet says hello: \"Goodbye, <name>!\", trimming the name, and \"Goodbye, world!\" when nobody is named."
+    },
+    {
+      "name": "js-shout",
+      "estate": "greeting-js",
+      "statement": "Add shout(name), exported beside greet, which returns greet(name) in capital letters, so that shout(\"ada\") is \"HELLO, ADA!\"."
+    },
+    {
+      "name": "py-farewell",
+      "estate": "greeting-py",
+      "statement": "Add farewell(name) beside greet, which says goodbye the way greet says hello: \"Goodbye, <name>!\", trimming the name, and \"Goodbye, world!\" when nobody is named."
+    },
+    {
+      "name": "py-spanish",
+      "estate": "greeting-py",
+      "statement": "greet_in(lang, name) returns \"¡Hola, <name>!\" for lang \"es\" and greet(name) for any other language, trimming the name and greeting the world when nobody is named, as greet does."
+    }
+  ]
+}
