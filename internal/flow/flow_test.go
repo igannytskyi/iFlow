@@ -1235,3 +1235,55 @@ func TestAPlanUsesOnlyWhatComesBefore(t *testing.T) {
 		t.Errorf("a plan in order was sent back: %q", got)
 	}
 }
+
+// tiring is an executor whose code unit spends its steps while the tests
+// written first are ones no code can pass, until those tests are written
+// again; then it carries the unit.
+type tiring struct {
+	goals *[]string
+	calls map[string]int
+}
+
+func (s tiring) Name() string    { return "tiring" }
+func (s tiring) Version() string { return "1" }
+func (s tiring) Run(_ context.Context, t harness.Task, _ func(harness.Event)) (harness.Result, error) {
+	*s.goals = append(*s.goals, t.Goal)
+	scope := t.Scope[0]
+	s.calls[scope]++
+	body := "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n"
+	if scope == "shout_test.go" {
+		body = "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" || Shout(\"a\") == \"HELLO, A\" {\n\t\tt.Fatal(\"asks for two things at once\")\n\t}\n}\n"
+		if s.calls[scope] > 1 {
+			body = "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n"
+		}
+	}
+	if err := os.WriteFile(filepath.Join(t.Workspace, scope), []byte(body), 0o644); err != nil {
+		return harness.Result{}, err
+	}
+	if scope != "shout_test.go" && s.calls["shout_test.go"] == 1 {
+		return harness.Result{Terminal: harness.Exhausted, Summary: "stopped after 30 steps without finishing"}, nil
+	}
+	return harness.Result{Terminal: harness.Candidate, Summary: "wrote " + scope}, nil
+}
+
+// A code unit that spends its steps on tests no code can pass sends the
+// tests back to be written again, with where they fail, and is carried
+// again after them.
+func TestTestsNoCodeCanPassAreWrittenAgain(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	var goals []string
+	cfg := Config{Model: stubModel{answer: spec}, Executor: tiring{goals: &goals, calls: map[string]int{}}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		t.Fatalf("the run ended: %v", err)
+	}
+	if !slices.ContainsFunc(goals, func(g string) bool { return strings.Contains(g, "Why you are asked again") && strings.Contains(g, "shout_test.go:") }) {
+		t.Error("the tests were not written again with where they failed")
+	}
+}

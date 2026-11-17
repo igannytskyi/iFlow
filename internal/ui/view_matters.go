@@ -5,6 +5,7 @@ import (
 
 	"gioui.org/layout"
 
+	"github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
@@ -165,6 +166,43 @@ func (u *UI) askAbout(p *project, c *workspace.Change, ms []matter) {
 // a question it asks — the criteria to accept, an escalation — and "!" for
 // a problem the gate found in a task that is not finished with.
 func (u *UI) attention(p *project, state string, c *workspace.Change) W {
+	mark := u.mark(p, state, c)
+	if c == nil {
+		return mark
+	}
+	strong := strongerModel(c.Costs)
+	if strong == "" {
+		return mark
+	}
+	// A task whose executor went on to a stronger model says which, beside
+	// what it costs: the person sees where the money went.
+	return func(gtx C) D {
+		return layout.Flex{Alignment: layout.Middle, Gap: gtx.Dp(4)}.Layout(gtx,
+			layout.Rigid(u.chip(u.p.NoteSoft, u.p.Note, "↑ "+strong)),
+			layout.Rigid(mark))
+	}
+}
+
+// strongerModel is the model a unit's executor went on to when the first
+// could not carry it — an execution that names more than one model — by
+// its short name; empty when every unit was carried by the first.
+func strongerModel(costs []artifact.Cost) string {
+	name := ""
+	for _, c := range costs {
+		if c.Area != 4 {
+			continue
+		}
+		if models := strings.Split(c.Model, ", "); len(models) > 1 {
+			last := models[len(models)-1]
+			name = last[strings.LastIndex(last, "/")+1:]
+		}
+	}
+	return name
+}
+
+// mark is what a task asks of the person: an answer, or a look at what
+// stands in its way.
+func (u *UI) mark(p *project, state string, c *workspace.Change) W {
 	if state == "waiting for you" {
 		return u.chip(u.p.AccentSoft, u.p.Accent, "?")
 	}

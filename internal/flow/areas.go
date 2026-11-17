@@ -890,6 +890,21 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	if err != nil {
 		return c, fmt.Errorf("%s: the executor failed: %v", u.id, err)
 	}
+	if !u.tests && ok && (res.Terminal == harness.Exhausted || res.Terminal == harness.Terminated) {
+		// A code unit that spent its steps while the change's own tests still
+		// fail may be failing tests that ask for what cannot be: where they
+		// fail is said, so that the tests are carried again with it, once.
+		if names := r.newTestNames(prof); len(names) > 0 {
+			if passed, out, _ := runIn(ctx, ws, resolve(ws, prof.only(names))); !passed {
+				if at := testFaults(out); at != "" {
+					res.Terminal = harness.FailedTask
+					res.Summary = "its agent spent its steps and the change's own tests in " + strings.Join(r.failingTestFiles(out, prof), ", ") +
+						" still fail — they may ask for what no code can give: " + at
+					c.res = res
+				}
+			}
+		}
+	}
 	changes, err := harness.Since(ws, before)
 	if err != nil {
 		return c, fmt.Errorf("%s: what changed could not be read: %v", u.id, err)
@@ -1067,6 +1082,47 @@ func (r *Run) goal(u unit) string {
 	}
 	return brief + "\n\nTests that decide the criteria were written first; do not change them."
 }
+
+// failingTestFiles is the files of the tests units whose tests a run's
+// output says failed, each by its path.
+func (r *Run) failingTestFiles(out string, prof profile) []string {
+	failed := map[string]bool{}
+	for _, m := range failedTest.FindAllStringSubmatch(out, -1) {
+		failed[m[1]] = true
+	}
+	var files []string
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, u := range r.units {
+		dir, ok := r.cands[u.id]
+		if !u.tests || !ok {
+			continue
+		}
+		for _, n := range r.testNames(filepath.Dir(dir), prof) {
+			if failed[n] {
+				files = append(files, u.scope...)
+				break
+			}
+		}
+	}
+	return files
+}
+
+var failedTest = regexp.MustCompile(`--- FAIL: (\w+)`)
+
+// testFaults is the lines of a test run's output that say where in a test
+// file it failed, the first few.
+func testFaults(out string) string {
+	var at []string
+	for _, l := range strings.Split(out, "\n") {
+		if testFaultLine.MatchString(l) && len(at) < 6 {
+			at = append(at, strings.TrimSpace(l))
+		}
+	}
+	return strings.Join(at, "\n")
+}
+
+var testFaultLine = regexp.MustCompile(`[\w./-]*(?:_test\.go|test_\w+\.py|\w+_test\.py):\d+`)
 
 // newTestNames is every test the tests units of the change wrote.
 func (r *Run) newTestNames(prof profile) []string {

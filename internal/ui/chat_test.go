@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/chat"
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/gate"
@@ -62,4 +63,17 @@ func TestEachTaskHasItsOwnConversation(t *testing.T) {
 	}
 	p.show(newest.Change.Dir, newest)
 	newPainter(t).paint(u, "chat")
+}
+
+// A task whose executor went on to a stronger model is marked with it; one
+// carried by the first model throughout is not.
+func TestTheStrongerModelIsNamed(t *testing.T) {
+	cheap := []artifact.Cost{{Area: 1, Model: "a/x, b/y"}, {Area: 4, Model: "or/z-ai/glm-5.3-flash"}}
+	if got := strongerModel(cheap); got != "" {
+		t.Errorf("a task carried by the first model was marked %q", got)
+	}
+	strong := append(cheap, artifact.Cost{Area: 4, Model: "or/z-ai/glm-5.3-flash, or/z-ai/glm-5.3"})
+	if got := strongerModel(strong); got != "glm-5.3" {
+		t.Errorf("marked %q, want glm-5.3", got)
+	}
 }
