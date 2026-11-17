@@ -1366,6 +1366,7 @@ func (r *Run) judgeTests() func(bool, string) (bool, string) {
 			return true, ""
 		}
 		var theirs []string
+		tolerated := 0
 		for _, line := range strings.Split(out, "\n") {
 			if !faultLine.MatchString(line) {
 				continue
@@ -1374,12 +1375,19 @@ func (r *Run) judgeTests() func(bool, string) (bool, string) {
 			// else may — least of all a name of a library, which no unit
 			// can define.
 			if m := undefinedName.FindStringSubmatch(line); m != nil && promised[m[1]+m[2]+m[3]] && harness.MissingHere(line, local) {
+				tolerated++
 				continue
 			}
 			if m := missingPackage.FindStringSubmatch(line); m != nil && createdBy(m[1]+m[2], created) {
+				tolerated++
 				continue
 			}
 			theirs = append(theirs, strings.TrimSpace(line))
+		}
+		if len(theirs) == 0 && tolerated == 0 {
+			// It fails, and nothing it says is a line of the tests: they
+			// are not there to judge — a folder missing, a file not written.
+			return false, "The check fails, and not because of a line of your tests: they are not all written yet. Write every file in your scope.\n\n" + lastLines(out, 12)
 		}
 		if len(theirs) == 0 {
 			return true, ""
@@ -1387,6 +1395,12 @@ func (r *Run) judgeTests() func(bool, string) (bool, string) {
 		return false, "Your tests do not build for reasons of their own, not because what they call is still to be written — only names the contract promises may be missing:\n\n" +
 			strings.Join(theirs, "\n") + "\n\nUse only what exists, by the signatures you were shown, and what the contract promises. A library's source can be read where the brief says."
 	}
+}
+
+// lastLines is the last n lines of out.
+func lastLines(out string, n int) string {
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	return strings.Join(lines[max(0, len(lines)-n):], "\n")
 }
 
 var (

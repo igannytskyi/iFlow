@@ -453,6 +453,9 @@ func TestTestsWrittenFirstAreJudgedByTheContract(t *testing.T) {
 	if ok, _ := judge(false, "vet: x_test.go:11:15: not enough arguments in call to testUI\n"); ok {
 		t.Error("the wrong arguments to a function that exists passed")
 	}
+	if ok, why := judge(false, "# ./internal/notify\nstat /tmp/ws/internal/notify: directory not found\nFAIL\t./internal/notify [setup failed]\n"); ok || !strings.Contains(why, "not all written") {
+		t.Errorf("tests not written yet passed: %v %s", ok, why)
+	}
 }
 
 // secondTry is an executor whose tests are wrong the first time: the code
