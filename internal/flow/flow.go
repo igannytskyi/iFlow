@@ -353,6 +353,7 @@ func (r *Run) Start(ctx context.Context) error {
 			continue
 		}
 		if err := area(ctx); err != nil {
+			r.stopped(i+1, err)
 			return err
 		}
 	}
@@ -371,6 +372,22 @@ func Stop(dir, person string) error {
 		return errors.New("nothing is carrying the change now")
 	}
 	return os.WriteFile(filepath.Join(dir, StopFile), []byte(person), 0o644)
+}
+
+// stopped records that the run stopped in an area, and why — unless a
+// person stopping it said so already — so that the record of a change that
+// stopped says where and why, and not only how far it got.
+func (r *Run) stopped(area int, err error) {
+	r.mu.Lock()
+	dir := r.dir
+	r.mu.Unlock()
+	if dir == "" {
+		return
+	}
+	if rec, _ := artifact.ReadRecord(dir); len(rec) > 0 && rec[len(rec)-1].Stage == "stopped" {
+		return
+	}
+	_ = r.record("stopped", r.id("INT"), fmt.Sprintf("stopped in area %d: %v; it can be resumed from where it stopped", area, err))
 }
 
 // watchStop stops the run when asked to through StopFile.

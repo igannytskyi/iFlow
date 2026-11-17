@@ -758,6 +758,9 @@ func TestAStoppedChangeIsResumed(t *testing.T) {
 		if err := first.Start(context.Background()); err == nil {
 			t.Fatal("the run did not stop")
 		}
+		if c, _ := artifact.Load(first.View().Dir); c.Meta.Record[len(c.Meta.Record)-1].Stage != "stopped" {
+			t.Errorf("the record does not say the run stopped: %+v", c.Meta.Record[len(c.Meta.Record)-1])
+		}
 		run, err := Resume(cfg, repo, first.View().Dir, nil)
 		if err != nil {
 			t.Fatal(err)
