@@ -51,6 +51,11 @@ func (l Ladder) Run(ctx context.Context, t Task, emit func(Event)) (Result, erro
 	}
 	emit(Event{At: time.Now(), Kind: Said, Detail: "handed on to " + l.Then.Name() + ": " + first.Summary})
 	then, err := l.Then.Run(ctx, next, emit)
+	if said && err == nil && then.Terminal != Candidate && then.Terminal != Cancelled && then.Terminal != FailedTask {
+		// The agent neither did the unit nor showed the first rung wrong:
+		// what the first rung said stands, with what both spent.
+		then.Terminal, then.Summary = first.Terminal, first.Summary
+	}
 	then.Usage = first.Usage.Add(then.Usage)
 	then.Steps += first.Steps
 	then.Turns += first.Turns

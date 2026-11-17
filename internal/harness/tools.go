@@ -175,7 +175,7 @@ var tools = []tool{
 			}
 			return strings.Join(out, "\n"), nil
 		}},
-	{"search", "Search the repository, or one folder of it, for a regular expression; answers file:line: text, at most 40 lines.",
+	{"search", "Search the repository, or one folder of it — or of a library's source by its absolute path — for a regular expression; answers file:line: text, at most 40 lines.",
 		`{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string","description":"a folder to search under; the whole repository when left out"}},"required":["pattern"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
 			re, err := regexp.Compile(a["pattern"])
@@ -184,7 +184,7 @@ var tools = []tool{
 			}
 			root := w.dir
 			if a["path"] != "" {
-				if root, _, err = w.within(a["path"]); err != nil {
+				if root, err = w.readable(a["path"]); err != nil {
 					return "", err
 				}
 			}
@@ -207,8 +207,11 @@ var tools = []tool{
 				sc := bufio.NewScanner(f)
 				for n := 1; sc.Scan() && len(out) < searchLines; n++ {
 					if re.Match(sc.Bytes()) {
-						rel, _ := filepath.Rel(w.dir, p)
-						out = append(out, fmt.Sprintf("%s:%d: %s", filepath.ToSlash(rel), n, clip(strings.TrimSpace(sc.Text()), 160)))
+						name := p // a library's file, by its absolute path
+						if rel, err := filepath.Rel(w.dir, p); err == nil && !strings.HasPrefix(rel, "..") {
+							name = rel
+						}
+						out = append(out, fmt.Sprintf("%s:%d: %s", filepath.ToSlash(name), n, clip(strings.TrimSpace(sc.Text()), 160)))
 					}
 				}
 				return nil

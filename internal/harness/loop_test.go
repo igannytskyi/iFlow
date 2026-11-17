@@ -344,3 +344,21 @@ func TestSomeTestsAreRunByName(t *testing.T) {
 		t.Errorf("run_tests answered %q, %v; ran %v", out, err, ran)
 	}
 }
+
+// What a first rung says cannot be done stands when the agent after it
+// neither does the unit nor shows it wrong.
+func TestAFirstRungsCannotStandsUnlessShownWrong(t *testing.T) {
+	ws := t.TempDir()
+	var asked []string
+	first := Oneshot{Attempts: 1, Model: scripted{asked: &asked, answers: []string{"=== CANNOT: the tests in a_test.go do not build"}}}
+	var turns []model.Message
+	for i := range 14 {
+		turns = append(turns, calling("list_dir", map[string]string{"path": fmt.Sprint(".", strings.Repeat("/.", i))}))
+	}
+	var sent [][]model.Message
+	then := Loop{Model: chatting{sent: &sent, turns: turns}}
+	res, _ := Ladder{First: first, Then: then}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: []string{"false"}}, func(Event) {})
+	if res.Terminal != FailedTask || !strings.Contains(res.Summary, "a_test.go") {
+		t.Errorf("the unit ended %s: %s", res.Terminal, res.Summary)
+	}
+}
