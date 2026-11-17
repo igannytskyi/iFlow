@@ -462,7 +462,9 @@ func (u *UI) taskRows(p *project) []W {
 	if p.run != nil {
 		v := p.run.View()
 		runDir = v.Dir
-		out = append(out, u.taskRow(p, runKey, v.Statement, p.state(), money(v.Spent.CostUSD), nil))
+		// The run this window carries is shown with the change it is writing,
+		// so that it is stopped, or resumed once it stopped, like any other.
+		out = append(out, u.taskRow(p, runKey, v.Statement, p.state(), money(v.Spent.CostUSD), p.live))
 	}
 	var done []W
 	for _, c := range p.order {
