@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -23,17 +24,28 @@ func (l Ladder) Version() string { return "ladder/1" }
 // Run implements Executor.
 func (l Ladder) Run(ctx context.Context, t Task, emit func(Event)) (Result, error) {
 	first, err := l.First.Run(ctx, t, emit)
-	switch first.Terminal {
-	case Candidate, Cancelled, FailedTask:
-		// Done; stopped; failing where no agent of this unit may mend, or
-		// said to be impossible as asked — a stronger agent cannot help.
+	why, said := strings.CutPrefix(first.Summary, BlockedPrefix)
+	switch {
+	case first.Terminal == Candidate, first.Terminal == Cancelled:
+		return first, err // done, or stopped
+	case first.Terminal == FailedTask && !said:
+		// Failing where no agent of this unit may mend: a stronger agent
+		// cannot help.
 		return first, err
 	}
 	if ctx.Err() != nil {
 		return first, err
 	}
 	next := t
-	next.Goal = t.Goal + "\n\n# Where the first attempt left it\n\nAn agent before you tried this unit without tools; whatever it wrote is in the workspace as it left it. It ended: " + first.Summary + "\nStart by running the check, then read what fails."
+	if said {
+		// The first rung sees only what it was handed: its "cannot" may be
+		// only what it was not shown. The agent can read the estate, and
+		// decides.
+		next.Goal = t.Goal + "\n\n# What the first attempt said\n\nAn agent before you, without tools, said this unit cannot be done as asked: " + why +
+			"\nIt saw only what it was handed. Read the estate and see whether that is so: if what it missed is there, do the unit; if it truly cannot be done, call cannot with why."
+	} else {
+		next.Goal = t.Goal + "\n\n# Where the first attempt left it\n\nAn agent before you tried this unit without tools; whatever it wrote is in the workspace as it left it. It ended: " + first.Summary + "\nStart by running the check, then read what fails."
+	}
 	if t.BudgetUSD > 0 {
 		next.BudgetUSD = max(t.BudgetUSD-first.Usage.CostUSD, t.BudgetUSD/2)
 	}

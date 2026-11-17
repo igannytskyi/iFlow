@@ -234,3 +234,30 @@ func TestTheEstateIsReadOnceThenIndexed(t *testing.T) {
 		}
 	}
 }
+
+// The first rung sees only what it was handed, so its "cannot" is put to
+// the agent, which reads the estate and decides.
+func TestTheLadderPutsTheFirstRungsCannotToTheAgent(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.txt"), []byte("half"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var asked []string
+	first := Oneshot{Attempts: 1, Model: scripted{asked: &asked, answers: []string{"=== CANNOT: the helper it relies on was not shown"}}}
+	var sent [][]model.Message
+	then := Loop{Model: chatting{sent: &sent, turns: []model.Message{
+		calling("edit_file", map[string]string{"path": "a.txt", "old": "half", "new": "whole"}),
+		{Content: "finished"},
+	}}}
+	check := []string{"sh", "-c", "grep -q whole a.txt"}
+	res, err := Ladder{First: first, Then: then}.Run(context.Background(), Task{Workspace: ws, Goal: "a.txt whole", Scope: []string{"a.txt"}, Check: check}, func(Event) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Terminal != Candidate {
+		t.Fatalf("the first rung's cannot ended the unit: %+v", res)
+	}
+	if !strings.Contains(sent[0][1].Content, "the helper it relies on was not shown") {
+		t.Error("the agent was not told what the first rung said")
+	}
+}
