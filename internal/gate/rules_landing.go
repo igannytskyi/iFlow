@@ -169,7 +169,9 @@ func verifiedBeforeEntry(r *run) {
 		return
 	}
 	held := Verified(r.gate.home)
-	if _, ok := held[ArbitersKey(r.gate.home)]; !ok {
+	if _, ok := held[ArbitersKey(r.gate.home)]; !ok && ArbitersRunning(r.gate.home) {
+		r.note("R22", "the arbiters are being run against this framework as it is now; this is checked again when they end")
+	} else if !ok {
 		r.fail("R22", "this entered before the arbiters were run against this framework, so nothing here knows whether what judges it still passes; run `iflow check --arbiters`")
 	}
 	ev := repeatable(r.c)

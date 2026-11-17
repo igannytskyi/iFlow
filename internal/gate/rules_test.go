@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"fmt"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -346,5 +347,38 @@ func TestHandedKeptUnderSuperseded(t *testing.T) {
 	write(t, filepath.Join(dir, "superseded", "1", "candidates", "CA-001-09", "pack.md"), "handed")
 	if rep := gateOf(t, dir); !rep.Passed() {
 		t.Errorf("a handover kept under superseded/ was not found: %v", rep.Problems())
+	}
+}
+
+// While the arbiters are being run against the framework as it is, R22
+// says so as a note, not as a change that entered unverified; once their
+// run is over, or the framework has moved since it began, it holds again.
+func TestR22WaitsForArbitersBeingRun(t *testing.T) {
+	needGo(t)
+	root, dir := fixture(t)
+	write(t, filepath.Join(root, "internal", "gate", "gate.go"), "package gate\n")
+	home := t.TempDir()
+	c, err := artifact.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrun := func() bool {
+		for _, p := range New(estate.NewLocal(), WithHome(home)).Check(context.Background(), c).Problems() {
+			if strings.Contains(fmt.Sprint(p), "before the arbiters were run") {
+				return true
+			}
+		}
+		return false
+	}
+	if !unrun() {
+		t.Fatal("a landing with no arbiters run passed R22")
+	}
+	write(t, arbitersRunning(home), ArbitersKey(home))
+	if unrun() {
+		t.Error("R22 failed while the arbiters were being run")
+	}
+	write(t, filepath.Join(home, "internal", "moved.go"), "package moved\n")
+	if !unrun() {
+		t.Error("a run against the framework as it was stood for the framework as it is")
 	}
 }

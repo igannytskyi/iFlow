@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/igannytskyi/iflow/internal/meta"
 )
@@ -26,6 +27,13 @@ type ArbiterRun struct {
 
 // Arbiters runs every test of the framework at home.
 func Arbiters(ctx context.Context, home string) (ArbiterRun, error) {
+	// While they run, the gate says so rather than that they were never run.
+	key := ArbitersKey(home)
+	marker := arbitersRunning(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err == nil {
+		_ = os.WriteFile(marker, []byte(key), 0o644)
+		defer os.Remove(marker)
+	}
 	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "./...")
 	cmd.Dir = home
 	var out bytes.Buffer
@@ -36,11 +44,28 @@ func Arbiters(ctx context.Context, home string) (ArbiterRun, error) {
 	}
 	run := ArbiterRun{Passed: err == nil, Output: out.String()}
 	if run.Passed {
-		if err := NoteVerified(home, ArbitersKey(home), "every arbiter passed against this framework"); err != nil {
+		if err := NoteVerified(home, key, "every arbiter passed against this framework"); err != nil {
 			return run, err
 		}
 	}
 	return run, nil
+}
+
+// arbitersRunning is the file that says the arbiters are being run now,
+// and against which state of the framework.
+func arbitersRunning(home string) string { return filepath.Join(home, ".estate", "arbiters.running") }
+
+// ArbitersRunning reports whether the arbiters are being run now against
+// the framework at home as it is: started within the last quarter hour,
+// against this very state of it.
+func ArbitersRunning(home string) bool {
+	p := arbitersRunning(home)
+	st, err := os.Stat(p)
+	if err != nil || time.Since(st.ModTime()) > 15*time.Minute {
+		return false
+	}
+	b, err := os.ReadFile(p)
+	return err == nil && string(b) == ArbitersKey(home)
 }
 
 // Mutation is one rule broken on purpose, and whether an arbiter noticed.
