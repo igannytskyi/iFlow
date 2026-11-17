@@ -91,7 +91,11 @@ func (s stubExecutor) Run(_ context.Context, t harness.Task, emit func(harness.E
 	}
 	for _, p := range t.Scope {
 		emit(harness.Event{At: time.Now(), Kind: harness.Called, Tool: "write_file", Detail: p})
-		if err := os.WriteFile(filepath.Join(t.Workspace, p), []byte(s.files[p]), 0o644); err != nil {
+		body := s.files[p]
+		if d, ok := s.files["declared "+p]; ok && strings.Contains(t.Goal, "Declare exactly these names") {
+			body = d // a contract declares, and does nothing
+		}
+		if err := os.WriteFile(filepath.Join(t.Workspace, p), []byte(body), 0o644); err != nil {
 			return harness.Result{Terminal: harness.FailedTask}, err
 		}
 	}
@@ -1321,5 +1325,61 @@ func TestEveryAgentIsHandedTheSpecificationsDecisions(t *testing.T) {
 	}
 	if !strings.Contains(goals[0], "shout_test.go calls Shout") {
 		t.Error("the tests were not handed the test strategy")
+	}
+}
+
+// planned answers the planner with a plan of its own.
+type planned struct {
+	stubModel
+	plan string
+}
+
+func (s planned) Ask(ctx context.Context, system, prompt string) (string, model.Usage, error) {
+	if system == plannerSystem {
+		return s.plan, model.Usage{Model: "stub"}, nil
+	}
+	return s.stubModel.Ask(ctx, system, prompt)
+}
+
+// Two code units that give each other names are preceded by a contract
+// that declares them: it is carried first, the tests are handed it, and
+// the code units come after.
+func TestTwoCodeUnitsBuildOnAContract(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	twoFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go"]`, 1)
+	twoUnits := `{"approach":{"summary":"Shout, then Loud.","steps":["test","shout","loud"],"risks":["none"]},
+"units":[
+ {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Loud."],"provides":["TestShout"],"done_when":["it fails first"]},
+ {"title":"Shout","kind":"code","scope":["shout.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":["func Shout(n string) string"],"done_when":["builds"]},
+ {"title":"Loud","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Loud greets.","relies_on":["Shout, from the unit before"],"tasks":["Add Loud using Shout."],"provides":["func Loud(n string) string"],"done_when":["the suite passes"]}]}`
+	files := map[string]string{
+		"shout_test.go":     "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Loud(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"shout.go":          "package greet\n\nimport \"strings\"\n\nfunc Shout(n string) string { return strings.ToUpper(n) }\n",
+		"greet.go":          "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Loud(n string) string { return Shout(Greet(n)) }\n",
+		"declared shout.go": "package greet\n\nfunc Shout(n string) string { return \"\" }\n",
+		"declared greet.go": "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Loud(n string) string { return \"\" }\n",
+	}
+	var goals, packs []string
+	cfg := Config{Model: planned{stubModel{answer: twoFiles}, twoUnits}, Executor: stubExecutor{files: files, goals: &goals, packs: &packs}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		c, _ := artifact.Load(run.View().Dir)
+		t.Fatalf("%v: %v", err, cfg.Gate.Check(context.Background(), c).Problems())
+	}
+	if len(goals) != 4 || !strings.Contains(goals[0], "Declare exactly these names") || !strings.Contains(goals[0], "func Loud(n string) string") {
+		t.Fatalf("the contract was not carried first: %d units, the first asked\n%.400s", len(goals), goals[0])
+	}
+	if !strings.Contains(goals[1], "Write only the tests") || !strings.Contains(packs[1], "Written by WU-001-01") {
+		t.Error("the tests were not handed the contract")
+	}
+	c, _ := artifact.Load(run.View().Dir)
+	if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
+		t.Errorf("it does not pass the gate: %v", rep.Problems())
 	}
 }

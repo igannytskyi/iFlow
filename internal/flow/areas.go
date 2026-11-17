@@ -608,18 +608,28 @@ func (r *Run) execute(ctx context.Context) error {
 	// writes, so they are carried out at once, each by its own agent in its
 	// own copy of the estate; the code units after them each rely on the one
 	// before, and go one at a time.
-	head := 0
+	results := make([]carried, len(r.units))
+	errs := make([]error, len(r.units))
+	// A contract, where the plan has one, is declared first: the tests are
+	// written against it, so they build on it and not on guesses.
+	start, base := 0, []string(nil)
+	if len(r.units) > 0 && r.units[0].contract {
+		results[0], errs[0] = r.carry(ctx, 0, nil, prof, ok)
+		if errs[0] != nil {
+			return r.fail(4, "%v", errs[0])
+		}
+		start, base = 1, []string{filepath.Join(results[0].store, "files")}
+	}
+	head := start
 	for head < len(r.units) && r.units[head].tests {
 		head++
 	}
-	results := make([]carried, len(r.units))
-	errs := make([]error, len(r.units))
 	var wg sync.WaitGroup
-	for i := range head {
+	for i := start; i < head; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i], errs[i] = r.carry(ctx, i, nil, prof, ok)
+			results[i], errs[i] = r.carry(ctx, i, base, prof, ok)
 		}()
 	}
 	wg.Wait()
@@ -652,7 +662,7 @@ func (r *Run) execute(ctx context.Context) error {
 				}
 				r.again[r.units[j].id] = results[i].res.Summary
 				_ = os.RemoveAll(results[j].store)
-				results[j], errs[j] = r.carry(ctx, j, nil, prof, ok)
+				results[j], errs[j] = r.carry(ctx, j, base, prof, ok)
 				if errs[j] != nil {
 					return r.fail(4, "%v", errs[j])
 				}
@@ -779,6 +789,9 @@ func (r *Run) blamed(c carried, head int, results []carried) int {
 	// tests unit wrote a file of that name.
 	byName := map[string][]int{}
 	for j := range head {
+		if r.units[j].contract {
+			continue // the contract is not the tests
+		}
 		for _, p := range results[j].paths {
 			if strings.Contains(c.res.Summary, p) {
 				return j
@@ -985,8 +998,11 @@ func (r *Run) pack(u unit) estate.Pack {
 	var earlier []estate.Section
 	r.mu.Lock()
 	for _, prev := range r.units {
-		if prev.id == u.id || u.tests {
-			break // tests units rely on nothing another unit writes
+		if prev.id == u.id {
+			break
+		}
+		if u.tests && !prev.contract {
+			continue // tests units rely on nothing another unit writes but the contract
 		}
 		dir := r.cands[prev.id]
 		_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
@@ -1079,6 +1095,9 @@ func (r *Run) goal(u unit) string {
 	if r.mend != "" && !u.tests {
 		brief += "\n\n## Why you are asked again\n\n" + r.cfg.Person + " read the change this unit made before it could land, and did not affirm it:\n\n" + r.mend +
 			"\n\nMend exactly that; what they did not name stands as it was."
+	}
+	if u.contract {
+		return brief + "\n\nDeclare only: no unit's behaviour is yours to write, and no test is written yet."
 	}
 	if u.tests {
 		return brief + "\n\nWrite only the tests. Assert what the criteria and the specification's decisions state, and nothing they leave open: a test that checks a detail the specification did not decide is a guess the code cannot know. The behaviour does not exist yet, and neither does the code that will provide it: " +

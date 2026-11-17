@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -18,16 +19,20 @@ import (
 
 // unit is one work unit as the plan derives it.
 type unit struct {
-	id, class, aoe  string
-	title, brief    string
-	provides        []string // the names and signatures it gives the others
-	tests           bool     // it writes the tests that judge the change
+	id, class, aoe string
+	title, brief   string
+	provides       []string // the names and signatures it gives the others
+	tests          bool     // it writes the tests that judge the change
+	// contract says it declares, without behaviour, every name the code
+	// units give each other, before anything else is written: the tests
+	// and the code then build against one interface that compiles.
+	contract        bool
 	scope, criteria []string
 	preparatoryFor  string
 	dependsOn       string
 }
 
-const plannerSystem = `You divide a specified change into units of work. Each unit is carried out by an agent that sees only its own unit: the brief you write, the files it may change, and the code around them. It never sees the specification, the person, or the other units' briefs. You answer with one JSON object and nothing else.
+const plannerSystem = `You divide a specified change into units of work. Each unit is carried out by an agent that sees its own unit — the brief you write, the files it may change, the code around them — and the specification's decisions; it never sees the person or the other units' briefs. You answer with one JSON object and nothing else.
 
 Rules you must follow:
 - Tests come first: one or more units of kind "tests", whose scope is only among the new test files you are given. They judge the change from outside, calling the code by the names the code units will give it; they never define what the change itself provides — only fakes of what it depends on.
@@ -145,6 +150,7 @@ func (r *Run) plan(ctx context.Context) error {
 	if units == nil {
 		units, planner = r.derivedUnits(all, byTests), "the framework, deriving the units from the specification alone: "+planner
 	}
+	units = r.withContract(units)
 	repo := r.cfg.Estate.Repo(r.repo)
 	totalFirm, totalReach := 0, 0
 	for i := range units {
@@ -380,20 +386,103 @@ func (r *Run) number(units []unit) []unit {
 	for i := range units {
 		units[i].id = r.id("WU", i+1)
 	}
-	firstCode := slices.IndexFunc(units, func(u unit) bool { return !u.tests })
+	firstCode := slices.IndexFunc(units, func(u unit) bool { return !u.tests && !u.contract })
 	var testIDs []string
 	for i := range units {
 		switch {
+		case units[i].contract:
 		case units[i].tests:
 			units[i].preparatoryFor = units[firstCode].id
 			testIDs = append(testIDs, units[i].id)
 		case i == firstCode:
 			units[i].dependsOn = joinIDs(testIDs)
+			if units[0].contract {
+				units[i].dependsOn = joinIDs(append([]string{units[0].id}, testIDs...))
+			}
 		default:
 			units[i].dependsOn = units[i-1].id
 		}
 	}
 	return units
+}
+
+// contractTitle begins the title of the unit that declares the contract;
+// a plan read back knows that unit by it.
+const contractTitle = "the contract"
+
+// withContract puts first, where two or more code units give each other
+// names, a unit that declares every one of them without behaviour, each in
+// the file of the unit that provides it. The tests are written against
+// that interface and the code units fill it in, apart and at once where
+// they can: none guesses what another will declare.
+func (r *Run) withContract(units []unit) []unit {
+	var code []unit
+	var tests []unit
+	for _, u := range units {
+		switch {
+		case u.contract:
+			return units // already there
+		case u.tests:
+			tests = append(tests, u)
+		default:
+			code = append(code, u)
+		}
+	}
+	if len(code) < 2 {
+		return units
+	}
+	var scope, provides []string
+	var b strings.Builder
+	for _, u := range code {
+		if len(providedNames(u.provides)) == 0 {
+			continue
+		}
+		var files []string
+		for _, f := range u.scope {
+			if !strings.Contains(path.Base(f), "_test.") && !strings.HasPrefix(path.Base(f), "test_") {
+				files = append(files, f)
+			}
+		}
+		for _, f := range files {
+			if !slices.Contains(scope, f) {
+				scope = append(scope, f)
+			}
+		}
+		provides = append(provides, u.provides...)
+		b.WriteString("- in " + strings.Join(files, " or ") + ", for " + u.title + ":\n")
+		for _, p := range u.provides {
+			b.WriteString("  - " + p + "\n")
+		}
+	}
+	if len(provides) == 0 {
+		return units
+	}
+	// What the contract is judged by is what the estate's own suite judges:
+	// that, declared, nothing else moves. The new tests judge behaviour,
+	// which the contract has none of.
+	byTests := map[string]bool{}
+	for _, u := range tests {
+		for _, c := range u.criteria {
+			byTests[c] = true
+		}
+	}
+	var criteria []string
+	for _, u := range code {
+		for _, c := range u.criteria {
+			if !byTests[c] && !slices.Contains(criteria, c) {
+				criteria = append(criteria, c)
+			}
+		}
+	}
+	if len(criteria) == 0 {
+		criteria = code[len(code)-1].criteria
+	}
+	contract := unit{criteria: criteria, title: contractTitle + " — every name the units give each other, declared without behaviour", class: r.spec.Class,
+		scope: scope, provides: provides, contract: true,
+		brief: "Declare exactly these names, each in the file given, as the estate's language declares them, and nothing else:\n\n" + b.String() +
+			"\nNo behaviour: a function or method returns its zero values, or fails as not yet done, in the way the language does; a type has its fields; a constant or variable its declared type. " +
+			"Keep what each file already holds working, and the estate building. The tests and the code units are written after you, against exactly what you declare.\n"}
+	return r.number(append(append([]unit{contract}, tests...), code...))
 }
 
 // derivedUnits is the division made without a planner: the new tests as one
