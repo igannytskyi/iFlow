@@ -50,10 +50,13 @@ How to work:
 - When the check passes, answer without calling a tool, in two sentences: what you changed and why. The harness runs the check once more; if it fails, you are told and go on.`
 
 // idleNudge and idleStop are how many steps without a change an agent is
-// told it has read enough, and stopped.
+// told it has read enough, and stopped; maxFresh is how many calls that ask
+// something new — a file not read, a test not run — count as finding out
+// rather than idling, in a whole run.
 const (
 	idleNudge = 6
 	idleStop  = 12
+	maxFresh  = 15
 )
 
 // maxRead is the most a unit's agent may read, all its turns together.
@@ -100,6 +103,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	// anything, while the check fails, is how a weak model goes round. It is
 	// told so once, and stopped if it goes on.
 	idle, nudged := 0, false
+	asked, fresh := map[string]bool{}, 0
 	refusedDone := 0
 	for res.Steps < maxSteps {
 		if ctx.Err() != nil {
@@ -179,10 +183,19 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 				emit(Event{At: time.Now(), Kind: Said, Detail: answer})
 				return end(FailedTask, answer) // the agent says it cannot be done as asked
 			}
-			if answer == "written" || strings.HasPrefix(answer, "edited") {
+			switch {
+			case strings.HasPrefix(answer, "written") || strings.HasPrefix(answer, "edited"):
 				last = "" // the workspace changed: the same call now asks something new
 				idle, nudged = 0, false
-			} else {
+				asked = map[string]bool{}
+			case kind == Got && !asked[key] && fresh < maxFresh:
+				// Something not asked before since the last change — a file
+				// not read, a test not run — is finding out, not going round:
+				// it counts against the idle steps only once enough of it has
+				// been done.
+				asked[key] = true
+				fresh++
+			default:
 				idle++
 			}
 			emit(Event{At: time.Now(), Kind: kind, Tool: call.Function.Name, Detail: clip(answer, 2000)})

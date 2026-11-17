@@ -352,8 +352,8 @@ func TestAFirstRungsCannotStandsUnlessShownWrong(t *testing.T) {
 	var asked []string
 	first := Oneshot{Attempts: 1, Model: scripted{asked: &asked, answers: []string{"=== CANNOT: the tests in a_test.go do not build"}}}
 	var turns []model.Message
-	for i := range 14 {
-		turns = append(turns, calling("list_dir", map[string]string{"path": fmt.Sprint(".", strings.Repeat("/.", i))}))
+	for i := range 16 { // going round: two calls, again and again
+		turns = append(turns, calling("list_dir", map[string]string{"path": []string{".", "./."}[i%2]}))
 	}
 	var sent [][]model.Message
 	then := Loop{Model: chatting{sent: &sent, turns: turns}}
@@ -370,8 +370,8 @@ func TestANudgeNamesWhereTheCheckFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	turns := []model.Message{calling("run_check", map[string]string{})}
-	for i := range 7 {
-		turns = append(turns, calling("list_dir", map[string]string{"path": fmt.Sprint(".", strings.Repeat("/.", i))}))
+	for i := range 9 { // going round: two calls, again and again
+		turns = append(turns, calling("list_dir", map[string]string{"path": []string{".", "./."}[i%2]}))
 	}
 	turns = append(turns, model.Message{Content: "stop"}, model.Message{Content: "stop"}, model.Message{Content: "stop"})
 	var sent [][]model.Message
@@ -386,4 +386,20 @@ func TestANudgeNamesWhereTheCheckFails(t *testing.T) {
 		}
 	}
 	t.Error("no nudge was sent")
+}
+
+// An agent finding out — reading what it has not read, running a test it
+// has not run — is not stopped as idle, however many steps that takes.
+func TestFindingOutIsNotIdling(t *testing.T) {
+	ws := t.TempDir()
+	var turns []model.Message
+	for i := range 13 {
+		turns = append(turns, calling("list_dir", map[string]string{"path": "." + strings.Repeat("/.", i)}))
+	}
+	turns = append(turns, model.Message{Content: "nothing to change"})
+	var sent [][]model.Message
+	res, _ := Loop{Model: chatting{sent: &sent, turns: turns}}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}}, func(Event) {})
+	if res.Terminal != Candidate {
+		t.Errorf("an agent reading thirteen new things was stopped: %s %s", res.Terminal, res.Summary)
+	}
 }
