@@ -72,7 +72,7 @@ In the window:
 - Cmd/Ctrl+1…9 choose a project; Escape closes the open object, handover, foundation page, then the settings.
 - **Settings** at the bottom left: which model does each piece of work, and what each costs.
 
-On a Mac the window can also live in an app bundle; after copying a new `iflow` into it, sign the bundle again (`codesign --force -s <identity> <bundle>`), or macOS starts the program without showing its window.
+On a Mac the window can also live in an app bundle; after copying a new `iflow` into it, sign the bundle again (`codesign --force -s <identity> <bundle>`), or macOS starts the program without showing its window. Its icon is drawn by `go run ./cmd/iflow-icon icon.png`; the command's documentation says how to make the bundle's `Contents/Resources/iFlow.icns` from it, which `CFBundleIconFile` in `Info.plist` names.
 
 ```bash
 iflow check <changes/slug>              # one change, against every rule
