@@ -348,9 +348,9 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 // remedies say, for each rule a specification can break, how its author
 // mends it: the rule's words alone say what is wrong, not what to write.
 var remedies = map[string]string{
-	"R19": "a criterion never names a file the change may touch: say what is observed — \"the whole existing suite passes\", \"the greeting reads Hola, Ada!\" — not which file runs or holds it; and keep tests, and the scripts that run them, out of the scope",
-	"R7":  "the scope and the arbiter never share a file: a test, or a script that runs the tests, is never in the scope",
-	"R11": "every criterion is judged by something: the new tests, the existing tests, or the person (procedure human)",
+	"R19":         "a criterion never names a file the change may touch: say what is observed — \"the whole existing suite passes\", \"the greeting reads Hola, Ada!\" — not which file runs or holds it; and keep tests, and the scripts that run them, out of the scope",
+	"R7":          "the scope and the arbiter never share a file: a test, or a script that runs the tests, is never in the scope",
+	"R11":         "every criterion is judged by something: the new tests, the existing tests, or the person (procedure human)",
 	"CONVENTIONS": "use only the defined values: plan is required or not-required; procedure is machine or human; class is C1P, C1T, C2, C3, C4 or C5",
 }
 
