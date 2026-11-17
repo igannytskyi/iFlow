@@ -254,3 +254,26 @@ func supersedeOnly(dir string, names ...string) error {
 	}
 	return moveAside(dir, moving)
 }
+
+// Close records that a person closed the change in dir: it will not be
+// finished, nothing it made entered the estate, and nothing it wrote is
+// deleted. A change being carried is stopped first.
+func Close(dir, person, why string) error {
+	why = strings.TrimSpace(why)
+	if why == "" {
+		why = "no longer needed"
+	}
+	if Running(dir) {
+		return errors.New("the change is being carried now; stop it first")
+	}
+	c, err := artifact.Load(dir)
+	if err != nil {
+		return err
+	}
+	object := c.Name()
+	if c.Meta.Intent != nil {
+		object = c.Meta.Intent.ID
+	}
+	return artifact.Record{Name: c.Name(), Dir: c.Dir}.Append(artifact.Crossing{At: today(), Stage: "closed", Object: object,
+		Note: "closed by " + person + ": " + why})
+}

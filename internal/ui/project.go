@@ -463,23 +463,7 @@ func (p *project) show(sel string, c *workspace.Change) {
 // and why — appended to its record, never deleting anything — and reads
 // the project again.
 func (u *UI) close(p *project, c *workspace.Change, why string) error {
-	why = strings.TrimSpace(why)
-	if why == "" {
-		why = "no longer needed"
-	}
-	intent := c.Name()
-	for _, it := range c.Items {
-		if it.Kind == "Intent" {
-			intent = it.ID
-		}
-	}
-	by := "a person"
-	if u.flowConfig != nil {
-		by = u.flowConfig.Person
-	}
-	err := artifact.Record{Name: c.Name(), Dir: c.Change.Dir}.Append(artifact.Crossing{
-		At: time.Now().Format("2006-01-02"), Stage: workspace.ClosedStage, Object: intent, Note: "closed by " + by + ": " + why})
-	if err != nil {
+	if err := flow.Close(c.Change.Dir, u.person(), why); err != nil {
 		return err
 	}
 	if p.run != nil {

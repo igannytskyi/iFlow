@@ -210,3 +210,17 @@ func (app *App) Stop(args []string) int {
 	fmt.Fprintf(app.Out, "  asked %s to stop; it stops within a second, and iflow resume carries it on\n", args[0])
 	return OK
 }
+
+// Close closes a change that will not be finished:
+// iflow close <change folder> <why>.
+func (app *App) Close(args []string) int {
+	if len(args) < 2 {
+		fmt.Fprintln(app.Out, "usage: iflow close <change folder> <why>")
+		return Misused
+	}
+	if err := flow.Close(args[0], person(), strings.Join(args[1:], " ")); err != nil {
+		return app.fatal(err)
+	}
+	fmt.Fprintf(app.Out, "  closed %s\n", args[0])
+	return OK
+}
