@@ -74,9 +74,6 @@ func (u *UI) conversation(p *project) W {
 		}
 		t := u.thread(p, key, dir)
 		msgs := t.Messages()
-		if len(msgs) == 0 && !t.Waiting() {
-			return D{}
-		}
 		var turns []W
 		for i, m := range msgs {
 			turns = append(turns, u.turn(p, key, i, m))
@@ -98,9 +95,11 @@ func (u *UI) conversation(p *project) W {
 			layout.Rigid(func(gtx C) D { return g.grip(gtx, u) }),
 			layout.Rigid(func(gtx C) D {
 				gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, max(height, gtx.Dp(60))))
-				return material.List(u.th, l).Layout(gtx, len(turns), func(gtx C, i int) D {
-					return layout.Inset{Top: 6, Bottom: 6}.Layout(gtx, turns[i])
-				})
+				return box(u.p.Surface, u.p.Line, 8, 0, func(gtx C) D {
+					return material.List(u.th, l).Layout(gtx, len(turns), func(gtx C, i int) D {
+						return layout.Inset{Top: 6, Bottom: 6}.Layout(gtx, turns[i])
+					})
+				})(gtx)
 			}),
 		)
 	}
