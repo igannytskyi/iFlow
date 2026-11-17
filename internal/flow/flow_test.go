@@ -1450,3 +1450,28 @@ func TestChainsAreCarriedAtOnce(t *testing.T) {
 		t.Errorf("what a chain carried did not land:\n%s", b)
 	}
 }
+
+// A test named by its runner's identifier is taken as the file it is in.
+func TestTestsAreNamedByTheirFiles(t *testing.T) {
+	d := draft{Scope: []string{"greeting.py"}, NewTests: []string{"test_greeting.py::FarewellTest.test_a", "test_greeting.py::FarewellTest.test_b", "greeting_test.go:TestX", "web/a.spec.ts#says hello", "plain_test.go"}}
+	d.files()
+	if want := []string{"test_greeting.py", "greeting_test.go", "web/a.spec.ts", "plain_test.go"}; !slices.Equal(d.NewTests, want) {
+		t.Errorf("new tests %v, want %v", d.NewTests, want)
+	}
+}
+
+// Tests the estate's runner did not run have not passed: that they ran is
+// read from what the runner said.
+func TestTestsThatDidNotRunDidNotPass(t *testing.T) {
+	for out, none := range map[string]bool{
+		"ok  \texample.com/greeting\t0.257s [no tests to run]\n": true,
+		"Ran 0 tests in 0.000s\n\nOK\n":                          true,
+		"ℹ tests 0\nℹ pass 0\n":                                  true,
+		"ok  \texample.com/greeting\t0.2s\n":                     false,
+		"--- PASS: TestTitle (0.00s)\nok\n[no tests to run]\n":   false,
+	} {
+		if got := nothingRan(out, []string{"TestTitle"}); got != none {
+			t.Errorf("nothingRan(%q) = %v, want %v", out, got, none)
+		}
+	}
+}

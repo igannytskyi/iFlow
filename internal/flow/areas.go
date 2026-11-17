@@ -119,7 +119,11 @@ func (r *Run) overview() string {
 		b.WriteString("\n")
 	}
 	if p, ok := detect(r.repo); ok {
-		b.WriteString("Its tests are run with " + shown(p.suite) + ".\n")
+		b.WriteString("Its tests are run with " + shown(p.suite) + "; a new test goes where that runs it, or it judges nothing.\n")
+		// A runner the estate keeps as a script says itself where it looks.
+		if script, err := os.ReadFile(filepath.Join(r.repo, p.suite[0])); err == nil && len(script) < 2000 {
+			b.WriteString("It reads:\n\n```\n" + strings.TrimSpace(string(script)) + "\n```\n")
+		}
 	}
 	if d := decisions(r.repo, r.cfg.packBudget()/8); d != "" {
 		b.WriteString("\nWhat the person has already decided — take it as settled, and do not ask it again:\n\n" + d + "\n")
@@ -313,6 +317,7 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 		if err != nil {
 			return d, r.fail(1, "the model could not be asked: %v", err)
 		}
+		d.files()
 		if why := d.problem(); why != "" {
 			note = "\n\nYour last answer cannot be used: " + why + ". Answer again."
 			r.say(1, "", "the draft is sent back: %s", why)
@@ -370,6 +375,34 @@ func (r *Run) place(given string) (slug, dir string) {
 		slug = fmt.Sprintf("%s-%d", base, i)
 	}
 }
+
+// files makes every test and scope entry a file: an author names a test by
+// its runner's identifier as often as by its file — "test_greeting.py::
+// FarewellTest.test_x", "greeting_test.go:TestX" — and the scope of a unit
+// is files, never tests.
+func (d *draft) files() {
+	norm := func(paths []string) []string {
+		var out []string
+		for _, p := range paths {
+			p = strings.TrimSpace(p)
+			if i := strings.Index(p, "::"); i >= 0 {
+				p = p[:i]
+			}
+			if m := fileThenName.FindStringSubmatch(p); m != nil {
+				p = m[1]
+			}
+			if p != "" && !slices.Contains(out, p) {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	d.Scope, d.NewTests, d.SuiteTests = norm(d.Scope), norm(d.NewTests), norm(d.SuiteTests)
+}
+
+// fileThenName is a file followed by a test in it, "greeting_test.go:TestX"
+// or "spec.ts#name".
+var fileThenName = regexp.MustCompile(`^(\S+\.\w+)[:#]\D.*$`)
 
 func (d draft) problem() string {
 	switch {
@@ -1000,6 +1033,12 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 		passed, out, took := runIn(ctx, ws, resolve(ws, prof.only(names)))
 		r.cost(artifact.Cost{Area: 4, Unit: u.id, What: "the tests run against the estate as it stands", Actor: prof.name}, model.Usage{}, took)
 		_ = os.WriteFile(filepath.Join(c.store, "failing-before.txt"), []byte(out), 0o644)
+		if passed && nothingRan(out, names) {
+			// Not one of them was run: the estate's own runner does not look
+			// where they were written. That they pass says nothing.
+			return c, fmt.Errorf("%s: the estate's own runner (%s) ran none of the tests %s — they are where it does not look; it said: %s",
+				u.id, shown(prof.only(names)), strings.Join(names, ", "), lastLines(out, 3))
+		}
 		if passed {
 			return c, &holds{unit: u.id, tests: names}
 		}
@@ -1263,6 +1302,21 @@ func (r *Run) chains(from, to int) [][]int {
 	}
 	return out
 }
+
+// nothingRan says a run of the tests named shows that none of them ran:
+// none is named in what it said, and it says nothing was run — Go's "no
+// tests to run", unittest's "Ran 0 tests", pytest's "no tests ran", node's
+// "tests 0".
+func nothingRan(out string, names []string) bool {
+	for _, n := range names {
+		if strings.Contains(out, n) {
+			return false
+		}
+	}
+	return notRun.MatchString(out)
+}
+
+var notRun = regexp.MustCompile(`(?m)\[no tests to run\]|\[no test files\]|^Ran 0 tests|no tests ran|^\S*\s*tests 0\s*$`)
 
 // newTestNames is every test the tests units of the change wrote.
 func (r *Run) newTestNames(prof profile) []string {
