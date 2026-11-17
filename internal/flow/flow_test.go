@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -924,5 +925,38 @@ func TestAPersonAffirmsWhatOnlyAPersonCanSee(t *testing.T) {
 		} else if c.Meta.Landing != nil {
 			t.Error("a change the person did not affirm landed")
 		}
+	}
+}
+
+// A change whose tests, written first, pass on the estate as it stands asks
+// for what holds already: it is closed saying so, nothing is changed, and it
+// passes the gate.
+func TestWhatHoldsAlreadyIsAnAnswer(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	cfg := Config{Model: stubModel{answer: spec}, Estate: est, Gate: gate.New(est), Person: "a test",
+		Executor: stubExecutor{files: map[string]string{
+			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Greet(\"a\") != \"Hello, a\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":      "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n",
+		}}}
+	before, _ := os.ReadFile(filepath.Join(repo, "greet.go"))
+	var run *Run
+	run = New(cfg, repo, "make sure the greeting names the person", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); !errors.Is(err, ErrHolds) {
+		t.Fatalf("ended %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(repo, "greet.go")); string(b) != string(before) {
+		t.Error("something was changed")
+	}
+	c, _ := artifact.Load(run.View().Dir)
+	if why, closed := gate.Closed(c); !closed || !strings.Contains(why, "holds already") {
+		t.Errorf("not closed as holding already: %q", why)
+	}
+	if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
+		t.Errorf("it does not pass the gate: %v", rep.Problems())
 	}
 }

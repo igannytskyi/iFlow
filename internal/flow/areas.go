@@ -661,6 +661,10 @@ func (r *Run) execute(ctx context.Context) error {
 				continue
 			}
 		}
+		var h *holds
+		if errors.As(errs[i], &h) {
+			return h // what was asked holds already: there is nothing to change
+		}
 		if errs[i] != nil {
 			if why, ok := strings.CutPrefix(results[i].res.Summary, harness.BlockedPrefix); ok && !r.replanned {
 				// Its agent says the unit cannot be done as it was planned:
@@ -736,6 +740,17 @@ func (r *Run) codeScope() []string {
 		}
 	}
 	return out
+}
+
+// holds is tests written first that pass on the estate as it stands: what
+// they judge is true already.
+type holds struct {
+	unit  string
+	tests []string
+}
+
+func (h *holds) Error() string {
+	return h.unit + ": its tests " + strings.Join(h.tests, ", ") + " pass on the estate as it stands"
 }
 
 // replan is a unit its agent says cannot be done as it was planned, which
@@ -869,7 +884,7 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 		r.cost(artifact.Cost{Area: 4, Unit: u.id, What: "the tests run against the estate as it stands", Actor: prof.name}, model.Usage{}, took)
 		_ = os.WriteFile(filepath.Join(c.store, "failing-before.txt"), []byte(out), 0o644)
 		if passed {
-			return c, fmt.Errorf("%s: the tests pass before the change exists, so they judge nothing", u.id)
+			return c, &holds{unit: u.id, tests: names}
 		}
 		r.say(4, c.ca, "the tests %s fail against the estate as it stands, as they must", strings.Join(names, ", "))
 	}

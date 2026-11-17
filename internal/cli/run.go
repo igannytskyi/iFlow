@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -134,7 +135,11 @@ func (app *App) carry(ctx context.Context, accept, ask bool, start func(flow.Con
 	print()
 	v := run.View()
 	fmt.Fprintf(app.Out, "  spent $%.2f, %d tokens in (%d from cache), %d out\n", v.Spent.CostUSD, v.Spent.In(), v.Spent.CacheRead, v.Spent.Output)
-	if err != nil {
+	switch {
+	case errors.Is(err, flow.ErrHolds):
+		fmt.Fprintf(app.Out, "  nothing to change: what was asked holds already; closed: %s\n", v.Dir)
+		return OK
+	case err != nil:
 		return Failed
 	}
 	fmt.Fprintf(app.Out, "  landed: %s\n", v.Dir)

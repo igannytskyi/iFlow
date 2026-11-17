@@ -368,6 +368,16 @@ func (r *Run) Start(ctx context.Context) error {
 				continue
 			}
 		}
+		var h *holds
+		if errors.As(err, &h) {
+			// Nothing to change: the change is closed saying why, and that
+			// is an answer, not a failure — unless the tests miss what was
+			// meant, which reopening it says.
+			_ = r.record("closed", r.id("INT"), "nothing to change: what was asked holds already — "+h.Error()+"; if it does not, reopen it saying what the tests miss")
+			r.say(i+1, r.id("INT"), "what was asked holds already: %s", h.Error())
+			r.set(i+1, Done)
+			return ErrHolds
+		}
 		if err != nil {
 			r.stopped(i+1, err)
 			return err
@@ -375,6 +385,11 @@ func (r *Run) Start(ctx context.Context) error {
 	}
 	return nil
 }
+
+// ErrHolds is a run that found what was asked true already: its tests,
+// written first, pass on the estate as it stands. The change is closed
+// saying so; nothing was changed.
+var ErrHolds = errors.New("what was asked holds already; nothing was changed")
 
 // StopFile asks the run carrying a change to stop, from wherever the run
 // was started: it says who asked.
