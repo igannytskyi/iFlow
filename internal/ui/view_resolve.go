@@ -7,6 +7,7 @@ import (
 
 	"gioui.org/io/key"
 	"gioui.org/layout"
+	"gioui.org/widget"
 	"gioui.org/widget/material"
 
 	"github.com/igannytskyi/iflow/internal/flow"
@@ -164,27 +165,31 @@ var (
 	errBusy    = errors.New("a task is running in this project; wait for it to end, or stop it, first")
 )
 
-// lifecycle is what can be done with a task as it stands: one at work is
-// stopped, wherever it runs; one that stopped is carried on from where it
-// stopped, carried again with something changed, or closed.
-func (u *UI) lifecycle(p *project, s shown) W {
+// lifecycleButton is the one thing to do with a task as it stands, beside
+// its state where it is seen first: Stop a task at work, wherever it runs;
+// Resume one that stopped, from where it stopped.
+func (u *UI) lifecycleButton(p *project, s shown) W {
 	c := s.c
 	if c == nil {
 		return nothing
 	}
 	state := s.state(p)
 	stop, resume := u.clicks.of("life/stop/"+c.Change.Dir), u.clicks.of("life/resume/"+c.Change.Dir)
+	button := func(gtx C, btn *widget.Clickable, label string, bg, fg colorNRGBA) D {
+		return u.pressable(gtx, btn, false, 6, box(bg, colorNRGBA{}, 6, 0, inset(5, 16, u.strong(sizeBody, fg, label))))
+	}
 	return func(gtx C) D {
 		switch state {
 		case "working", "waiting for you":
 			if u.clicked(gtx, stop) {
+				p.resolveErr = ""
 				if s.live && p.cancel != nil {
 					p.cancel() // this window's own run
 				} else if err := flow.Stop(c.Change.Dir, u.person()); err != nil {
 					p.resolveErr = err.Error()
 				}
 			}
-			return u.small(stop, "Stop", u.p.FailSoft, u.p.Fail)(gtx)
+			return button(gtx, stop, "■ Stop", u.p.Fail, u.p.Surface)
 		case "stopped":
 			if u.clicked(gtx, resume) {
 				p.resolveErr = ""
@@ -192,13 +197,33 @@ func (u *UI) lifecycle(p *project, s shown) W {
 					p.resolveErr = err.Error()
 				}
 			}
-			parts := []W{u.small(resume, "Resume from where it stopped", u.p.Accent, u.p.Surface), u.resolveActions(p, c, "", "it stopped")}
-			if p.resolveErr != "" && p.resolving == "" {
-				parts = append(parts, u.text(sizeSmall, u.p.Fail, p.resolveErr))
-			}
-			return column(8, parts...)(gtx)
+			return button(gtx, resume, "▶ Resume from where it stopped", u.p.Accent, u.p.Surface)
 		}
 		return D{}
+	}
+}
+
+// lifecycle is, under a task that stopped, the other ways on: carried again
+// with something changed, from its specification or its plan, or a new
+// intent; and what stopped a stop or a resume, if anything did.
+func (u *UI) lifecycle(p *project, s shown) W {
+	c := s.c
+	if c == nil {
+		return nothing
+	}
+	state := s.state(p)
+	return func(gtx C) D {
+		var parts []W
+		if state == "stopped" {
+			parts = append(parts, u.resolveActions(p, c, "", "it stopped"))
+		}
+		if p.resolveErr != "" && p.resolving == "" {
+			parts = append(parts, u.text(sizeSmall, u.p.Fail, p.resolveErr))
+		}
+		if len(parts) == 0 {
+			return D{}
+		}
+		return column(8, parts...)(gtx)
 	}
 }
 

@@ -103,10 +103,8 @@ func handedKept(r *run) {
 		if c.Input+c.CacheRead+c.CacheWrite+c.Output == 0 {
 			continue // no model read or wrote anything: a test run, the gate
 		}
-		if c.Kept != "" {
-			if _, err := os.Stat(filepath.Join(r.c.Dir, filepath.FromSlash(c.Kept))); err != nil {
-				r.fail("R23", "%q says what it was handed is kept at %s, and nothing is there", c.What, c.Kept)
-			}
+		if c.Kept != "" && !kept(r.c.Dir, c.Kept) {
+			r.fail("R23", "%q says what it was handed is kept at %s, and nothing is there", c.What, c.Kept)
 		}
 		if c.Handed == 0 {
 			unmeasured++
@@ -115,4 +113,15 @@ func handedKept(r *run) {
 	if unmeasured > 0 {
 		r.note("R23", "%d cost record(s) of model work say nothing of what the model was handed — work measured before handovers were", unmeasured)
 	}
+}
+
+// kept reports whether what was handed is kept where its cost says — or
+// under superseded/, where a change carried again keeps what the areas it
+// carried again had made.
+func kept(dir, at string) bool {
+	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(at))); err == nil {
+		return true
+	}
+	again, _ := filepath.Glob(filepath.Join(dir, "superseded", "*", filepath.FromSlash(at)))
+	return len(again) > 0
 }

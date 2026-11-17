@@ -333,3 +333,18 @@ func TestAProducerIsNamedAbsolutely(t *testing.T) {
 		t.Errorf("named %v", cmd)
 	}
 }
+
+// What was handed and is kept under superseded/, where a change carried
+// again keeps what it had made, is kept.
+func TestHandedKeptUnderSuperseded(t *testing.T) {
+	needGo(t)
+	_, dir := fixture(t)
+	if err := artifact.AppendCost(dir, artifact.Cost{Area: 4, What: "execution of WU-001-01", Input: 100, Output: 10,
+		Provenance: "derived", Handed: 90, Kept: "candidates/CA-001-09/pack.md"}); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "superseded", "1", "candidates", "CA-001-09", "pack.md"), "handed")
+	if rep := gateOf(t, dir); !rep.Passed() {
+		t.Errorf("a handover kept under superseded/ was not found: %v", rep.Problems())
+	}
+}
