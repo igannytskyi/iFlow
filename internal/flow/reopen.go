@@ -197,6 +197,7 @@ func Resume(cfg Config, repo, dir string, changed func()) (*Run, error) {
 	default:
 		r.from = 3
 		r.spec, r.units = draftOf(m.Intent, m.Specification, repo), units
+		r.mend = mendOf(dir)
 	}
 	if r.from > 1 { // a specification put to the person again is kept where it is
 		if err := supersedeFrom(r.dir, r.from); err != nil {
@@ -207,6 +208,23 @@ func Resume(cfg Config, repo, dir string, changed func()) (*Run, error) {
 		return nil, err
 	}
 	return r, nil
+}
+
+// mendOf is what the person said when they last did not affirm the change,
+// if it has not been admitted again since: a run stopped while carrying it
+// again is resumed with it.
+func mendOf(dir string) string {
+	rec, _ := artifact.ReadRecord(dir)
+	var why string
+	for _, c := range rec {
+		switch {
+		case c.Stage == "admission":
+			why = ""
+		case strings.HasPrefix(c.Note, mendNote):
+			why = strings.TrimPrefix(c.Note, mendNote)
+		}
+	}
+	return why
 }
 
 // unitsOf is a plan's units as a run holds them, and whether the plan kept

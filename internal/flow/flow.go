@@ -419,6 +419,10 @@ func Stop(dir, person string) error {
 	return os.WriteFile(filepath.Join(dir, StopFile), []byte(person), 0o644)
 }
 
+// mendNote begins the crossing that carries a change again with what the
+// person said; a run resumed before it was admitted again reads it back.
+const mendNote = "carried again: the person did not affirm the change: "
+
 // mendFrom carries the change again from admission, with what the person
 // said when they did not affirm it.
 func (r *Run) mendFrom(rf *refused) error {
@@ -426,7 +430,7 @@ func (r *Run) mendFrom(rf *refused) error {
 	if err := supersedeFrom(r.dir, 3); err != nil {
 		return err
 	}
-	_ = r.record("execution", r.id("SPEC"), "carried again: "+rf.Error())
+	_ = r.record("execution", r.id("SPEC"), mendNote+rf.why)
 	r.say(5, r.id("SPEC"), "carried again from admission, with what %s said", r.cfg.Person)
 	r.from, r.mend, r.cands, r.again = 3, rf.why, map[string]string{}, nil
 	for n := 3; n <= 6; n++ {

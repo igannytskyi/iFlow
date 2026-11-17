@@ -1019,3 +1019,24 @@ func TestWhatHoldsAlreadyIsAnAnswer(t *testing.T) {
 		t.Errorf("it does not pass the gate: %v", rep.Problems())
 	}
 }
+
+// A run stopped while it carried a change again with what the person said
+// is resumed with it; once the change is admitted again, it is spent.
+func TestAMendStoppedIsResumedWithThePersonsWords(t *testing.T) {
+	dir := t.TempDir()
+	add := func(stage, note string) {
+		if err := artifact.AppendRecord(dir, "a-change", meta.Crossing{At: today(), Stage: stage, Object: "SPEC-001", Note: note}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("admission", "admitted")
+	add("execution", mendNote+"the border is missing")
+	add("stopped", "stopped in area 4")
+	if got := mendOf(dir); got != "the border is missing" {
+		t.Errorf("resumed with %q", got)
+	}
+	add("admission", "admitted again")
+	if got := mendOf(dir); got != "" {
+		t.Errorf("an admitted mend is resumed with again: %q", got)
+	}
+}
