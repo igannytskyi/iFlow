@@ -657,15 +657,37 @@ func (r *Run) execute(ctx context.Context) error {
 	for head < len(r.units) && r.units[head].tests {
 		head++
 	}
-	var wg sync.WaitGroup
-	for i := start; i < head; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			results[i], errs[i] = r.carry(ctx, i, base, prof, ok)
-		}()
+	carryTests := func() {
+		var wg sync.WaitGroup
+		for i := start; i < head; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				results[i], errs[i] = r.carry(ctx, i, base, prof, ok)
+			}()
+		}
+		wg.Wait()
 	}
-	wg.Wait()
+	carryTests()
+	// A contract that does what it was only to declare is declared again,
+	// once, with why, and the tests written again on it.
+	if i := slices.IndexFunc(errs[start:head], func(e error) bool { var b *behaves; return errors.As(e, &b) }); i >= 0 && start == 1 {
+		why := errs[start+i].Error()
+		r.say(4, r.units[0].id, "%s is carried again: %s", r.units[0].id, why)
+		if r.again == nil {
+			r.again = map[string]string{}
+		}
+		r.again[r.units[0].id] = why
+		_ = os.RemoveAll(results[0].store)
+		if results[0], errs[0] = r.carry(ctx, 0, nil, prof, ok); errs[0] != nil {
+			return r.fail(4, "%v", errs[0])
+		}
+		base = []string{filepath.Join(results[0].store, "files")}
+		for j := start; j < head; j++ {
+			_ = os.RemoveAll(results[j].store)
+		}
+		carryTests()
+	}
 	var overlays []string
 	keep := func(i int) {
 		c, u := results[i], r.units[i]
@@ -844,6 +866,14 @@ func (e *refused) Error() string { return "the person did not affirm the change:
 // maxRefusals is how many times a change the person did not affirm is
 // carried again before the run stops and leaves it to them.
 const maxRefusals = 2
+
+// behaves is tests written first that pass on the contract and not on the
+// estate without it: the contract does what it was only to declare.
+type behaves struct{ tests []string }
+
+func (b *behaves) Error() string {
+	return "the contract carries behaviour: the tests " + strings.Join(b.tests, ", ") + " already pass on its declarations"
+}
 
 type replan struct{ unit, why string }
 
@@ -1040,6 +1070,18 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 			return c, fmt.Errorf("%s: the estate's own runner (%s) ran none of the tests %s — they are where it does not look; it said: %s",
 				u.id, shown(prof.only(names)), strings.Join(names, ", "), lastLines(out, 3))
 		}
+		if passed && len(overlays) > 0 {
+			// They pass on the contract. What was asked holds already only
+			// if they pass on the estate as it stood, without it; if not,
+			// the contract does what it was only to declare.
+			if bare, err := harness.Snapshot(r.repo, filepath.Join(c.store, "files")); err == nil {
+				still, _, _ := runIn(ctx, bare, resolve(bare, prof.only(names)))
+				_ = os.RemoveAll(bare)
+				if !still {
+					return c, &behaves{tests: names}
+				}
+			}
+		}
 		if passed {
 			return c, &holds{unit: u.id, tests: names}
 		}
@@ -1174,6 +1216,10 @@ func (r *Run) goal(u unit) string {
 			"\n\nMend exactly that; what they did not name stands as it was."
 	}
 	if u.contract {
+		if why := r.again[u.id]; why != "" {
+			brief += "\n\n## Why you are asked again\n\nWhat you declared before did more than declare: " + why +
+				". Declare again, with no behaviour at all — every function and method returns its zero values or fails as not yet done."
+		}
 		return brief + "\n\nDeclare only: no unit's behaviour is yours to write, and no test is written yet."
 	}
 	if u.tests {

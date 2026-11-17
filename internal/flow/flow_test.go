@@ -1536,3 +1536,60 @@ func TestTheEstateAnswersAnAgentByName(t *testing.T) {
 		t.Errorf("Greet is called from %q (%v)", callers, err)
 	}
 }
+
+// overreach declares the contract with its behaviour the first time.
+type overreach struct {
+	stubExecutor
+	contracts *int
+}
+
+func (o overreach) Run(ctx context.Context, t harness.Task, emit func(harness.Event)) (harness.Result, error) {
+	if strings.Contains(t.Goal, "Declare exactly these names") {
+		if *o.contracts++; *o.contracts == 1 {
+			full := o.stubExecutor
+			full.files = map[string]string{}
+			for k, v := range o.files {
+				if !strings.HasPrefix(k, "declared ") {
+					full.files[k] = v
+				}
+			}
+			return full.Run(ctx, t, emit)
+		}
+	}
+	return o.stubExecutor.Run(ctx, t, emit)
+}
+
+// A contract that does what it was only to declare is told so and declared
+// again; the change is not closed as asking for what holds already.
+func TestAContractThatBehavesIsDeclaredAgain(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	twoFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go"]`, 1)
+	twoUnits := `{"approach":{"summary":"Shout, then Loud.","steps":["test","shout","loud"],"risks":["none"]},
+"units":[
+ {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Loud."],"provides":["TestShout"],"done_when":["it fails first"]},
+ {"title":"Shout","kind":"code","scope":["shout.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":["func Shout(n string) string"],"done_when":["builds"]},
+ {"title":"Loud","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Loud greets.","tasks":["Add Loud using Shout."],"provides":["func Loud(n string) string"],"done_when":["the suite passes"]}]}`
+	files := map[string]string{
+		"shout_test.go":     "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Loud(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"shout.go":          "package greet\n\nimport \"strings\"\n\nfunc Shout(n string) string { return strings.ToUpper(n) }\n",
+		"greet.go":          "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Loud(n string) string { return Shout(Greet(n)) }\n",
+		"declared shout.go": "package greet\n\nfunc Shout(n string) string { return \"\" }\n",
+		"declared greet.go": "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Loud(n string) string { return \"\" }\n",
+	}
+	var goals []string
+	contracts := 0
+	cfg := Config{Model: planned{stubModel{answer: twoFiles}, twoUnits}, Executor: overreach{stubExecutor{files: files, goals: &goals}, &contracts}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		t.Fatalf("the run ended: %v", err)
+	}
+	if contracts != 2 || !slices.ContainsFunc(goals, func(g string) bool { return strings.Contains(g, "did more than declare") }) {
+		t.Errorf("the contract was declared %d times, and not told why", contracts)
+	}
+}
