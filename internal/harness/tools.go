@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -37,6 +38,9 @@ type workspace struct {
 	ctx   context.Context
 
 	pkgs map[string]bool // the repository's packages, read once
+	// seen is what was read, and at which call; calls counts the calls.
+	seen  map[string]readAt
+	calls int
 	// last is how the check went when it was last run.
 	last struct {
 		ran      bool
@@ -94,6 +98,14 @@ func (w *workspace) run() (ok bool, out, why string) {
 	return ok, out, why
 }
 
+// Blocked is a unit its agent says cannot be done as it is asked, and why.
+type Blocked struct{ Why string }
+
+func (b Blocked) Error() string { return "blocked: " + b.Why }
+
+// BlockedPrefix starts the summary of a unit that ended blocked.
+const BlockedPrefix = "blocked: "
+
 // errRefused marks a call the harness would not carry out.
 type errRefused struct{ why string }
 
@@ -125,7 +137,8 @@ func (w *workspace) writable(rel string) bool {
 }
 
 var tools = []tool{
-	{"read_file", "Read a file in the repository, or of a library's source by its absolute path.", `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`,
+	{"read_file", "Read a file in the repository, or of a library's source by its absolute path. A file of more than 150 lines answers with its outline — every declaration and its line — and from and to read the lines between them, at most 150 at a time.",
+		`{"type":"object","properties":{"path":{"type":"string"},"from":{"type":"integer","description":"first line to read"},"to":{"type":"integer","description":"last line to read"}},"required":["path"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
 			p, err := w.readable(a["path"])
 			if err != nil {
@@ -135,7 +148,7 @@ var tools = []tool{
 			if err != nil {
 				return "", err
 			}
-			return numbered(string(b)), nil
+			return w.read(a["path"], string(b), atoi(a["from"]), atoi(a["to"])), nil
 		}},
 	{"list_dir", "List a directory in the repository, or of a library's source by its absolute path.", `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
@@ -157,19 +170,26 @@ var tools = []tool{
 			}
 			return strings.Join(out, "\n"), nil
 		}},
-	{"search", "Search the repository for a regular expression; answers file:line: text.", `{"type":"object","properties":{"pattern":{"type":"string"}},"required":["pattern"]}`,
+	{"search", "Search the repository, or one folder of it, for a regular expression; answers file:line: text, at most 40 lines.",
+		`{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string","description":"a folder to search under; the whole repository when left out"}},"required":["pattern"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
 			re, err := regexp.Compile(a["pattern"])
 			if err != nil {
 				return "", err
 			}
+			root := w.dir
+			if a["path"] != "" {
+				if root, _, err = w.within(a["path"]); err != nil {
+					return "", err
+				}
+			}
 			var out []string
-			_ = filepath.WalkDir(w.dir, func(p string, d fs.DirEntry, err error) error {
-				if err != nil || len(out) >= 200 {
+			_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+				if err != nil || len(out) >= searchLines {
 					return nil
 				}
 				if d.IsDir() {
-					if d.Name() == ".git" || d.Name() == "node_modules" {
+					if d.Name() == ".git" || d.Name() == "node_modules" || d.Name() == "changes" {
 						return filepath.SkipDir
 					}
 					return nil
@@ -180,14 +200,17 @@ var tools = []tool{
 				}
 				defer f.Close()
 				sc := bufio.NewScanner(f)
-				for n := 1; sc.Scan(); n++ {
+				for n := 1; sc.Scan() && len(out) < searchLines; n++ {
 					if re.Match(sc.Bytes()) {
 						rel, _ := filepath.Rel(w.dir, p)
-						out = append(out, fmt.Sprintf("%s:%d: %s", filepath.ToSlash(rel), n, clip(sc.Text(), 200)))
+						out = append(out, fmt.Sprintf("%s:%d: %s", filepath.ToSlash(rel), n, clip(strings.TrimSpace(sc.Text()), 160)))
 					}
 				}
 				return nil
 			})
+			if len(out) == searchLines {
+				out = append(out, "[more: narrow the pattern or the path]")
+			}
 			return strings.Join(out, "\n"), nil
 		}},
 	{"write_file", "Write a whole file. Only files in the unit's scope may be written.", `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}`,
@@ -222,6 +245,11 @@ var tools = []tool{
 				return "", fmt.Errorf("%s: %w", rel, err)
 			}
 			return "edited" + how, os.WriteFile(p, []byte(out), 0o644)
+		}},
+	{"cannot", "Say that the unit cannot be done as it is asked, and why: something it relies on does not exist, what it must change is outside its scope, it asks for what the estate cannot do. The unit goes back to be planned again with your reason. Say it as soon as you know — not after trying everything.",
+		`{"type":"object","properties":{"why":{"type":"string"}},"required":["why"]}`,
+		func(w *workspace, a map[string]string) (string, error) {
+			return "", Blocked{strings.TrimSpace(a["why"])}
 		}},
 	{"run_check", "Run the unit's check — the repository's own tests or build — and see the result.", `{"type":"object","properties":{}}`,
 		func(w *workspace, _ map[string]string) (string, error) {
@@ -282,6 +310,75 @@ func replaceOnce(s, old, new string) (string, string, error) {
 	}
 	out := append(append(slices.Clone(lines[:at]), repl...), lines[at+len(want):]...)
 	return strings.Join(out, "\n"), " (matched with spacing ignored)", nil
+}
+
+// searchLines bounds what a search answers.
+const searchLines = 40
+
+// wholeLines is the longest file answered whole; a longer one answers with
+// its outline, and is read a range at a time.
+const wholeLines = 150
+
+var declaration = regexp.MustCompile(`^(func|type|var|const|class|def|interface|export|public|private|protected|struct|enum|impl|fn|package|module)\b`)
+
+// read answers a read of a file: whole when it is short, its outline when
+// it is long and no range is asked, the range asked otherwise; and, when
+// the same lines were read a few steps ago and the file has not changed
+// since, says so rather than hand them over again.
+func (w *workspace) read(path, text string, from, to int) string {
+	lines := strings.Split(text, "\n")
+	if from == 0 && to == 0 && len(lines) > wholeLines {
+		var b strings.Builder
+		fmt.Fprintf(&b, "%s has %d lines; its outline — read a range with from and to:\n", path, len(lines))
+		for i, l := range lines {
+			if declaration.MatchString(l) {
+				fmt.Fprintf(&b, "%5d  %s\n", i+1, clip(l, 140))
+			}
+		}
+		return b.String()
+	}
+	if from <= 0 {
+		from = 1
+	}
+	if to <= 0 || to > len(lines) {
+		to = len(lines)
+	}
+	if to-from+1 > wholeLines {
+		to = from + wholeLines - 1
+	}
+	if from > to {
+		return fmt.Sprintf("%s has %d lines", path, len(lines))
+	}
+	key := fmt.Sprintf("%s:%d-%d", path, from, to)
+	if w.seen == nil {
+		w.seen = map[string]readAt{}
+	}
+	if was, ok := w.seen[key]; ok && was.text == text && w.calls-was.call <= recentReads {
+		return fmt.Sprintf("lines %d to %d of %s are unchanged since you read them %d step(s) ago; they are above", from, to, path, w.calls-was.call)
+	}
+	w.seen[key] = readAt{text, w.calls}
+	var b strings.Builder
+	for i := from; i <= to; i++ {
+		fmt.Fprintf(&b, "%5d  %s\n", i, lines[i-1])
+	}
+	if to < len(lines) {
+		fmt.Fprintf(&b, "[%d more lines]\n", len(lines)-to)
+	}
+	return b.String()
+}
+
+// recentReads is how many steps back a read is still in the conversation
+// whole, so that reading it again hands over nothing new.
+const recentReads = 6
+
+type readAt struct {
+	text string
+	call int
+}
+
+func atoi(s string) int {
+	n, _ := strconv.Atoi(strings.TrimSpace(s))
+	return n
 }
 
 func numbered(s string) string {

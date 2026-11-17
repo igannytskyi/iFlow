@@ -127,8 +127,9 @@ type Run struct {
 	from     int
 	reopened string
 	// resumed says the specification already written is put to the person
-	// as it is, not written again.
-	resumed bool
+	// as it is, not written again; replanned that the plan was made again
+	// once because a unit could not be done as planned.
+	resumed, replanned bool
 }
 
 type decision struct {
@@ -347,12 +348,24 @@ func (r *Run) Start(ctx context.Context) error {
 	if r.from > 0 {
 		_ = os.WriteFile(filepath.Join(r.dir, RunningFile), []byte(fmt.Sprint(os.Getpid())), 0o644)
 	}
-	for i, area := range []func(context.Context) error{r.intent, r.plan, r.admit, r.execute, r.assure, r.land} {
+	areas := []func(context.Context) error{r.intent, r.plan, r.admit, r.execute, r.assure, r.land}
+	for i := 0; i < len(areas); i++ {
 		if i+1 < r.from {
 			r.set(i+1, Done) // carried before, and kept: the change is reopened after it
 			continue
 		}
-		if err := area(ctx); err != nil {
+		err := areas[i](ctx)
+		var rp *replan
+		if errors.As(err, &rp) && !r.replanned {
+			// A unit cannot be done as planned: the plan is made again, once,
+			// with why, and what the areas from the plan on wrote is kept
+			// under superseded/.
+			if err = r.replanFrom(rp); err == nil {
+				i = 0 // the plan, next
+				continue
+			}
+		}
+		if err != nil {
 			r.stopped(i+1, err)
 			return err
 		}
@@ -372,6 +385,23 @@ func Stop(dir, person string) error {
 		return errors.New("nothing is carrying the change now")
 	}
 	return os.WriteFile(filepath.Join(dir, StopFile), []byte(person), 0o644)
+}
+
+// replanFrom sends the change back to its planner with why a unit could
+// not be done.
+func (r *Run) replanFrom(rp *replan) error {
+	r.replanned = true
+	if err := supersedeFrom(r.dir, 2); err != nil {
+		return err
+	}
+	_ = r.record("plan", r.id("SPEC"), "sent back to the planner: "+rp.Error())
+	r.from, r.units, r.cands = 2, nil, map[string]string{}
+	r.reopened = "\n\n# The plan before could not be carried out\n\nThe agent of " + rp.unit + " said it cannot be done as it was planned:\n\n" + rp.why +
+		"\n\nPlan again, whole, so that no unit is asked for what cannot be done: what a unit relies on must exist or be provided by an earlier unit, and what it must change must be in its scope."
+	for n := 3; n <= 6; n++ {
+		r.set(n, Idle)
+	}
+	return nil
 }
 
 // stopped records that the run stopped in an area, and why — unless a

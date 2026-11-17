@@ -812,3 +812,61 @@ func TestTheTestsWrittenFirstAreInferred(t *testing.T) {
 		t.Errorf("inferred %v, %v, %+v", d.NewTests, d.SuiteTests, d.Criteria)
 	}
 }
+
+// saysCannot says, the first time it is handed the code unit, that it cannot
+// be done as planned.
+type saysCannot struct {
+	stubExecutor
+	said *bool
+}
+
+func (s saysCannot) Run(ctx context.Context, t harness.Task, emit func(harness.Event)) (harness.Result, error) {
+	if !*s.said && !strings.HasSuffix(t.Scope[0], "_test.go") {
+		*s.said = true
+		return harness.Result{Terminal: harness.FailedTask, Summary: harness.BlockedPrefix + "the helper Shoutify it relies on does not exist"}, nil
+	}
+	return s.stubExecutor.Run(ctx, t, emit)
+}
+
+// A unit its agent says cannot be done as planned sends the change back to
+// its planner, once, with why; the plan made again is carried out and lands.
+func TestAUnitThatCannotBeDoneIsPlannedAgain(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	said := false
+	var prompts []string
+	cfg := Config{Model: stubModel{spec, &prompts}, Estate: est, Gate: gate.New(est), Person: "a test",
+		Executor: saysCannot{stubExecutor{files: map[string]string{
+			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+		}}, &said}}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		for _, s := range run.View().Steps {
+			t.Logf("%d %s", s.Area, s.Text)
+		}
+		t.Fatalf("it did not land: %v", err)
+	}
+	replanned := false
+	for _, p := range prompts {
+		if strings.Contains(p, "Shoutify it relies on does not exist") {
+			replanned = true
+		}
+	}
+	if !replanned {
+		t.Error("the planner was not handed why the unit could not be done")
+	}
+	dir := run.View().Dir
+	if _, err := os.Stat(filepath.Join(dir, "superseded", "1", "02-plan.json")); err != nil {
+		t.Error("the plan that could not be carried out was not kept")
+	}
+	c, _ := artifact.Load(dir)
+	if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
+		t.Errorf("it does not pass the gate: %v", rep.Problems())
+	}
+}

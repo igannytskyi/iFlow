@@ -42,6 +42,10 @@ type Task struct {
 	// with what it has and says which it reached.
 	BudgetUSD float64
 	MaxSteps  int
+	// MaxRead bounds the tokens the agent reads, all its turns together;
+	// 250000 when zero. A unit that needs more is too large, or cannot be
+	// done as it is asked.
+	MaxRead int
 }
 
 // Kind says what a step was.

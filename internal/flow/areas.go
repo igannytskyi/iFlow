@@ -628,6 +628,12 @@ func (r *Run) execute(ctx context.Context) error {
 			}
 		}
 		if errs[i] != nil {
+			if why, ok := strings.CutPrefix(results[i].res.Summary, harness.BlockedPrefix); ok && !r.replanned {
+				// Its agent says the unit cannot be done as it was planned:
+				// the plan goes back to its planner with why, once.
+				r.say(4, r.units[i].id, "%s cannot be done as it was planned: %s", r.units[i].id, why)
+				return &replan{unit: r.units[i].id, why: why}
+			}
 			return r.fail(4, "%v", errs[i])
 		}
 		c := results[i]
@@ -697,6 +703,12 @@ func (r *Run) codeScope() []string {
 	}
 	return out
 }
+
+// replan is a unit its agent says cannot be done as it was planned, which
+// sends the change back to its planner.
+type replan struct{ unit, why string }
+
+func (e *replan) Error() string { return e.unit + " cannot be done as it was planned: " + e.why }
 
 // blamed is the tests unit at the head of the plan whose files a code
 // unit's failure blames, or -1.

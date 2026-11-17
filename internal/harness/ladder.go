@@ -25,7 +25,8 @@ func (l Ladder) Run(ctx context.Context, t Task, emit func(Event)) (Result, erro
 	first, err := l.First.Run(ctx, t, emit)
 	switch first.Terminal {
 	case Candidate, Cancelled, FailedTask:
-		// Done; stopped; or failing where no agent of this unit may mend.
+		// Done; stopped; failing where no agent of this unit may mend, or
+		// said to be impossible as asked — a stronger agent cannot help.
 		return first, err
 	}
 	if ctx.Err() != nil {

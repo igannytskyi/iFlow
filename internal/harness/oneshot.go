@@ -62,6 +62,9 @@ To change part of a file that exists — and always for one longer than 150 line
 Then, last, one line:
 === SUMMARY: <what you did, in one sentence>
 
+If the unit cannot be done as it is asked — something it relies on does not exist, or what it must change is outside what you may change — write no file, only:
+=== CANNOT: <why, in one sentence>
+
 Write only files you are allowed to change. Write nothing outside these blocks.`
 
 // written is one file an agent wrote: whole, or as edits to what is there.
@@ -206,6 +209,10 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 				break
 			}
 			res.Terminal, res.Summary = FailedSubstrate, err.Error()
+			break
+		}
+		if why, ok := cannot(answer); ok {
+			res.Terminal, res.Summary = FailedTask, BlockedPrefix+why
 			break
 		}
 		files, summary := parseFiles(answer)
@@ -410,4 +417,14 @@ func faultsIn(out string, files []string) string {
 		return tail(out, 8)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// cannot is why an agent says its unit cannot be done as asked, if it says so.
+func cannot(answer string) (string, bool) {
+	for _, l := range strings.Split(answer, "\n") {
+		if why, ok := strings.CutPrefix(strings.TrimSpace(l), "=== CANNOT:"); ok {
+			return strings.TrimSpace(why), true
+		}
+	}
+	return "", false
 }

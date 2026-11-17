@@ -3,6 +3,7 @@ package harness
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,5 +155,50 @@ func TestAnAgentThatOnlyReadsIsStopped(t *testing.T) {
 	}
 	if !told {
 		t.Error("the agent was never told it had read enough")
+	}
+}
+
+// A long file answers with its outline; a range answers its lines; the
+// same lines read again a step later, unchanged, are not handed over again.
+func TestReadingIsSparing(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package a\n\n")
+	for i := range 200 {
+		fmt.Fprintf(&b, "func F%d() {}\n", i)
+	}
+	w := &workspace{dir: t.TempDir()}
+	outline := w.read("a.go", b.String(), 0, 0)
+	if !strings.Contains(outline, "outline") || !strings.Contains(outline, "func F150()") || strings.Count(outline, "\n") > 210 {
+		t.Errorf("no outline:\n%.300s", outline)
+	}
+	w.calls = 1
+	part := w.read("a.go", b.String(), 10, 12)
+	if !strings.Contains(part, "   10  func F7()") || strings.Count(part, "\n") > 4 {
+		t.Errorf("the range read %q", part)
+	}
+	w.calls = 2
+	if again := w.read("a.go", b.String(), 10, 12); !strings.Contains(again, "unchanged") {
+		t.Errorf("read again: %q", again)
+	}
+	w.calls = 20
+	if later := w.read("a.go", b.String(), 10, 12); strings.Contains(later, "unchanged") {
+		t.Error("lines read long ago, cut from the conversation since, were withheld")
+	}
+}
+
+// An agent stops when it has read the most a unit may.
+func TestAnAgentReadsNoMoreThanItMay(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var turns []model.Message
+	for range 10 {
+		turns = append(turns, calling("list_dir", map[string]string{"path": "."}), calling("read_file", map[string]string{"path": "a.txt"}))
+	}
+	var sent [][]model.Message
+	res, _ := Loop{Model: chatting{sent: &sent, turns: turns}}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"a.txt"}, MaxRead: 350}, func(Event) {})
+	if res.Terminal != Exhausted || !strings.Contains(res.Summary, "tokens") || res.Turns > 4 {
+		t.Errorf("ended %+v", res)
 	}
 }
