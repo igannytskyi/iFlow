@@ -55,6 +55,12 @@ Written by the planner, read by a reviewer.
 
 `plan.md`: **Approach** — how the change is built as a whole, the steps in order, what could go wrong — then every unit.
 
+The units come in this order:
+
+1. **The contract**, where two or more code units give each other names — added by the framework, not the planner: one unit that declares every such name, without behaviour, in the file of the unit that provides it. Everything after it builds against an interface that compiles, so no unit guesses what another will declare. It is judged by what the estate's own suite judges: declared, nothing else moves.
+2. **The tests**, written against the contract, before any behaviour exists, and failing until it does.
+3. **The code units**. Those that change no file in common are carried at once, a chain each — units that share a file are one chain, in order — and taken in the plan's order as if carried one by one. The last unit completes the change: it runs the change's own tests, then the whole suite, and may mend any code the change wrote.
+
 `units/WU-…md` — one ticket a unit, what its agent is told to do; beside it the agent is handed the specification's own decisions (below, under the candidate):
 
 1. **Objective** — what the unit is for.
