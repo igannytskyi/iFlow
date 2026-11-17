@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -289,6 +290,9 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 	if len(code) == 0 {
 		return nil, "it has no code unit"
 	}
+	if problem := r.orderOf(code); problem != "" {
+		return nil, problem
+	}
 	if len(r.spec.NewTests) > 0 {
 		var written []string
 		for _, u := range tests {
@@ -325,6 +329,49 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 		}
 	}
 	return r.number(append(tests, code...)), ""
+}
+
+// orderOf says where a code unit relies on a name that only a unit after
+// it provides — a name the estate does not have yet — which no agent can
+// build on: what is provided must come first.
+func (r *Run) orderOf(code []unit) string {
+	var existing strings.Builder
+	for _, u := range code {
+		for _, f := range u.scope {
+			if b, err := os.ReadFile(filepath.Join(r.repo, filepath.FromSlash(f))); err == nil {
+				existing.Write(b)
+			}
+		}
+	}
+	for i, u := range code {
+		text := withoutProvides(u.brief)
+		for _, later := range code[i+1:] {
+			for _, name := range providedNames(later.provides) {
+				word := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
+				if len(name) < 3 || !word.MatchString(text) || word.MatchString(existing.String()) ||
+					slices.Contains(providedNames(u.provides), name) {
+					continue
+				}
+				return fmt.Sprintf("unit %q relies on %s, which %q provides after it — order the code units so that what one provides comes before every unit that uses it", u.title, name, later.title)
+			}
+		}
+	}
+	return ""
+}
+
+// withoutProvides is a ticket without its Provides section: what the unit
+// uses, not what it gives.
+func withoutProvides(brief string) string {
+	before, after, found := strings.Cut(brief, "\nProvides:\n")
+	if !found {
+		return brief
+	}
+	if i := strings.Index(after, ":\n"); i >= 0 {
+		if j := strings.LastIndex(after[:i], "\n\n"); j >= 0 {
+			return before + after[j:]
+		}
+	}
+	return before
 }
 
 // number gives units their ids and their order: every tests unit prepares

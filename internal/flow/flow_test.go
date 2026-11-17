@@ -1216,3 +1216,22 @@ func TestTheNamesAContractProvides(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+// A plan whose code unit relies on a name only a later unit provides, and
+// the estate does not have, is sent back; one ordered right is not.
+func TestAPlanUsesOnlyWhatComesBefore(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "app.go"), []byte("package ui\n\nfunc (u *UI) frame() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := &Run{repo: repo}
+	helper := unit{title: "the helper", scope: []string{"project.go"}, brief: "Relies on:\n- u.notify, set by the app unit; frame, as it is\n\nProvides:\n- func (u *UI) notifyStates()\n",
+		provides: []string{"func (u *UI) notifyStates()"}}
+	fields := unit{title: "the fields", scope: []string{"app.go"}, brief: "Tasks:\n1. add notify\n", provides: []string{"field notify notify.Sender on type UI", "func (u *UI) frame()"}}
+	if got := r.orderOf([]unit{helper, fields}); !strings.Contains(got, "relies on notify") {
+		t.Errorf("a plan out of order passed: %q", got)
+	}
+	if got := r.orderOf([]unit{fields, helper}); got != "" {
+		t.Errorf("a plan in order was sent back: %q", got)
+	}
+}
