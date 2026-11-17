@@ -91,7 +91,7 @@ Rules you must follow:
 - Each criterion is decided the cheapest way that truly decides it, and judges the behaviour where a person meets it — through the estate's own entry point (its HTTP server, its command, its public API) — so that what is built is reachable, not only a part working alone. Where tests through an entry point the estate already has can observe it, "procedure": "machine". Where what must hold is how something looks or reads to a person — a colour, a layout, a wording — and no test the estate has, or that one unit could write against what exists, observes it, "procedure": "human": the person affirms it on the finished change, and no test is written for it. Never ask for test machinery the estate does not have. Mark "plan": "required" for a criterion about new or changed behaviour, "not-required" for "nothing else moves".
 - Always include a last criterion that nothing else in the estate moves: the whole existing suite stands as it did.
 - "class" is one of C1P (behaviour-preserving, proved), C1T (behaviour-preserving, tested), C2 (defect repair), C3 (a stated contract), C4 (observed effect), C5 (judgement).
-- "scope" lists the files the change may create or edit, by path. It never includes tests. Keep it to what the task needs.
+- "scope" lists the files the change may create or edit, by path. It never includes tests, nor the scripts that run them. Keep it to what the task needs.
 - "new_tests" lists test files that will be written first to judge the change — new files, never in scope, placed where the language expects tests for the scope (in Go, beside the code in the same package directory). Criteria they judge have "judged_by_new_tests": true.
 - Keep the change to what a few agents, each with one unit, can carry out. If the task is larger, specify its first coherent part — one that is worth landing alone — and list in "later" the rest, each written as a task of its own, in the order they should come.
 - "existing_tests" lists the estate's existing test files that judge that nothing else moves.
@@ -328,14 +328,30 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 		if rep.Passed() {
 			return d, nil
 		}
-		var found []string
+		var found, fixes []string
 		for _, f := range rep.Problems() {
 			found = append(found, f.String())
+			if fix, ok := remedies[f.Rule]; ok && !slices.Contains(fixes, fix) {
+				fixes = append(fixes, fix)
+			}
 		}
-		note = "\n\nThe gate refused your last specification: " + strings.Join(found, "; ") + ". Answer again."
+		note = "\n\nThe gate refused your last specification: " + strings.Join(found, "; ") + "."
+		if len(fixes) > 0 {
+			note += "\n\nHow to mend it:\n- " + strings.Join(fixes, "\n- ")
+		}
+		note += "\n\nAnswer again, with that mended and the rest as it was."
 		r.say(1, "", "the gate refused the draft: %s", strings.Join(found, "; "))
 	}
 	return draft{}, r.fail(1, "after three drafts there is still no specification that is readable and passes the gate")
+}
+
+// remedies say, for each rule a specification can break, how its author
+// mends it: the rule's words alone say what is wrong, not what to write.
+var remedies = map[string]string{
+	"R19": "a criterion never names a file the change may touch: say what is observed — \"the whole existing suite passes\", \"the greeting reads Hola, Ada!\" — not which file runs or holds it; and keep tests, and the scripts that run them, out of the scope",
+	"R7":  "the scope and the arbiter never share a file: a test, or a script that runs the tests, is never in the scope",
+	"R11": "every criterion is judged by something: the new tests, the existing tests, or the person (procedure human)",
+	"CONVENTIONS": "use only the defined values: plan is required or not-required; procedure is machine or human; class is C1P, C1T, C2, C3, C4 or C5",
 }
 
 // place names the change's folder: the slug the model gave, made safe, or
