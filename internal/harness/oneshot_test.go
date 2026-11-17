@@ -190,3 +190,24 @@ func TestFaultsInNamesTheBlamedLines(t *testing.T) {
 		t.Errorf("handed on %q", got)
 	}
 }
+
+// An answer cut off in the middle of a file writes nothing of that file,
+// and says why, so that the next attempt writes it in parts.
+func TestAFileCutOffIsNotWritten(t *testing.T) {
+	files, _ := parseFiles("=== FILE: a.go\npackage a\n\nfunc A() {\n=== FILE: b.go\npackage b\n=== END\n=== EDIT: c.go\n<<<<<<< SEARCH\nx\n")
+	if len(files) != 3 || !files[0].cut || files[1].cut || !files[2].cut {
+		t.Fatalf("parsed %+v", files)
+	}
+	dst := filepath.Join(t.TempDir(), "a.go")
+	err := files[0].apply(dst)
+	if err == nil || !strings.Contains(err.Error(), "cut off") {
+		t.Fatalf("a file cut off was applied: %v", err)
+	}
+	if _, err := os.Stat(dst); err == nil {
+		t.Error("a file cut off was written")
+	}
+	whole, _ := parseFiles("=== FILE: b.go\npackage b\n=== END\n=== EDIT: c.go\n<<<<<<< SEARCH\nx\n")
+	if len(whole) != 2 || whole[0].cut || !whole[1].cut {
+		t.Errorf("parsed %+v", whole)
+	}
+}

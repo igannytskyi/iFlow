@@ -71,6 +71,9 @@ Write only files you are allowed to change. Write nothing outside these blocks.`
 type written struct {
 	path, content string
 	edits         [][2]string // search, replace
+	// cut says the block never reached its === END: the answer stopped
+	// in the middle of it, at the most a model may write at once.
+	cut bool
 }
 
 // text is the file as the agent wrote it, for the next agent to read.
@@ -91,6 +94,9 @@ func (w written) text() string {
 // its place. A whole file that shortens one already there to under half is
 // refused: an agent shown an outline rewrites what it never saw.
 func (w written) apply(dst string) error {
+	if w.cut {
+		return fmt.Errorf("%s was cut off: your answer stopped before its === END, at the most you may write at once; write it in parts — a shorter file, or EDIT blocks — so that each block ends", w.path)
+	}
 	before, err := os.ReadFile(dst)
 	if w.edits == nil {
 		if markers.MatchString(w.content) {
@@ -124,6 +130,13 @@ func (w written) apply(dst string) error {
 // markers are the lines of an edit block, which never belong in a file.
 var markers = regexp.MustCompile(`(?m)^(?:<<<<<<< SEARCH|>>>>>>> REPLACE)\s*$`)
 
+// header is a line that begins a block of an answer: within another block,
+// it says that block was never ended.
+func header(line string) bool {
+	l := strings.TrimSpace(line)
+	return strings.HasPrefix(l, "=== FILE:") || strings.HasPrefix(l, "=== EDIT:") || strings.HasPrefix(l, "=== SUMMARY:")
+}
+
 // parseFiles reads an answer in the form oneshotSystem asks for.
 func parseFiles(answer string) (files []written, summary string) {
 	lines := strings.Split(answer, "\n")
@@ -133,8 +146,12 @@ func parseFiles(answer string) (files []written, summary string) {
 		case strings.HasPrefix(line, "=== FILE:"):
 			p := strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "=== FILE:")), "`")
 			var body []string
-			for i++; i < len(lines) && strings.TrimSpace(lines[i]) != "=== END"; i++ {
+			for i++; i < len(lines) && strings.TrimSpace(lines[i]) != "=== END" && !header(lines[i]); i++ {
 				body = append(body, lines[i])
+			}
+			cut := i >= len(lines) || header(lines[i])
+			if cut {
+				i-- // the next block, if any, begins here
 			}
 			// A fence around the content is the model's habit, not the file.
 			if len(body) > 0 && strings.HasPrefix(strings.TrimSpace(body[0]), "```") {
@@ -143,12 +160,12 @@ func parseFiles(answer string) (files []written, summary string) {
 					body = body[:n-1]
 				}
 			}
-			files = append(files, written{path: p, content: strings.Join(body, "\n") + "\n"})
+			files = append(files, written{path: p, content: strings.Join(body, "\n") + "\n", cut: cut})
 		case strings.HasPrefix(line, "=== EDIT:"):
 			w := written{path: strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "=== EDIT:")), "`"), edits: [][2]string{}}
 			var search, replace []string
 			mode := ""
-			for i++; i < len(lines) && strings.TrimSpace(lines[i]) != "=== END"; i++ {
+			for i++; i < len(lines) && strings.TrimSpace(lines[i]) != "=== END" && !header(lines[i]); i++ {
 				switch strings.TrimSpace(lines[i]) {
 				case "<<<<<<< SEARCH":
 					mode, search, replace = "search", nil, nil
@@ -169,6 +186,9 @@ func parseFiles(answer string) (files []written, summary string) {
 						replace = append(replace, lines[i])
 					}
 				}
+			}
+			if w.cut = i >= len(lines) || header(lines[i]); w.cut {
+				i--
 			}
 			files = append(files, w)
 		case strings.HasPrefix(line, "=== SUMMARY:"):
