@@ -130,6 +130,10 @@ type Run struct {
 	// as it is, not written again; replanned that the plan was made again
 	// once because a unit could not be done as planned.
 	resumed, replanned bool
+	// refusals is how many times the person did not affirm the finished
+	// change, and mend what they said the last time.
+	refusals int
+	mend     string
 }
 
 type decision struct {
@@ -368,6 +372,16 @@ func (r *Run) Start(ctx context.Context) error {
 				continue
 			}
 		}
+		var rf *refused
+		if errors.As(err, &rf) {
+			// The person did not affirm the finished change: it is carried
+			// again from admission with what they said, and what the areas
+			// from admission on wrote is kept under superseded/.
+			if err = r.mendFrom(rf); err == nil {
+				i = 1 // the admission, next
+				continue
+			}
+		}
 		var h *holds
 		if errors.As(err, &h) {
 			// Nothing to change: the change is closed saying why, and that
@@ -403,6 +417,22 @@ func Stop(dir, person string) error {
 		return errors.New("nothing is carrying the change now")
 	}
 	return os.WriteFile(filepath.Join(dir, StopFile), []byte(person), 0o644)
+}
+
+// mendFrom carries the change again from admission, with what the person
+// said when they did not affirm it.
+func (r *Run) mendFrom(rf *refused) error {
+	r.refusals++
+	if err := supersedeFrom(r.dir, 3); err != nil {
+		return err
+	}
+	_ = r.record("execution", r.id("SPEC"), "carried again: "+rf.Error())
+	r.say(5, r.id("SPEC"), "carried again from admission, with what %s said", r.cfg.Person)
+	r.mend, r.cands, r.again = rf.why, map[string]string{}, nil
+	for n := 3; n <= 6; n++ {
+		r.set(n, Idle)
+	}
+	return nil
 }
 
 // replanFrom sends the change back to its planner with why a unit could

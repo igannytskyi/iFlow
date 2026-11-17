@@ -755,6 +755,16 @@ func (h *holds) Error() string {
 
 // replan is a unit its agent says cannot be done as it was planned, which
 // sends the change back to its planner.
+// refused is a finished change the person read and did not affirm: its
+// units are carried again with what the person said.
+type refused struct{ why string }
+
+func (e *refused) Error() string { return "the person did not affirm the change: " + e.why }
+
+// maxRefusals is how many times a change the person did not affirm is
+// carried again before the run stops and leaves it to them.
+const maxRefusals = 2
+
 type replan struct{ unit, why string }
 
 func (e *replan) Error() string { return e.unit + " cannot be done as it was planned: " + e.why }
@@ -970,6 +980,10 @@ func (r *Run) goal(u unit) string {
 		brief += "\n\n## Why you are asked again\n\nTests written for this unit before were found wrong by the code that had to pass them; it could not, because:\n\n" + why +
 			"\n\nWrite them again so that they call only what exists or the contract promises, and check only what the criteria say."
 	}
+	if r.mend != "" && !u.tests {
+		brief += "\n\n## Why you are asked again\n\n" + r.cfg.Person + " read the change this unit made before it could land, and did not affirm it:\n\n" + r.mend +
+			"\n\nMend exactly that; what they did not name stands as it was."
+	}
 	if u.tests {
 		return brief + "\n\nWrite only the tests. The behaviour does not exist yet, and neither does the code that will provide it: " +
 			"call it by the names the brief gives, and leave it undefined — the code units define it, to pass your tests. " +
@@ -1064,6 +1078,7 @@ func (r *Run) assure(ctx context.Context) error {
 			byCriterion[id] = r.id("EV", len(r.units), 2)
 		}
 	}
+	var refusal string
 	if len(byPerson) > 0 {
 		ev := r.id("EV", len(r.units), 2)
 		got, err := r.ask(ctx, 5, "Does the change do what only you can judge? Read it — the candidates' files under Execution — and accept if each of these holds, or send it back saying which does not:\n\n"+strings.Join(byPerson, "\n"))
@@ -1078,6 +1093,9 @@ func (r *Run) assure(ctx context.Context) error {
 		doc.Evidence = append(doc.Evidence, meta.Evidence{ID: ev, Subject: meta.OfCandidate, Kind: meta.HumanAffirmation,
 			Producer: r.cfg.Person, Independence: meta.ByExecutor, How: how, Repeatable: meta.No, ObtainedAt: today()})
 		r.say(5, ev, "%s: %s %s", ev, r.cfg.Person, map[bool]string{true: "affirmed it", false: "did not affirm it: " + got.ground}[got.ok])
+		if !got.ok {
+			refusal = got.ground
+		}
 	}
 	n := 0
 	allMet := true
@@ -1113,6 +1131,9 @@ func (r *Run) assure(ctx context.Context) error {
 	}
 	if rep, err := r.check(ctx, 5); err != nil || !rep.Passed() {
 		return r.fail(5, "the assurance does not pass the gate")
+	}
+	if !allMet && refusal != "" && r.refusals < maxRefusals {
+		return &refused{why: refusal}
 	}
 	if !allMet {
 		return r.fail(5, "a criterion failed, so nothing enters")

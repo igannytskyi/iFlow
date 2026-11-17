@@ -873,8 +873,9 @@ func TestAUnitThatCannotBeDoneIsPlannedAgain(t *testing.T) {
 }
 
 // What only a person can see is affirmed by the person reading the finished
-// change: no test is written for it, the assurance asks, and an affirmation
-// lands the change while a refusal does not.
+// change: no test is written for it, and the assurance asks. An affirmation
+// lands the change; a refusal carries it again with what the person said,
+// twice at most, and a change never affirmed does not land.
 func TestAPersonAffirmsWhatOnlyAPersonCanSee(t *testing.T) {
 	human := strings.Replace(spec, `{"criterion":"Nothing else moves"`, `{"criterion":"The greeting reads well","when":"a person reads a shouted greeting","then":"it reads as a greeting, not as an error","plan":"not-required","threshold":"the person's word","judged_by_new_tests":false,"procedure":"human"},
  {"criterion":"Nothing else moves"`, 1)
@@ -882,49 +883,64 @@ func TestAPersonAffirmsWhatOnlyAPersonCanSee(t *testing.T) {
 		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
 		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
 	}
-	for _, affirm := range []bool{true, false} {
-		repo := estateFixture(t)
-		est := estate.NewLocal()
-		cfg := Config{Model: stubModel{answer: human}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
-		var run *Run
-		judged := false
-		run = New(cfg, repo, "make it possible to shout the greeting", func() {
-			v := run.View()
-			if v.Question == "" {
-				return
-			}
-			if v.Areas[5] == Waiting {
-				judged = true
-				if !strings.Contains(v.Question, "it reads as a greeting") {
-					t.Errorf("the person is not asked what they judge: %s", v.Question)
+	for _, tc := range []struct {
+		name    string
+		refuse  int // how many times the person refuses before affirming
+		lands   bool
+		judging int // how many times the person is asked
+	}{
+		{"affirmed", 0, true, 1},
+		{"refused once, then affirmed", 1, true, 2},
+		{"never affirmed", 99, false, 1 + maxRefusals},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := estateFixture(t)
+			est := estate.NewLocal()
+			var goals []string
+			cfg := Config{Model: stubModel{answer: human}, Executor: stubExecutor{files: files, goals: &goals}, Estate: est, Gate: gate.New(est), Person: "a test"}
+			var run *Run
+			judged := 0
+			run = New(cfg, repo, "make it possible to shout the greeting", func() {
+				v := run.View()
+				if v.Question == "" {
+					return
 				}
-				if affirm {
-					go run.Accept()
-				} else {
-					go run.Refuse("it reads like an error")
+				if v.Areas[5] == Waiting {
+					judged++
+					if !strings.Contains(v.Question, "it reads as a greeting") {
+						t.Errorf("the person is not asked what they judge: %s", v.Question)
+					}
+					if judged > tc.refuse {
+						go run.Accept()
+					} else {
+						go run.Refuse("it reads like an error")
+					}
+					return
 				}
-				return
+				go run.Accept()
+			})
+			err := run.Start(context.Background())
+			if judged != tc.judging {
+				t.Fatalf("the person was asked to judge the finished change %d times, want %d", judged, tc.judging)
 			}
-			go run.Accept()
+			if tc.lands != (err == nil) {
+				t.Fatalf("the run ended %v", err)
+			}
+			if tc.refuse > 0 && !slices.ContainsFunc(goals, func(g string) bool { return strings.Contains(g, "it reads like an error") }) {
+				t.Error("the unit carried again was not told what the person said")
+			}
+			c, _ := artifact.Load(run.View().Dir)
+			if tc.lands {
+				if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
+					t.Errorf("it does not pass the gate: %v", rep.Problems())
+				}
+				if !slices.ContainsFunc(c.Meta.Assurance.Evidence, func(e meta.Evidence) bool { return e.Kind == meta.HumanAffirmation }) {
+					t.Error("the affirmation is not evidence")
+				}
+			} else if c.Meta.Landing != nil {
+				t.Error("a change the person did not affirm landed")
+			}
 		})
-		err := run.Start(context.Background())
-		if !judged {
-			t.Fatal("the person was never asked to judge the finished change")
-		}
-		if affirm != (err == nil) {
-			t.Fatalf("affirmed %v, and the run ended %v", affirm, err)
-		}
-		c, _ := artifact.Load(run.View().Dir)
-		if affirm {
-			if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
-				t.Errorf("it does not pass the gate: %v", rep.Problems())
-			}
-			if !slices.ContainsFunc(c.Meta.Assurance.Evidence, func(e meta.Evidence) bool { return e.Kind == meta.HumanAffirmation }) {
-				t.Error("the affirmation is not evidence")
-			}
-		} else if c.Meta.Landing != nil {
-			t.Error("a change the person did not affirm landed")
-		}
 	}
 }
 
