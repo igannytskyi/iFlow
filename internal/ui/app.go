@@ -608,7 +608,10 @@ func (u *UI) main(gtx C) D {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Flexed(1, u.newIntentView(p)),
 			layout.Rigid(u.hairline),
-			layout.Rigid(inset(pad, gutter, u.composer(p))),
+			layout.Rigid(func(gtx C) D {
+				fill(gtx, u.p.Surface)
+				return inset(pad, gutter, u.composer(p))(gtx)
+			}),
 		)
 	}
 	s, ok := p.shownOf()
@@ -620,7 +623,10 @@ func (u *UI) main(gtx C) D {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Flexed(1, func(gtx C) D { return u.taskView(gtx, p, s, ok) }),
 			layout.Rigid(u.hairline),
-			layout.Rigid(inset(pad, gutter, u.composer(p))),
+			layout.Rigid(func(gtx C) D {
+				fill(gtx, u.p.Surface)
+				return inset(pad, gutter, u.composer(p))(gtx)
+			}),
 		)
 	}
 	if u.settings.HideCosts {
