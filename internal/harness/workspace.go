@@ -161,6 +161,9 @@ func Diff(estate, workspace string) ([]Change, error) {
 // Keep copies the changed files of a workspace into a candidate's folder,
 // and writes a unified-style listing of each change beside them.
 func Keep(workspace string, changes []Change, into string) error {
+	if err := os.MkdirAll(into, 0o755); err != nil { // kept even when nothing changed
+		return err
+	}
 	var listing bytes.Buffer
 	for _, c := range changes {
 		if c.Gone {

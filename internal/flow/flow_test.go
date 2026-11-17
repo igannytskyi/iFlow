@@ -92,8 +92,12 @@ func (s stubExecutor) Run(_ context.Context, t harness.Task, emit func(harness.E
 	for _, p := range t.Scope {
 		emit(harness.Event{At: time.Now(), Kind: harness.Called, Tool: "write_file", Detail: p})
 		body := s.files[p]
-		if d, ok := s.files["declared "+p]; ok && strings.Contains(t.Goal, "Declare exactly these names") {
-			body = d // a contract declares, and does nothing
+		if strings.Contains(t.Goal, "Declare exactly these names") {
+			d, ok := s.files["declared "+p]
+			if !ok {
+				continue // a contract declares, and does nothing; here, it has nothing to declare
+			}
+			body = d
 		}
 		if err := os.WriteFile(filepath.Join(t.Workspace, p), []byte(body), 0o644); err != nil {
 			return harness.Result{Terminal: harness.FailedTask}, err
@@ -1252,6 +1256,9 @@ func (s tiring) Name() string    { return "tiring" }
 func (s tiring) Version() string { return "1" }
 func (s tiring) Run(_ context.Context, t harness.Task, _ func(harness.Event)) (harness.Result, error) {
 	*s.goals = append(*s.goals, t.Goal)
+	if strings.Contains(t.Goal, "Declare exactly these names") {
+		return harness.Result{Terminal: harness.Candidate, Summary: "every name is declared already"}, nil
+	}
 	scope := t.Scope[0]
 	s.calls[scope]++
 	body := "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n"
@@ -1323,7 +1330,9 @@ func TestEveryAgentIsHandedTheSpecificationsDecisions(t *testing.T) {
 			t.Errorf("unit %d was not handed the specification's decisions:\n%s", i, g)
 		}
 	}
-	if !strings.Contains(goals[0], "shout_test.go calls Shout") {
+	if !slices.ContainsFunc(goals, func(g string) bool {
+		return strings.Contains(g, "Write only the tests") && strings.Contains(g, "shout_test.go calls Shout")
+	}) {
 		t.Error("the tests were not handed the test strategy")
 	}
 }
@@ -1553,6 +1562,7 @@ func (o overreach) Run(ctx context.Context, t harness.Task, emit func(harness.Ev
 					full.files[k] = v
 				}
 			}
+			t.Goal = "" // it writes as if it were the code
 			return full.Run(ctx, t, emit)
 		}
 	}

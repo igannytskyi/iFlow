@@ -111,6 +111,18 @@ The index is disposable; the corrections are not. Being wrong is not detectable 
 
 **A person may refuse at any boundary.** A refusal returns the object to its producer as *that producer's* failure, not as a request to try again, and nothing refused is accepted.
 
+## The standard the framework's own code is held to
+
+iFlow is a framework, built to the best practices of Go — its idioms, its patterns, sound algorithms — and every change to it is measured against that, not against whether it works today.
+
+**Everything that crosses between areas, units and agents is typed data in the model.** A role, a contract, a dependency, an outcome is a field with a type, a schema and a validation — never a convention in prose, a prefix in a title, a marker in a prompt, or a regular expression run over what an agent wrote. Where something is inferred from text today, that is a defect to remove, not a pattern to repeat.
+
+**No workarounds, no special cases, no guessing.** A failure is fixed where it arises, by the model being made able to say what was meant; a fix that recognises one symptom — one wording, one language, one task — is not a fix. If the right fix is larger than the task, say so and record it in `docs/backlog.md` rather than land the patch.
+
+**One place for each decision.** The order units run in, what a language needs, how a run is judged: each is defined once, as data or one function, and read everywhere else.
+
+**Measured, not believed.** A change to how tasks are carried is run on the reference tasks (`iflow bench`) before and after; one that lowers what lands, or raises what it costs without cause, is not kept.
+
 ## Before presenting anything
 
 Run the check and report what it says, including when it passes. A verdict, a landing or a status presented without it is not finished work.

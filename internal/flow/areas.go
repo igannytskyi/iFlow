@@ -649,6 +649,10 @@ func (r *Run) execute(ctx context.Context) error {
 	if len(r.units) > 0 && r.units[0].contract {
 		results[0], errs[0] = r.carry(ctx, 0, nil, prof, ok)
 		if errs[0] != nil {
+			if why, said := strings.CutPrefix(results[0].res.Summary, harness.BlockedPrefix); said && !r.replanned {
+				r.say(4, r.units[0].id, "%s cannot be done as it was planned: %s", r.units[0].id, why)
+				return &replan{unit: r.units[0].id, why: why}
+			}
 			return r.fail(4, "%v", errs[0])
 		}
 		start, base = 1, []string{filepath.Join(results[0].store, "files")}
@@ -1033,7 +1037,9 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	if len(outside) > 0 {
 		return c, fmt.Errorf("%s changed %s, outside its scope; the candidate is refused", u.id, strings.Join(outside, ", "))
 	}
-	if res.Terminal != harness.Candidate || len(changes) == 0 {
+	// A contract with nothing to declare — every name it lists is there
+	// already — changes nothing, and that is its answer.
+	if res.Terminal != harness.Candidate || (len(changes) == 0 && !u.contract) {
 		return c, fmt.Errorf("%s ended %s with %d change(s): %s", u.id, res.Terminal, len(changes), res.Summary)
 	}
 	if prof.format != nil {
