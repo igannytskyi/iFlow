@@ -145,7 +145,11 @@ func (m Config) Describe(w io.Writer) {
 	for _, r := range []struct{ role, spec, effort string }{
 		{"author", m.Roles.Author, m.Effort.Author}, {"reviewer", m.Roles.Reviewer, m.Effort.Reviewer},
 		{"planner", m.Roles.Planner, m.Effort.Planner}, {"executor", m.Roles.Executor, m.Effort.Executor},
+		{"agent", m.Roles.Stronger, m.Effort.Executor}, // the executor's second rung, where set
 	} {
+		if r.spec == "" {
+			continue
+		}
 		state := "ready"
 		if _, err := m.Model(r.spec, r.effort); err != nil {
 			state = err.Error()
@@ -240,8 +244,8 @@ func (m Config) Try(ctx context.Context, w io.Writer) int {
 	fmt.Fprintln(w)
 	seen := map[string]bool{}
 	failed := false
-	for _, spec := range []string{m.Roles.Author, m.Roles.Reviewer, m.Roles.Planner, m.Roles.Executor} {
-		if seen[spec] {
+	for _, spec := range []string{m.Roles.Author, m.Roles.Reviewer, m.Roles.Planner, m.Roles.Executor, m.Roles.Stronger} {
+		if spec == "" || seen[spec] {
 			continue
 		}
 		seen[spec] = true
