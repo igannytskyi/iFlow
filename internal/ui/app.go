@@ -539,22 +539,52 @@ func (u *UI) taskRow(p *project, key, title, state, spent string, c *workspace.C
 				)
 			})))
 		}
-		// A task that stopped and will not be finished is closed from where
-		// it is seen: the cross opens it with the form to close it.
-		if state != "stopped" || c == nil {
-			return layout.Inset{Left: 18}.Layout(gtx, line)
+		// What is done to a task as it stands is done from where it is seen:
+		// ■ stops one at work, wherever it runs; ▶ carries on one that
+		// stopped, from where it stopped; close opens the form to close it.
+		var controls []layout.FlexChild
+		icon := func(btn *widget.Clickable, mark string, fg colorNRGBA) layout.FlexChild {
+			return layout.Rigid(func(gtx C) D {
+				return u.pressable(gtx, btn, false, 5, inset(3, 6, u.strong(sizeSmall, fg, mark)))
+			})
 		}
-		closer := u.clicks.of("task/close/" + c.Change.Dir)
-		if u.clicked(gtx, closer) {
-			p.show(key, c)
-			p.closing = c.Change.Dir
+		switch {
+		case state == "working" || state == "waiting for you":
+			stop := u.clicks.of("task/stop/" + p.path + "/" + key)
+			if u.clicked(gtx, stop) {
+				dir := key
+				if c != nil {
+					dir = c.Change.Dir
+				}
+				if key == runKey || (p.run != nil && p.run.View().Dir == dir) {
+					if p.cancel != nil {
+						p.cancel()
+					}
+				} else if err := flow.Stop(dir, u.person()); err != nil {
+					p.resolveErr = err.Error()
+				}
+			}
+			controls = append(controls, icon(stop, "■", u.p.Fail))
+		case state == "stopped" && c != nil:
+			resume := u.clicks.of("task/resume/" + c.Change.Dir)
+			if u.clicked(gtx, resume) {
+				p.show(key, c)
+				p.resolveErr = ""
+				if err := u.resume(p, c); err != nil {
+					p.resolveErr = err.Error()
+				}
+			}
+			closer := u.clicks.of("task/close/" + c.Change.Dir)
+			if u.clicked(gtx, closer) {
+				p.show(key, c)
+				p.closing = c.Change.Dir
+			}
+			controls = append(controls, icon(resume, "▶", u.p.Accent), layout.Rigid(func(gtx C) D {
+				return u.pressable(gtx, closer, p.closing == c.Change.Dir, 5, inset(4, 7, u.text(sizeSmall, u.p.Muted, "close")))
+			}))
 		}
 		return layout.Inset{Left: 18}.Layout(gtx, func(gtx C) D {
-			return layout.Flex{Alignment: layout.Middle, Gap: gtx.Dp(2)}.Layout(gtx,
-				layout.Flexed(1, line),
-				layout.Rigid(func(gtx C) D {
-					return u.pressable(gtx, closer, p.closing == c.Change.Dir, 5, inset(4, 7, u.text(sizeSmall, u.p.Muted, "close")))
-				}))
+			return layout.Flex{Alignment: layout.Middle, Gap: gtx.Dp(2)}.Layout(gtx, append([]layout.FlexChild{layout.Flexed(1, line)}, controls...)...)
 		})
 	}
 }
