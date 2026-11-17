@@ -1068,3 +1068,41 @@ func TestACandidateIsKeptInTheEstatesForm(t *testing.T) {
 		t.Errorf("what entered is not in gofmt's form:\n%s", b)
 	}
 }
+
+// stoppedAtPlanning stops the run when the planner is asked, the way a
+// person's stop lands while the planner works.
+type stoppedAtPlanning struct {
+	stubModel
+	stop context.CancelFunc
+}
+
+func (s stoppedAtPlanning) Ask(ctx context.Context, system, prompt string) (string, model.Usage, error) {
+	if system == plannerSystem {
+		s.stop()
+		return "", model.Usage{}, ctx.Err()
+	}
+	return s.stubModel.Ask(ctx, system, prompt)
+}
+
+// A run stopped while its plan is asked for stops: no plan is made in the
+// planner's place, and nothing is admitted on one.
+func TestARunStoppedWhilePlanningStops(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := Config{Model: stoppedAtPlanning{stubModel{answer: spec}, cancel}, Executor: stubExecutor{}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(ctx); err == nil {
+		t.Fatal("a run stopped while planning went on")
+	}
+	c, _ := artifact.Load(run.View().Dir)
+	if c.Meta.Plan != nil || c.Meta.Admission != nil {
+		t.Error("a plan was made in the planner's place, though the run was stopped")
+	}
+}

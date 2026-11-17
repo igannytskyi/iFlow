@@ -136,6 +136,11 @@ func (r *Run) plan(ctx context.Context) error {
 		feedback = "\n\n# Your previous plan\n\n" + text + "\n# What a reviewer found in it\n\n" + v.forAuthor() +
 			"\nPlan again, whole, resolving every blocking and major finding."
 	}
+	if err := ctx.Err(); err != nil {
+		// Stopped while the plan was asked for: nothing is planned in its
+		// place, and the run stops here.
+		return err
+	}
 	if units == nil {
 		units, planner = r.derivedUnits(all, byTests), "the framework, deriving the units from the specification alone: "+planner
 	}
