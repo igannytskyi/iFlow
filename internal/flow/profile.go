@@ -1,6 +1,8 @@
 package flow
 
 import (
+	"github.com/igannytskyi/iflow/internal/artifact"
+
 	"context"
 	"fmt"
 	"os"
@@ -180,4 +182,14 @@ func goVet(files []string) []string {
 		}
 	}
 	return cmd
+}
+
+// Settle closes an escalation of the change in dir by the person's decision,
+// and keeps the decision with the others, so that no later author raises
+// again what was settled once.
+func Settle(repo, dir, ref, person, decision string) error {
+	if err := artifact.Settle(dir, ref, person, decision); err != nil {
+		return err
+	}
+	return decide(repo, filepath.Base(dir), "settled "+ref+": "+decision)
 }

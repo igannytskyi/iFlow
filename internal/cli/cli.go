@@ -23,6 +23,7 @@ const usage = `usage: iflow desk [project...]            the workbench: projects
                                          each answer on stdin: accept, or notes to send it back
        iflow describe <change>...        write, after the fact, the whole specification of changes
                                          carried before specifications were whole
+       iflow settle <change> <n> <decision>  close an escalation the change raised by your decision
        iflow migrate [--dry] [changes...]  write every change in the data model, as JSON;
                                          its Markdown is kept under legacy/
        iflow models [--try]              which model does each piece of work, and whether its key is found;
@@ -71,6 +72,8 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		return app.Desk(ctx, args[1:])
 	case len(args) > 0 && args[0] == "describe":
 		return app.Describe(ctx, args[1:])
+	case len(args) > 0 && args[0] == "settle":
+		return app.Settle(args[1:])
 	case len(args) > 0 && args[0] == "migrate":
 		return app.Migrate(args[1:])
 	case len(args) > 0 && args[0] == "models":

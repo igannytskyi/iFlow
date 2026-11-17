@@ -177,8 +177,12 @@ var recordRules = []string{"B1", "B4", "R4"}
 func Closed(c *artifact.Change) (why string, ok bool) {
 	// The last crossing of the change itself: a migration into the data
 	// model is not one.
+	// The last crossing of the change's own path: a migration into the data
+	// model, or an escalation settled by a decision, is bookkeeping after it.
 	for i := len(c.Meta.Record) - 1; i >= 0; i-- {
-		if cr := c.Meta.Record[i]; cr.Stage != "migrated" {
+		switch cr := c.Meta.Record[i]; cr.Stage {
+		case "migrated", "settled":
+		default:
 			return cr.Note, cr.Stage == "closed"
 		}
 	}
