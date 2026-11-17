@@ -944,6 +944,49 @@ func TestAPersonAffirmsWhatOnlyAPersonCanSee(t *testing.T) {
 	}
 }
 
+// A change stopped because the person did not affirm it, resumed and
+// refused again, is carried again from admission all the same.
+func TestARefusedChangeResumedIsMended(t *testing.T) {
+	human := strings.Replace(spec, `{"criterion":"Nothing else moves"`, `{"criterion":"The greeting reads well","when":"a person reads a shouted greeting","then":"it reads as a greeting, not as an error","plan":"not-required","threshold":"the person's word","judged_by_new_tests":false,"procedure":"human"},
+ {"criterion":"Nothing else moves"`, 1)
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	cfg := Config{Model: stubModel{answer: human}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	answer := func(run **Run, refuse *int) func() {
+		return func() {
+			v := (*run).View()
+			if v.Question == "" {
+				return
+			}
+			if v.Areas[5] == Waiting && *refuse > 0 {
+				*refuse--
+				go (*run).Refuse("it reads like an error")
+				return
+			}
+			go (*run).Accept()
+		}
+	}
+	var first *Run
+	refuse := 1 + maxRefusals
+	first = New(cfg, repo, "make it possible to shout the greeting", answer(&first, &refuse))
+	if err := first.Start(context.Background()); err == nil {
+		t.Fatal("a change never affirmed landed")
+	}
+	var run *Run
+	refuse = 1
+	run, err := Resume(cfg, repo, first.View().Dir, answer(&run, &refuse))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := run.Start(context.Background()); err != nil {
+		t.Fatalf("refused once on resuming, then affirmed, it did not land: %v", err)
+	}
+}
+
 // A change whose tests, written first, pass on the estate as it stands asks
 // for what holds already: it is closed saying so, nothing is changed, and it
 // passes the gate.

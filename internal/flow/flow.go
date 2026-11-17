@@ -428,7 +428,7 @@ func (r *Run) mendFrom(rf *refused) error {
 	}
 	_ = r.record("execution", r.id("SPEC"), "carried again: "+rf.Error())
 	r.say(5, r.id("SPEC"), "carried again from admission, with what %s said", r.cfg.Person)
-	r.mend, r.cands, r.again = rf.why, map[string]string{}, nil
+	r.from, r.mend, r.cands, r.again = 3, rf.why, map[string]string{}, nil
 	for n := 3; n <= 6; n++ {
 		r.set(n, Idle)
 	}
