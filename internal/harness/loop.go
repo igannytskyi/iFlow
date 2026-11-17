@@ -42,7 +42,8 @@ How to work:
 - Read before you change anything: read_file the files you will change and the ones they use; search for a name rather than guess where it is.
 - Change the least that reaches the goal. Prefer edit_file, with old text copied exactly from read_file's output (without the line numbers) and enough of it to occur once. Write a whole file only when it is new or short.
 - Change only files in the unit's scope; the harness refuses anything else. If the goal cannot be reached without changing a file outside the scope, say so and stop.
-- After changing files, call run_check. Read what fails, fix it, and run it again. Do not stop while it fails because of your files.
+- Each write and edit answers whether the code still builds: mend what it names before anything else.
+- After changing files, call run_check. Read what fails, fix it, and run it again. To see which test fails and why — a panic names no test — run_tests runs the tests matching a name under a folder, each with its output. Do not stop while it fails because of your files.
 - Do not change tests to make them pass unless the unit is the one that writes them.
 - Tests written for this change before you are not yours to change, and may be wrong. If the check fails in them — a test's own setup or fakes (a config missing what the code needs, a fake that does not do what it stands for), a panic whose cause is what a test handed in — and no change to your files can pass them, call cannot at once, naming the test file and the line and what is wrong there; that file is written again, and you are carried again after it.
 - If the unit cannot be done as it is asked — what it relies on does not exist, what it must change is outside its scope — call cannot with why, at once; do not search on for what is not there.
@@ -73,7 +74,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	if l.Model == nil {
 		return Result{Terminal: FailedSubstrate}, errNoModel
 	}
-	ws := &workspace{dir: t.Workspace, scope: t.Scope, check: t.Check, judge: t.Judge, ctx: ctx}
+	ws := &workspace{dir: t.Workspace, scope: t.Scope, check: t.Check, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
 	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t) + libraryNote(t.Workspace)}}
 	// What the estate says is read once: from the agent's third turn on it
 	// is sent as an index of what it held, and the agent reads what it
@@ -241,7 +242,7 @@ func (l Loop) call(ws *workspace, call model.ToolCall) (string, Kind, bool) {
 	}
 	args := map[string]string{}
 	var raw map[string]any
-	if call.Function.Arguments != "" && json.Unmarshal([]byte(call.Function.Arguments), &raw) != nil {
+	if call.Function.Arguments != "" && json.Unmarshal([]byte(repairArgs(call.Function.Arguments)), &raw) != nil {
 		return "the arguments are not JSON", Refused, false
 	}
 	for k, v := range raw {

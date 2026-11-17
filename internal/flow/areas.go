@@ -847,6 +847,17 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	case len(prof.build) > 0:
 		task.Check = resolve(ws, prof.build) // an earlier one leaves the estate building
 	}
+	if ok && !u.tests && prof.quick != nil {
+		task.Quick = func(files []string) []string {
+			if cmd := prof.quick(files); cmd != nil {
+				return resolve(ws, cmd)
+			}
+			return nil
+		}
+	}
+	if ok && prof.focus != nil {
+		task.Focus = func(pattern, path string) []string { return resolve(ws, prof.focus(pattern, path)) }
+	}
 	r.say(4, u.id, "%s handed to %s with %d tokens of the estate", u.id, r.cfg.Executor.Name(), pack.Tokens())
 	res, err := r.cfg.Executor.Run(ctx, task, func(e harness.Event) {
 		r.mu.Lock()

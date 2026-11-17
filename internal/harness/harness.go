@@ -38,6 +38,14 @@ type Task struct {
 	// in place of its exit status, and says why not: tests written before
 	// their code fail to build, and only some of those failures are theirs.
 	Judge func(passed bool, output string) (ok bool, why string)
+	// Quick, where given, is the fast check of the files named — whether
+	// they build — run after every write or edit, so that the agent sees
+	// a mistake one step after it makes it, not at the next whole check.
+	Quick func(files []string) []string
+	// Focus, where given, runs the tests matching a pattern under a path,
+	// saying of each whether it passed: what the agent runs to see which
+	// test fails, and why.
+	Focus func(pattern, path string) []string
 	// BudgetUSD and MaxSteps bound the run; a run that reaches either stops
 	// with what it has and says which it reached.
 	BudgetUSD float64

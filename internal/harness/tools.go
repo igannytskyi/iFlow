@@ -35,6 +35,8 @@ type workspace struct {
 	scope []string
 	check []string
 	judge func(passed bool, output string) (ok bool, why string)
+	quick func(files []string) []string
+	focus func(pattern, path string) []string
 	ctx   context.Context
 
 	pkgs map[string]bool // the repository's packages, read once
@@ -137,7 +139,7 @@ func (w *workspace) writable(rel string) bool {
 }
 
 var tools = []tool{
-	{"read_file", "Read a file in the repository, or of a library's source by its absolute path. A file of more than 150 lines answers with its outline — every declaration and its line — and from and to read the lines between them, at most 150 at a time.",
+	{"read_file", "Read a file in the repository, or of a library's source by its absolute path. A file of more than 250 lines answers with its outline — every declaration and its line — and from and to read the lines between them, at most 250 at a time.",
 		`{"type":"object","properties":{"path":{"type":"string"},"from":{"type":"integer","description":"first line to read"},"to":{"type":"integer","description":"last line to read"}},"required":["path"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
 			p, err := w.readable(a["path"])
@@ -145,6 +147,9 @@ var tools = []tool{
 				return "", err
 			}
 			b, err := os.ReadFile(p)
+			if errors.Is(err, fs.ErrNotExist) {
+				return "", fmt.Errorf("there is no %s.%s", a["path"], w.suggest(a["path"]))
+			}
 			if err != nil {
 				return "", err
 			}
@@ -213,7 +218,7 @@ var tools = []tool{
 			}
 			return strings.Join(out, "\n"), nil
 		}},
-	{"write_file", "Write a whole file. Only files in the unit's scope may be written.", `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}`,
+	{"write_file", "Write a whole file. Only files in the unit's scope may be written. Answers whether the code still builds.", `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
 			p, rel, err := w.within(a["path"])
 			if err != nil {
@@ -225,9 +230,12 @@ var tools = []tool{
 			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 				return "", err
 			}
-			return "written", os.WriteFile(p, []byte(a["content"]), 0o644)
+			if err := os.WriteFile(p, []byte(a["content"]), 0o644); err != nil {
+				return "", err
+			}
+			return "written" + w.builds(rel), nil
 		}},
-	{"edit_file", "Replace one exact occurrence of old with new in a file in the unit's scope.", `{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"}},"required":["path","old","new"]}`,
+	{"edit_file", "Replace one exact occurrence of old with new in a file in the unit's scope. Answers with the lines around the change, and whether the code still builds.", `{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"}},"required":["path","old","new"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
 			p, rel, err := w.within(a["path"])
 			if err != nil {
@@ -244,7 +252,10 @@ var tools = []tool{
 			if err != nil {
 				return "", fmt.Errorf("%s: %w", rel, err)
 			}
-			return "edited" + how, os.WriteFile(p, []byte(out), 0o644)
+			if err := os.WriteFile(p, []byte(out), 0o644); err != nil {
+				return "", err
+			}
+			return "edited" + how + "; now:\n" + around(out, a["new"]) + w.builds(rel), nil
 		}},
 	{"cannot", "Say that the unit cannot be done as it is asked, and why: something it relies on does not exist, what it must change is outside its scope, it asks for what the estate cannot do. The unit goes back to be planned again with your reason. Say it as soon as you know — not after trying everything.",
 		`{"type":"object","properties":{"why":{"type":"string"}},"required":["why"]}`,
@@ -264,9 +275,195 @@ var tools = []tool{
 					status += ": " + why
 				}
 			}
-			return status + "\n" + tail(out, 120), nil
+			return status + "\n" + condense(out), nil
+		}},
+	{"run_tests", "Run the tests whose names match a regular expression, under a folder of the repository, and see each pass or fail with its output — to find which test fails and why, faster than the whole check.",
+		`{"type":"object","properties":{"pattern":{"type":"string","description":"a regular expression matching test names"},"path":{"type":"string","description":"the folder whose tests to run"}},"required":["pattern","path"]}`,
+		func(w *workspace, a map[string]string) (string, error) {
+			if w.focus == nil {
+				return "", errRefused{"this estate has no way to run some of its tests; use run_check"}
+			}
+			if _, _, err := w.within(a["path"]); err != nil {
+				return "", err
+			}
+			ok, out := check(w.ctx, w.dir, w.focus(a["pattern"], a["path"]))
+			status := "passed"
+			if !ok {
+				status = "failed"
+			}
+			return status + "\n" + condense(out), nil
 		}},
 }
+
+// suggest names the files in the workspace whose names are nearest a path
+// that is not there: a wrong guess at a name is better answered with the
+// right names than with the next guess.
+func (w *workspace) suggest(path string) string {
+	base := strings.ToLower(filepath.Base(path))
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	type near struct {
+		rel   string
+		score int
+	}
+	var found []near
+	_ = filepath.WalkDir(w.dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" || d.Name() == "node_modules" || d.Name() == "changes" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		b := strings.ToLower(d.Name())
+		s := strings.TrimSuffix(b, filepath.Ext(b))
+		score := 0
+		switch {
+		case b == base:
+			score = 3
+		case s == stem:
+			score = 2
+		case len(stem) >= 3 && (strings.Contains(s, stem) || strings.Contains(stem, s)):
+			score = 1
+		}
+		if score > 0 {
+			rel, _ := filepath.Rel(w.dir, p)
+			found = append(found, near{filepath.ToSlash(rel), score})
+		}
+		return nil
+	})
+	slices.SortFunc(found, func(a, b near) int {
+		if a.score != b.score {
+			return b.score - a.score
+		}
+		return len(a.rel) - len(b.rel)
+	})
+	if len(found) == 0 {
+		return " Use list_dir or search to find the right path."
+	}
+	var names []string
+	for _, f := range found[:min(4, len(found))] {
+		names = append(names, f.rel)
+	}
+	return " Did you mean: " + strings.Join(names, ", ") + "?"
+}
+
+// builds is what the fast check says of a file just written: nothing when
+// it builds or there is no fast check, the faults when it does not.
+func (w *workspace) builds(rel string) string {
+	if w.quick == nil {
+		return ""
+	}
+	cmd := w.quick([]string{rel})
+	if len(cmd) == 0 {
+		return ""
+	}
+	ok, out := check(w.ctx, w.dir, cmd)
+	if ok {
+		return "; it builds"
+	}
+	var faults []string
+	for _, l := range strings.Split(out, "\n") {
+		if faultAt.MatchString(l) && len(faults) < 20 {
+			faults = append(faults, strings.TrimSpace(l))
+		}
+	}
+	if len(faults) == 0 {
+		faults = []string{tail(out, 12)}
+	}
+	return "\n\nThe code does not build now — mend this before going on:\n" + strings.Join(faults, "\n")
+}
+
+// around is the lines of s around the first line of what was put in, with
+// their numbers.
+func around(s, put string) string {
+	first := strings.TrimSpace(strings.SplitN(strings.Trim(put, "\n"), "\n", 2)[0])
+	lines := strings.Split(s, "\n")
+	at := 0
+	for i, l := range lines {
+		if first != "" && strings.Contains(l, first) {
+			at = i
+			break
+		}
+	}
+	n := strings.Count(strings.Trim(put, "\n"), "\n") + 1
+	from, to := max(0, at-3), min(len(lines), at+n+3)
+	var b strings.Builder
+	for i := from; i < to; i++ {
+		fmt.Fprintf(&b, "%5d  %s\n", i+1, lines[i])
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// condense keeps of a long output what an agent needs: how it began, every
+// line that says what failed and where, and how it ended.
+func condense(out string) string {
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) <= condenseWhole {
+		return strings.Join(lines, "\n")
+	}
+	keep := make([]bool, len(lines))
+	for i := range min(15, len(lines)) {
+		keep[i] = true
+	}
+	for i := max(0, len(lines)-40); i < len(lines); i++ {
+		keep[i] = true
+	}
+	notable := 0
+	for i, l := range lines {
+		if notable < 60 && failing.MatchString(l) {
+			for j := i; j < min(len(lines), i+3); j++ { // what failed, and the lines that say how
+				keep[j] = true
+			}
+			notable++
+		}
+	}
+	var b strings.Builder
+	skipped := 0
+	for i, l := range lines {
+		if !keep[i] {
+			skipped++
+			continue
+		}
+		if skipped > 0 {
+			fmt.Fprintf(&b, "[%d lines]\n", skipped)
+			skipped = 0
+		}
+		b.WriteString(l + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// condenseWhole is the longest output kept whole.
+const condenseWhole = 120
+
+// failing is a line that says what failed, or where.
+var failing = regexp.MustCompile(`--- FAIL|^FAIL|panic:|^\s*[\w./-]+\.\w+:\d+|Error|error:|undefined|cannot |expected|got |want |assert`)
+
+// repairArgs mends tool arguments a model sent almost as JSON: wrapped in a
+// code fence or in prose, with a trailing comma, or as a JSON string of the
+// object. What cannot be mended is left as it was.
+func repairArgs(s string) string {
+	if json.Valid([]byte(s)) {
+		var str string
+		if json.Unmarshal([]byte(s), &str) == nil && json.Valid([]byte(str)) {
+			return str // the object sent as a string
+		}
+		return s
+	}
+	t := strings.TrimSpace(s)
+	if i, j := strings.Index(t, "{"), strings.LastIndex(t, "}"); i >= 0 && j > i {
+		t = t[i : j+1]
+	}
+	t = trailingComma.ReplaceAllString(t, "$1")
+	if json.Valid([]byte(t)) {
+		return t
+	}
+	return s
+}
+
+var trailingComma = regexp.MustCompile(`,\s*([}\]])`)
 
 // replaceOnce replaces the one place old occurs in s with new. Where old
 // does not occur exactly, it is matched line by line with the indentation
@@ -317,7 +514,7 @@ const searchLines = 40
 
 // wholeLines is the longest file answered whole; a longer one answers with
 // its outline, and is read a range at a time.
-const wholeLines = 150
+const wholeLines = 250
 
 var declaration = regexp.MustCompile(`^(func|type|var|const|class|def|interface|export|public|private|protected|struct|enum|impl|fn|package|module)\b`)
 

@@ -28,6 +28,12 @@ type profile struct {
 	// vet checks the packages of the files named without running them;
 	// nil where the estate's language has no such step.
 	vet func(files []string) []string
+	// quick builds the code of the files named, running nothing: what an
+	// agent is told after each edit. nil where the language has no build.
+	quick func(files []string) []string
+	// focus runs the tests matching a pattern under a folder, each said to
+	// pass or fail.
+	focus func(pattern, path string) []string
 	// format writes the files named in the estate's one form, where its
 	// language has one; nil where it has none.
 	format func(files []string) []string
@@ -51,12 +57,19 @@ func detect(repo string) (profile, bool) {
 	case has("go.mod"):
 		return profile{name: "go test", suite: []string{"go", "test", "-count=1", "./..."},
 			only:  func(n []string) []string { return []string{"go", "test", "-count=1", "-run", alternation(n), "./..."} },
-			build: []string{"go", "build", "./..."}, vet: goVet, format: gofmt, names: goTests}, true
+			build: []string{"go", "build", "./..."}, vet: goVet, format: gofmt, names: goTests,
+			quick: goBuild,
+			focus: func(pattern, path string) []string {
+				return []string{"go", "test", "-count=1", "-v", "-run", pattern, "./" + strings.TrimPrefix(filepath.ToSlash(filepath.Clean(path)), "./") + "/..."}
+			}}, true
 	case has("pyproject.toml") || has("pytest.ini") || has("setup.py"):
 		return profile{name: "pytest", suite: []string{"python3", "-m", "pytest", "-q"},
 			only: func(n []string) []string {
 				return []string{"python3", "-m", "pytest", "-q", "-k", strings.Join(n, " or ")}
-			}, names: pythonTests}, true
+			}, names: pythonTests,
+			focus: func(pattern, path string) []string {
+				return []string{"python3", "-m", "pytest", "-q", "-k", pattern, path}
+			}}, true
 	}
 	return profile{}, false
 }
@@ -184,6 +197,27 @@ func gofmt(files []string) []string {
 		return nil
 	}
 	return append([]string{"gofmt", "-w"}, goFiles...)
+}
+
+// goBuild builds the packages holding the Go files named, their tests
+// apart — which may wait on what a later unit provides — and has the
+// compiler say every error it finds; nil where none is Go.
+func goBuild(files []string) []string {
+	cmd := []string{"go", "build", "-gcflags=-e"}
+	seen := map[string]bool{}
+	for _, f := range files {
+		if !strings.HasSuffix(f, ".go") || strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		if d := "./" + filepath.ToSlash(filepath.Dir(f)); !seen[d] {
+			seen[d] = true
+			cmd = append(cmd, d)
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	return cmd
 }
 
 // goVet builds the tests of the packages holding the files named, running

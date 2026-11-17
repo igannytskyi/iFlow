@@ -163,12 +163,12 @@ func TestAnAgentThatOnlyReadsIsStopped(t *testing.T) {
 func TestReadingIsSparing(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("package a\n\n")
-	for i := range 200 {
+	for i := range 300 {
 		fmt.Fprintf(&b, "func F%d() {}\n", i)
 	}
 	w := &workspace{dir: t.TempDir()}
 	outline := w.read("a.go", b.String(), 0, 0)
-	if !strings.Contains(outline, "outline") || !strings.Contains(outline, "func F150()") || strings.Count(outline, "\n") > 210 {
+	if !strings.Contains(outline, "outline") || !strings.Contains(outline, "func F250()") || strings.Count(outline, "\n") > 310 {
 		t.Errorf("no outline:\n%.300s", outline)
 	}
 	w.calls = 1
@@ -259,5 +259,88 @@ func TestTheLadderPutsTheFirstRungsCannotToTheAgent(t *testing.T) {
 	}
 	if !strings.Contains(sent[0][1].Content, "the helper it relies on was not shown") {
 		t.Error("the agent was not told what the first rung said")
+	}
+}
+
+// An edit answers with the lines around it and with whether the code still
+// builds, so that a mistake is seen one step after it is made.
+func TestAnEditSaysWhetherTheCodeBuilds(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package a\n\nfunc A() int {\n\treturn 1\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	quick := func(files []string) []string {
+		return []string{"sh", "-c", "grep -q 'return 1' a.go || { echo 'a.go:4:9: undefined: two'; exit 1; }"}
+	}
+	w := &workspace{dir: ws, scope: []string{"a.go"}, quick: quick, ctx: context.Background()}
+	edit, _ := lookup("edit_file")
+	out, err := edit.run(w, map[string]string{"path": "a.go", "old": "return 1", "new": "return two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "4  \treturn two") || !strings.Contains(out, "a.go:4:9: undefined: two") {
+		t.Errorf("the edit did not say where it is and that it does not build:\n%s", out)
+	}
+	out, _ = edit.run(w, map[string]string{"path": "a.go", "old": "return two", "new": "return 1"})
+	if !strings.Contains(out, "it builds") {
+		t.Errorf("the edit did not say it builds: %s", out)
+	}
+}
+
+// A long output keeps how it began and ended and every line that says what
+// failed, the cause of a panic in its middle among them.
+func TestALongOutputKeepsWhatFailed(t *testing.T) {
+	var b strings.Builder
+	for i := range 100 {
+		fmt.Fprintf(&b, "ok  \tpkg/%d\t0.1s\n", i)
+	}
+	b.WriteString("panic: runtime error: invalid memory address or nil pointer dereference\n")
+	for i := range 100 {
+		fmt.Fprintf(&b, "ok  \tmore/%d\t0.1s\n", i)
+	}
+	got := condense(b.String())
+	if !strings.Contains(got, "panic: runtime error") || !strings.Contains(got, "pkg/0\t") || !strings.Contains(got, "more/99") || strings.Count(got, "\n") > 80 {
+		t.Errorf("condensed:\n%s", got)
+	}
+}
+
+// Arguments sent almost as JSON are mended; a missing file is answered
+// with the names nearest it.
+func TestAlmostJSONAndNearNames(t *testing.T) {
+	for in, want := range map[string]string{
+		"```json\n{\"path\": \"a.go\",}\n```": `{"path": "a.go"}`,
+		`"{\"path\":\"a.go\"}"`:               `{"path":"a.go"}`,
+		`{"path":"a.go"}`:                     `{"path":"a.go"}`,
+	} {
+		if got := repairArgs(in); got != want {
+			t.Errorf("repairArgs(%q) = %q, want %q", in, got, want)
+		}
+	}
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, "internal", "ui"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, "internal", "ui", "settings.go"), []byte("package ui\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read, _ := lookup("read_file")
+	_, err := read.run(&workspace{dir: ws}, map[string]string{"path": "ui/settings.go"})
+	if err == nil || !strings.Contains(err.Error(), "internal/ui/settings.go") {
+		t.Errorf("a missing file was not answered with the near name: %v", err)
+	}
+}
+
+// Some tests are run by name, each said to pass or fail.
+func TestSomeTestsAreRunByName(t *testing.T) {
+	ws := t.TempDir()
+	var ran []string
+	w := &workspace{dir: ws, ctx: context.Background(), focus: func(pattern, path string) []string {
+		ran = []string{pattern, path}
+		return []string{"sh", "-c", "echo '--- FAIL: TestX'; exit 1"}
+	}}
+	tests, _ := lookup("run_tests")
+	out, err := tests.run(w, map[string]string{"pattern": "TestX", "path": "."})
+	if err != nil || !strings.HasPrefix(out, "failed") || !strings.Contains(out, "--- FAIL: TestX") || ran[0] != "TestX" {
+		t.Errorf("run_tests answered %q, %v; ran %v", out, err, ran)
 	}
 }
