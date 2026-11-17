@@ -240,3 +240,50 @@ func (r *Repo) besideSection(files []string) Section {
 	}
 	return Section{"Beside it, in the same directory — every definition by its first line", strings.Join(lines, "\n")}
 }
+
+// Signatures is what exists where a change works — every file of the
+// directories the paths name, its tests and their helpers among them, each
+// definition by its first line — within budget tokens. A plan built on it
+// relies on what is there, not on what its author assumes is.
+func (r *Repo) Signatures(paths []string, budget int) string {
+	dirs := map[string]bool{}
+	for _, f := range paths {
+		dirs[path.Dir(f)] = true
+	}
+	ix, err := r.Index()
+	var b strings.Builder
+	for _, s := range r.Sources() {
+		if !dirs[path.Dir(s)] {
+			continue
+		}
+		b.WriteString(s + ":\n")
+		if err != nil || ix.Files[s] == nil {
+			continue
+		}
+		seen := map[int]bool{}
+		for _, sym := range ix.Files[s].Symbols {
+			if seen[sym.Start] {
+				continue
+			}
+			seen[sym.Start] = true
+			if ex := r.Excerpt(s, sym.Start, sym.Start, 1); len(ex) == 1 {
+				b.WriteString("  " + signature(ex[0].Text) + "\n")
+			}
+		}
+		if Tokens(b.String()) > budget {
+			b.WriteString("[cut: more than the budget]\n")
+			break
+		}
+	}
+	return b.String()
+}
+
+// signature is a definition's first line without its body: a one-line
+// function shows how it is called, not what it does.
+func signature(line string) string {
+	line = strings.TrimSpace(line)
+	if i := strings.Index(line, " {"); i >= 0 {
+		line = line[:i]
+	}
+	return strings.TrimSpace(strings.TrimSuffix(line, "{"))
+}

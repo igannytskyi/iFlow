@@ -34,7 +34,12 @@ func (u *UI) areaDetail(p *project, s shown) W {
 	return func(gtx C) D {
 		n := p.area
 		if s.live && s.v.Question != "" {
-			n = 1
+			n = 1 // the question is the specification's, unless an area after it asks
+			for a := 2; a <= 6; a++ {
+				if s.status[a] == flow.Waiting {
+					n = a
+				}
+			}
 		}
 		// First the specification, whole, for the task as a whole; then the
 		// metadata of the area chosen on the graph: what it did, what it

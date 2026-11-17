@@ -107,18 +107,30 @@ func (u *UI) waitingBar(p *project, s shown) W {
 			p.editing = s.c.Change.Dir
 			gtx.Execute(key.FocusCmd{Tag: &p.docEdit})
 		}
+		// The specification asks whether it is the change wanted; assurance
+		// whether the finished change holds what only the person can judge.
+		judging := s.status[5] == flow.Waiting
+		title, hint := "Waiting for you — is this the change you want?", "notes: what is wrong or missing, your answers to the questions — a new author rewrites it from them"
+		buttons := []W{
+			u.button(yes, "Accept — run the rest", u.p.OK, u.p.Surface),
+			u.button(no, "Send back with notes", u.p.FailSoft, u.p.Fail),
+			u.button(edit, "Change it myself", u.p.AccentSoft, u.p.Accent),
+		}
+		if judging {
+			title, hint = "Waiting for you — does the finished change hold?", "what does not hold, and how it looks instead"
+			buttons = []W{
+				u.button(yes, "It holds — land it", u.p.OK, u.p.Surface),
+				u.button(no, "It does not — say why", u.p.FailSoft, u.p.Fail),
+			}
+		}
 		return box(u.p.NoteSoft, colorNRGBA{}, 8, 12, column(8,
-			u.strong(sizeBody, u.p.Note, "Waiting for you — is this the change you want?"),
+			u.strong(sizeBody, u.p.Note, title),
 			u.text(sizeSmall, u.p.Text, s.v.Question),
 			box(u.p.Bg, u.p.Line, 6, 8, func(gtx C) D {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return material.Editor(u.th, &p.ground, "notes: what is wrong or missing, your answers to the questions — a new author rewrites it from them").Layout(gtx)
+				return material.Editor(u.th, &p.ground, hint).Layout(gtx)
 			}),
-			row(10,
-				u.button(yes, "Accept — run the rest", u.p.OK, u.p.Surface),
-				u.button(no, "Send back with notes", u.p.FailSoft, u.p.Fail),
-				u.button(edit, "Change it myself", u.p.AccentSoft, u.p.Accent),
-			),
+			row(10, buttons...),
 		))(gtx)
 	}
 }

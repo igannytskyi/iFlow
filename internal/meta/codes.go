@@ -89,7 +89,8 @@ const (
 	Machine Procedure = "machine"
 	Human   Procedure = "human"
 
-	TestRun EvidenceKind = "test-run"
+	TestRun          EvidenceKind = "test-run"
+	HumanAffirmation EvidenceKind = "human-affirmation"
 
 	Admitted AdmissionOutcome = "admitted"
 	Held     AdmissionOutcome = "held"

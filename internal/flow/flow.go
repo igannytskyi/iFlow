@@ -318,6 +318,9 @@ func (r *Run) ask(ctx context.Context, area int, question string) (decision, err
 	defer func() {
 		r.mu.Lock()
 		r.question = ""
+		if r.areas[area] == Waiting {
+			r.areas[area] = Working // answered: the area goes on
+		}
 		r.mu.Unlock()
 		r.changed()
 	}()

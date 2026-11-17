@@ -24,6 +24,19 @@ import (
 )
 
 // draft is what area 1 asks a model to write, before it is checked.
+// draftCriterion is one criterion as the author states it.
+type draftCriterion struct {
+	Criterion string `json:"criterion"`
+	When      string `json:"when"`
+	Then      string `json:"then"`
+	Plan      string `json:"plan"`
+	Threshold string `json:"threshold"`
+	New       bool   `json:"judged_by_new_tests"`
+	// Procedure is who decides it: "machine", by tests, or "human", the
+	// person reading the finished change.
+	Procedure string `json:"procedure"`
+}
+
 type draft struct {
 	Slug      string `json:"slug"`
 	Name      string `json:"name"`
@@ -35,18 +48,11 @@ type draft struct {
 	Document document `json:"document"`
 	// Later are the parts of a task too large for one change: each a task
 	// of its own, to be specified when this one has landed.
-	Later    []string `json:"later"`
-	Criteria []struct {
-		Criterion string `json:"criterion"`
-		When      string `json:"when"`
-		Then      string `json:"then"`
-		Plan      string `json:"plan"`
-		Threshold string `json:"threshold"`
-		New       bool   `json:"judged_by_new_tests"`
-	} `json:"criteria"`
-	Scope       []string `json:"scope"`
-	NewTests    []string `json:"new_tests"`
-	SuiteTests  []string `json:"existing_tests"`
+	Later       []string         `json:"later"`
+	Criteria    []draftCriterion `json:"criteria"`
+	Scope       []string         `json:"scope"`
+	NewTests    []string         `json:"new_tests"`
+	SuiteTests  []string         `json:"existing_tests"`
 	Termination list[struct {
 		Condition string `json:"condition"`
 		Action    string `json:"action"`
@@ -82,7 +88,7 @@ The specification you write is the whole specification of the change, as the bes
 
 Rules you must follow:
 - A criterion is in the vocabulary of the intent, never of the implementation: "when these conditions hold, then this observable fact holds". It never names a file, function or line.
-- Each criterion is decidable by running tests, and judges the behaviour where a person meets it — through the estate's own entry point (its HTTP server, its command, its public API) — so that what is built is reachable, not only a part working alone. Mark "plan": "required" for a criterion about new or changed behaviour, "not-required" for "nothing else moves".
+- Each criterion is decided the cheapest way that truly decides it, and judges the behaviour where a person meets it — through the estate's own entry point (its HTTP server, its command, its public API) — so that what is built is reachable, not only a part working alone. Where tests through an entry point the estate already has can observe it, "procedure": "machine". Where what must hold is how something looks or reads to a person — a colour, a layout, a wording — and no test the estate has, or that one unit could write against what exists, observes it, "procedure": "human": the person affirms it on the finished change, and no test is written for it. Never ask for test machinery the estate does not have. Mark "plan": "required" for a criterion about new or changed behaviour, "not-required" for "nothing else moves".
 - Always include a last criterion that nothing else in the estate moves: the whole existing suite stands as it did.
 - "class" is one of C1P (behaviour-preserving, proved), C1T (behaviour-preserving, tested), C2 (defect repair), C3 (a stated contract), C4 (observed effect), C5 (judgement).
 - "scope" lists the files the change may create or edit, by path. It never includes tests. Keep it to what the task needs.
@@ -91,7 +97,7 @@ Rules you must follow:
 - "existing_tests" lists the estate's existing test files that judge that nothing else moves.
 - "slug" is a few lowercase words joined by hyphens.
 
-The JSON object has exactly these keys: slug, name, statement, class, prose, document (the keys above), later, criteria (criterion, when, then, plan, threshold, judged_by_new_tests), scope, new_tests, existing_tests, termination (condition, action: stop or escalate).`
+The JSON object has exactly these keys: slug, name, statement, class, prose, document (the keys above), later, criteria (criterion, when, then, plan, threshold, judged_by_new_tests, procedure), scope, new_tests, existing_tests, termination (condition, action: stop or escalate).`
 
 // overview is what a model is shown of the estate to state a change: every
 // source file and the names it defines, where the words of the task land,
@@ -396,18 +402,25 @@ func (r *Run) writeIntent(d draft) error {
 		Scope:    meta.Scope{Included: d.Scope, Excluded: append(slices.Clone(d.NewTests), d.SuiteTests...)},
 		NewTests: d.NewTests, SuiteTests: d.SuiteTests,
 	}
-	var byNew, bySuite []string
+	var byNew, bySuite, byPerson []string
 	for i, c := range d.Criteria {
 		id := r.id("CR", i+1)
 		plan := meta.NotRequired
 		if c.Plan == "required" {
 			plan = meta.Required
 		}
+		proc, evidence := meta.Machine, meta.TestRun
+		if c.Procedure == "human" {
+			proc, evidence = meta.Human, meta.HumanAffirmation
+		}
 		spec.Criteria = append(spec.Criteria, meta.Criterion{ID: id, Criterion: c.Criterion, When: c.When,
-			Then: c.Then, Plan: plan, Procedure: meta.Machine, Evidence: meta.TestRun, Threshold: c.Threshold, New: c.New})
-		if c.New && len(d.NewTests) > 0 {
+			Then: c.Then, Plan: plan, Procedure: proc, Evidence: evidence, Threshold: c.Threshold, New: c.New && proc == meta.Machine})
+		switch {
+		case proc == meta.Human:
+			byPerson = append(byPerson, id)
+		case c.New && len(d.NewTests) > 0:
 			byNew = append(byNew, id)
-		} else {
+		default:
 			bySuite = append(bySuite, id)
 		}
 	}
@@ -429,6 +442,11 @@ func (r *Run) writeIntent(d draft) error {
 	}
 	for _, t := range suite {
 		spec.Arbiters = append(spec.Arbiters, meta.Arbiter{Path: t, Arbitrates: joinIDs(bySuite)})
+	}
+	if len(byPerson) > 0 {
+		// What only a person can see is judged by the person, reading the
+		// finished change before it lands.
+		spec.Arbiters = append(spec.Arbiters, meta.Arbiter{Path: "the person: " + r.cfg.Person, Arbitrates: joinIDs(byPerson)})
 	}
 	for _, s := range d.Scope {
 		spec.Inputs = append(spec.Inputs, meta.ArbiterInput{Input: s, InScope: "yes — what the tests judge is what changes"})
@@ -1005,6 +1023,31 @@ func (r *Run) assure(ctx context.Context) error {
 		Independence: meta.ByExecutor, How: "the estate's own suite, written before this change and outside everything it touched",
 		Repeatable: meta.Yes, ObtainedAt: today(), ValidUntil: "next change to the estate"})
 	r.say(5, suite, "%s: %s %s", suite, shown(prof.suite), verdictWord(ok2))
+	// What only a person can see, the person affirms, reading the finished
+	// change before it lands: one question, every such criterion in it.
+	var byPerson []string
+	for i, c := range r.spec.Criteria {
+		if c.Procedure == "human" {
+			id := r.id("CR", i+1)
+			byPerson = append(byPerson, fmt.Sprintf("%s: when %s, then %s", id, c.When, c.Then))
+			byCriterion[id] = r.id("EV", len(r.units), 2)
+		}
+	}
+	if len(byPerson) > 0 {
+		ev := r.id("EV", len(r.units), 2)
+		got, err := r.ask(ctx, 5, "Does the change do what only you can judge? Read it — the candidates' files under Execution — and accept if each of these holds, or send it back saying which does not:\n\n"+strings.Join(byPerson, "\n"))
+		if err != nil {
+			return err
+		}
+		passed[ev] = got.ok
+		how := "affirmed by " + r.cfg.Person + ", who did not write the candidate, reading it before it landed"
+		if !got.ok {
+			how = "refused by " + r.cfg.Person + ": " + got.ground
+		}
+		doc.Evidence = append(doc.Evidence, meta.Evidence{ID: ev, Subject: meta.OfCandidate, Kind: meta.HumanAffirmation,
+			Producer: r.cfg.Person, Independence: meta.ByExecutor, How: how, Repeatable: meta.No, ObtainedAt: today()})
+		r.say(5, ev, "%s: %s %s", ev, r.cfg.Person, map[bool]string{true: "affirmed it", false: "did not affirm it: " + got.ground}[got.ok])
+	}
 	n := 0
 	allMet := true
 	for _, u := range r.units {

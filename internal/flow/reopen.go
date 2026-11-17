@@ -94,14 +94,7 @@ func draftOf(in *meta.Intent, s *meta.Specification, repo string) draft {
 	}
 	for _, c := range s.Criteria {
 		c.New = c.New || byNew[c.ID]
-		d.Criteria = append(d.Criteria, struct {
-			Criterion string `json:"criterion"`
-			When      string `json:"when"`
-			Then      string `json:"then"`
-			Plan      string `json:"plan"`
-			Threshold string `json:"threshold"`
-			New       bool   `json:"judged_by_new_tests"`
-		}{c.Criterion, c.When, c.Then, string(c.Plan), c.Threshold, c.New})
+		d.Criteria = append(d.Criteria, draftCriterion{c.Criterion, c.When, c.Then, string(c.Plan), c.Threshold, c.New, string(c.Procedure)})
 	}
 	for _, t := range s.Termination {
 		d.Termination = append(d.Termination, struct {

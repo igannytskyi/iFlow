@@ -149,11 +149,17 @@ func repeatability(r *run) {
 			r.fail("R13", "%s claims to repeat and names nothing that can be re-run, so the claim cannot be tested", id)
 		}
 	}
+	// A person's affirmation is not a run: it is not produced again, and R14
+	// asks nothing of it.
+	affirmed := map[string]bool{}
+	for _, e := range as.Evidence {
+		affirmed[e.ID] = e.Kind == meta.HumanAffirmation
+	}
 	for _, v := range as.Verdicts {
 		if v.Outcome != meta.Met {
 			continue
 		}
-		known := slices.DeleteFunc(slices.Clone(v.Evidence), func(id string) bool { _, ok := ev.get(id); return !ok })
+		known := slices.DeleteFunc(slices.Clone(v.Evidence), func(id string) bool { _, ok := ev.get(id); return !ok || affirmed[id] })
 		unrepeatable := func(id string) bool { x := ev.vals[id]; return x == "no" || x == "unknown" }
 		if len(known) > 0 && !slices.ContainsFunc(known, func(id string) bool { return !unrepeatable(id) }) {
 			r.fail("R14", "%s is met only on runs that cannot be produced again (%s)", or(v.ID), strings.Join(known, ", "))

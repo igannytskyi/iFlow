@@ -32,7 +32,8 @@ Rules you must follow:
 - Tests come first: one or more units of kind "tests", whose scope is only among the new test files you are given. They judge the change from outside, calling the code by the names the code units will give it; they never define what the change itself provides — only fakes of what it depends on.
 - Then units of kind "code", in the order they are carried out, whose scope is only among the files the change may touch. Each later unit can read what the earlier ones wrote, and nothing a later one will write — so order them by what they provide: the types and interfaces first, then what uses them, then what wires them into the entry point. A unit never defines what another unit provides. Keep a unit to one coherent piece; wiring something into what exists is a unit of its own when it touches another file.
 - "provides" of a code unit is the contract: every type, function and method it defines that another unit uses, each with its full signature in the estate's language (for Go: "func NewServer(c *Catalog, clock Clock) *Server", "type Clock interface { Now() time.Time }"). Every agent is handed every unit's provides, and the tests call exactly these.
-- Every criterion is assigned to at least one code unit; the last code unit carries the criterion that nothing else moves. A tests unit carries the criteria its tests judge.
+- Every criterion is assigned to at least one code unit; the last code unit carries the criterion that nothing else moves. A tests unit carries the criteria its tests judge. A criterion the person decides needs no test: assign it to the code unit that makes it true.
+- A unit relies only on what exists — as the estate you are shown says — or on what an earlier unit provides. Never on a helper, method or ability you assume is there: if it is not in what you are shown, a unit provides it first, or the unit does without it.
 - Each unit is written as a ticket complete for someone who has read nothing else: its objective; the requirements (FR-n) and criteria it serves; what it relies on that exists or that earlier units provide; its tasks in order; the names and signatures it provides, exactly — the same in the tests units and the code units; its constraints (what not to touch or change); its edge cases; and when it is done.
 
 The JSON object has exactly these keys:
@@ -123,7 +124,8 @@ func (r *Run) plan(ctx context.Context) error {
 		}
 		spec := r.specText()
 		text := planText(units, approach)
-		v, err := r.reviewed(ctx, 2, "plan", planReviewSystem, "# The specification\n\n"+spec+"\n# The plan\n\n"+text, round)
+		v, err := r.reviewed(ctx, 2, "plan", planReviewSystem, "# The specification\n\n"+spec+"\n# The plan\n\n"+text+
+			"\n# What exists where the change works — every definition by its first line\n\n"+r.signatures(), round)
 		if err != nil {
 			r.say(2, "", "the review could not be had: %v", err)
 			break
@@ -211,6 +213,7 @@ func (r *Run) planned(ctx context.Context, all, byTests []string, feedback strin
 	b.WriteString("Files the change may touch, for code units: " + strings.Join(r.spec.Scope, ", ") + "\n")
 	b.WriteString("Criteria judged by the new tests: " + strings.Join(byTests, ", ") + "\n")
 	b.WriteString("\n# The estate, as names — no code\n\n" + repo.Map(r.cfg.packBudget()/4))
+	b.WriteString("\n# What exists where the change works — every definition by its first line, tests and their helpers among them. A unit relies on these, or on what an earlier unit provides, and on nothing else.\n\n" + r.signatures())
 	prompt := b.String() + feedback
 	var why string
 	m := r.cfg.planner()
@@ -386,4 +389,11 @@ func splitIDs(s string) []string {
 		}
 	}
 	return out
+}
+
+// signatures is what exists where the change works, for the planner and its
+// reviewer: the scope's directories and the new tests', every definition by
+// its first line.
+func (r *Run) signatures() string {
+	return r.cfg.Estate.Repo(r.repo).Signatures(append(slices.Clone(r.spec.Scope), r.spec.NewTests...), r.cfg.packBudget()/2)
 }

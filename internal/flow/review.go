@@ -117,6 +117,7 @@ Judge each unit as its agent will need it:
 - Could it be carried out from its brief alone, without guessing names, signatures or behaviour?
 - Do the tests units and the code units use the same names and signatures?
 - Is every requirement and criterion of the specification served by some unit, and nothing done twice or by no one?
+- Does any unit rely on a helper, a method or an ability that is neither in what exists — the definitions you are given — nor provided by an earlier unit? A test that needs machinery the estate does not have, assumed to be there, is blocking: name what is missing.
 - Is the order right: does each unit have what it relies on from the units before it, and leave the estate building? A unit that uses a type or function another unit provides must come after it; two units defining the same name is blocking.
 - Is any unit too large for one agent in one answer, or split where it should not be?
 
