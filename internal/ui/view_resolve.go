@@ -176,7 +176,7 @@ func (u *UI) lifecycleButton(p *project, s shown) W {
 	state := s.state(p)
 	stop, resume := u.clicks.of("life/stop/"+c.Change.Dir), u.clicks.of("life/resume/"+c.Change.Dir)
 	button := func(gtx C, btn *widget.Clickable, label string, bg, fg colorNRGBA) D {
-		return u.pressable(gtx, btn, false, 6, box(bg, colorNRGBA{}, 6, 0, inset(5, 16, u.strong(sizeBody, fg, label))))
+		return u.small(btn, label, bg, fg)(gtx)
 	}
 	return func(gtx C) D {
 		switch state {
@@ -189,7 +189,7 @@ func (u *UI) lifecycleButton(p *project, s shown) W {
 					p.resolveErr = err.Error()
 				}
 			}
-			return button(gtx, stop, "■ Stop", u.p.Fail, u.p.Surface)
+			return button(gtx, stop, "■ Stop", u.p.FailSoft, u.p.Fail)
 		case "stopped":
 			if u.clicked(gtx, resume) {
 				p.resolveErr = ""
@@ -197,7 +197,7 @@ func (u *UI) lifecycleButton(p *project, s shown) W {
 					p.resolveErr = err.Error()
 				}
 			}
-			return button(gtx, resume, "▶ Resume from where it stopped", u.p.Accent, u.p.Surface)
+			return button(gtx, resume, "▶ Resume", u.p.AccentSoft, u.p.Accent)
 		}
 		return D{}
 	}
