@@ -180,3 +180,13 @@ func TestWhoseFaultAMissingNameIs(t *testing.T) {
 		t.Errorf("a failed assertion was blamed on the test: %v", got)
 	}
 }
+
+// What is handed on of a fault elsewhere is the lines against the blamed
+// file, not the runner's closing summary.
+func TestFaultsInNamesTheBlamedLines(t *testing.T) {
+	out := "# pkg\ninternal/ui/notify_test.go:12:3: undefined: notify.Recorder\nok  \tother\t0.1s\nFAIL\tpkg [build failed]\nFAIL\n"
+	got := faultsIn(out, []string{"internal/ui/notify_test.go"})
+	if !strings.Contains(got, "undefined: notify.Recorder") || strings.Contains(got, "build failed") {
+		t.Errorf("handed on %q", got)
+	}
+}

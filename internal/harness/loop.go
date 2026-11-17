@@ -124,7 +124,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			}
 			if judged == "" {
 				if outside := faultsOutside(out, t.Scope, ws.local()); len(outside) > 0 {
-					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+tail(out, 8))
+					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+faultsIn(out, outside))
 				}
 			}
 			if refusedDone++; refusedDone >= 3 {
@@ -167,7 +167,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			// them is carried again, rather than spend its steps.
 			if ws.last.ran && !ws.last.ok && ws.last.why == "" {
 				if outside := faultsOutside(ws.last.out, t.Scope, ws.local()); len(outside) > 0 {
-					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+tail(ws.last.out, 8))
+					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+faultsIn(ws.last.out, outside))
 				}
 			}
 		}

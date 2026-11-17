@@ -264,7 +264,7 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			// written before it, a unit before it — and no agent of this
 			// unit can mend it: say so now rather than spend the attempts.
 			res.Terminal = FailedTask
-			res.Summary = "the check fails in " + strings.Join(outside, ", ") + ", which this unit may not change; what wrote it must be carried again: " + tail(out, 8)
+			res.Summary = "the check fails in " + strings.Join(outside, ", ") + ", which this unit may not change; what wrote it must be carried again: " + faultsIn(out, outside)
 			break
 		}
 		said = "The check `" + strings.Join(t.Check, " ") + "` failed after your files were written:\n\n" + tail(out, 60)
@@ -388,4 +388,26 @@ func faultsOutside(out string, scope []string, local map[string]bool) []string {
 		}
 	}
 	return outside
+}
+
+// faultsIn is what a check said against the files it blames: those lines,
+// whole, which are what whoever wrote the files needs to mend them — not the
+// tail of the output, which is the runner's summary.
+func faultsIn(out string, files []string) string {
+	var lines []string
+	for _, l := range strings.Split(out, "\n") {
+		for _, f := range files {
+			if strings.Contains(l, f) {
+				lines = append(lines, strings.TrimSpace(l))
+				break
+			}
+		}
+		if len(lines) == 40 {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return tail(out, 8)
+	}
+	return strings.Join(lines, "\n")
 }
