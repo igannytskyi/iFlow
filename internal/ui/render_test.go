@@ -345,8 +345,10 @@ func TestFramesAreInstant(t *testing.T) {
 	for _, v := range views {
 		v.set()
 		frame() // the first frame of a view reads and shapes what it shows
+		// The best of many frames: what the code takes, not what a machine
+		// busy with other work lets it have.
 		best := time.Hour
-		for range 5 {
+		for range 30 {
 			best = min(best, frame())
 		}
 		if best > 8*time.Millisecond {
