@@ -2,7 +2,6 @@ package harness
 
 import (
 	"context"
-	"strings"
 	"time"
 )
 
@@ -24,7 +23,7 @@ func (l Ladder) Version() string { return "ladder/1" }
 // Run implements Executor.
 func (l Ladder) Run(ctx context.Context, t Task, emit func(Event)) (Result, error) {
 	first, err := l.First.Run(ctx, t, emit)
-	why, said := strings.CutPrefix(first.Summary, BlockedPrefix)
+	why, said := first.Cannot, first.Cannot != ""
 	switch {
 	case first.Terminal == Candidate, first.Terminal == Cancelled:
 		return first, err // done, or stopped
@@ -54,7 +53,7 @@ func (l Ladder) Run(ctx context.Context, t Task, emit func(Event)) (Result, erro
 	if said && err == nil && then.Terminal != Candidate && then.Terminal != Cancelled && then.Terminal != FailedTask {
 		// The agent neither did the unit nor showed the first rung wrong:
 		// what the first rung said stands, with what both spent.
-		then.Terminal, then.Summary = first.Terminal, first.Summary
+		then.Terminal, then.Summary, then.Cannot, then.Blames = first.Terminal, first.Summary, first.Cannot, first.Blames
 	}
 	then.Usage = first.Usage.Add(then.Usage)
 	then.Steps += first.Steps

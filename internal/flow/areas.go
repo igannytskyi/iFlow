@@ -646,10 +646,10 @@ func (r *Run) execute(ctx context.Context) error {
 	// A contract, where the plan has one, is declared first: the tests are
 	// written against it, so they build on it and not on guesses.
 	start, base := 0, []string(nil)
-	if len(r.units) > 0 && r.units[0].contract {
+	if len(r.units) > 0 && r.units[0].isContract() {
 		results[0], errs[0] = r.carry(ctx, 0, nil, prof, ok)
 		if errs[0] != nil {
-			if why, said := strings.CutPrefix(results[0].res.Summary, harness.BlockedPrefix); said && !r.replanned {
+			if why := results[0].res.Cannot; why != "" && !r.replanned {
 				r.say(4, r.units[0].id, "%s cannot be done as it was planned: %s", r.units[0].id, why)
 				return &replan{unit: r.units[0].id, why: why}
 			}
@@ -658,7 +658,7 @@ func (r *Run) execute(ctx context.Context) error {
 		start, base = 1, []string{filepath.Join(results[0].store, "files")}
 	}
 	head := start
-	for head < len(r.units) && r.units[head].tests {
+	for head < len(r.units) && r.units[head].isTests() {
 		head++
 	}
 	carryTests := func() {
@@ -772,7 +772,7 @@ func (r *Run) execute(ctx context.Context) error {
 			return h // what was asked holds already: there is nothing to change
 		}
 		if errs[i] != nil {
-			if why, ok := strings.CutPrefix(results[i].res.Summary, harness.BlockedPrefix); ok && !r.replanned {
+			if why := results[i].res.Cannot; why != "" && !r.replanned {
 				// Its agent says the unit cannot be done as it was planned:
 				// the plan goes back to its planner with why, once.
 				r.say(4, r.units[i].id, "%s cannot be done as it was planned: %s", r.units[i].id, why)
@@ -794,17 +794,6 @@ func (r *Run) execute(ctx context.Context) error {
 	}
 	r.set(4, Done)
 	return nil
-}
-
-// createdBy reports whether an import path names a directory a code unit
-// of the plan writes into.
-func createdBy(path string, created map[string]bool) bool {
-	for dir := range created {
-		if dir != "." && (path == dir || strings.HasSuffix(path, "/"+dir)) {
-			return true
-		}
-	}
-	return false
 }
 
 // arbitrate runs the framework's own tests against it as it is now, where
@@ -836,7 +825,7 @@ func (r *Run) arbitrate(ctx context.Context) {
 func (r *Run) codeScope() []string {
 	var out []string
 	for _, u := range r.units {
-		if u.tests {
+		if u.isTests() {
 			continue
 		}
 		for _, p := range u.scope {
@@ -889,23 +878,29 @@ func (r *Run) blamed(c carried, head int, results []carried) int {
 	if c.res.Terminal != harness.FailedTask {
 		return -1
 	}
-	// By the path the failure names; by the file's name only where no other
-	// tests unit wrote a file of that name.
-	byName := map[string][]int{}
-	for j := range head {
-		if r.units[j].contract {
-			continue // the contract is not the tests
-		}
-		for _, p := range results[j].paths {
-			if strings.Contains(c.res.Summary, p) {
-				return j
+	// By a file the unit's agent or its check named: its path, or, said
+	// without its folder, its name where only one tests unit wrote a file
+	// of that name.
+	for _, blamed := range c.res.Blames {
+		blamed = filepath.ToSlash(filepath.Clean(blamed))
+		byName := -1
+		for j := range head {
+			if !r.units[j].isTests() {
+				continue
 			}
-			byName[filepath.Base(p)] = append(byName[filepath.Base(p)], j)
+			for _, p := range results[j].paths {
+				switch {
+				case p == blamed:
+					return j
+				case path.Base(p) == blamed && byName == -1:
+					byName = j
+				case path.Base(p) == blamed:
+					byName = -2 // the name is not one file's
+				}
+			}
 		}
-	}
-	for name, js := range byName {
-		if len(js) == 1 && strings.Contains(c.res.Summary, name) {
-			return js[0]
+		if byName >= 0 {
+			return byName
 		}
 	}
 	return -1
@@ -940,32 +935,20 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	}
 	_ = os.WriteFile(filepath.Join(c.store, "pack.md"), []byte("# Goal\n\n"+r.goal(u)+"\n\n"+pack.String()), 0o644)
 	scope := u.scope
-	if i == len(r.units)-1 && !u.tests {
+	if i == len(r.units)-1 && !u.isTests() {
 		// The last unit completes the change: the whole suite must pass
 		// after it, and what keeps it from passing may be in any code the
 		// change writes. It may mend all of that code — never the tests.
 		scope = r.codeScope()
 	}
-	task := harness.Task{Workspace: ws, Goal: r.goal(u), Scope: scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
+	task := harness.Task{Workspace: ws, Goal: r.goal(u), Role: string(u.kind), Scope: scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
 	switch {
-	case ok && u.tests && prof.vet != nil:
-		// Tests written first cannot build, since what they call does not
-		// exist yet — but only that may keep them from building. They are
-		// vetted, and every failure that is not a name the units' contract
-		// promises goes back to their agent: a function of a library that
-		// has none, the wrong arguments to one that exists.
-		cmd := prof.vet(u.scope)
-		if overlay, done := r.contractOverlay(ws); overlay != "" && prof.name == "go test" && len(cmd) > 2 && cmd[1] == "test" {
-			// What the code units will create is stubbed from the contract,
-			// so that the compiler says all the tests got wrong.
-			defer done()
-			cmd = append([]string{cmd[0], cmd[1], overlay}, cmd[2:]...)
-		} else {
-			done()
-		}
-		task.Check = resolve(ws, cmd)
-		task.Judge = r.judgeTests()
-	case !ok || u.tests:
+	case ok && u.isTests() && prof.vet != nil:
+		// Tests written first build against the contract, declared before
+		// them: what they call is there, without its behaviour. They are
+		// vetted — built, run none — and must build.
+		task.Check = resolve(ws, prof.vet(u.scope))
+	case !ok || u.isTests():
 		// Without a runner to vet with, tests written first are judged
 		// afterwards, by failing against the estate as it stands.
 	case i == len(r.units)-1:
@@ -978,11 +961,11 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	case len(prof.build) > 0:
 		task.Check = resolve(ws, prof.build) // an earlier one leaves the estate building
 	}
-	if !u.tests {
-		task.Provides = providedNames(u.provides)
+	if !u.isTests() {
+		task.Provides = u.names()
 	}
 	task.Graph = estateGraph{repo: r.cfg.Estate.Repo(r.repo), root: r.repo}
-	if ok && !u.tests && prof.quick != nil {
+	if ok && !u.isTests() && prof.quick != nil {
 		task.Quick = func(files []string) []string {
 			if cmd := prof.quick(files); cmd != nil {
 				return resolve(ws, cmd)
@@ -1008,15 +991,15 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	if err != nil {
 		return c, fmt.Errorf("%s: the executor failed: %v", u.id, err)
 	}
-	if !u.tests && ok && (res.Terminal == harness.Exhausted || res.Terminal == harness.Terminated) {
+	if !u.isTests() && ok && (res.Terminal == harness.Exhausted || res.Terminal == harness.Terminated) {
 		// A code unit that spent its steps while the change's own tests still
 		// fail may be failing tests that ask for what cannot be: where they
 		// fail is said, so that the tests are carried again with it, once.
 		if names := r.newTestNames(prof); len(names) > 0 {
 			if passed, out, _ := runIn(ctx, ws, resolve(ws, prof.only(names))); !passed {
 				if at := testFaults(out); at != "" {
-					res.Terminal = harness.FailedTask
-					res.Summary = "its agent spent its steps and the change's own tests in " + strings.Join(r.failingTestFiles(out, prof), ", ") +
+					res.Terminal, res.Blames = harness.FailedTask, r.failingTestFiles(out)
+					res.Summary = "its agent spent its steps and the change's own tests in " + strings.Join(res.Blames, ", ") +
 						" still fail — they may ask for what no code can give: " + at
 					c.res = res
 				}
@@ -1039,7 +1022,7 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	}
 	// A contract with nothing to declare — every name it lists is there
 	// already — changes nothing, and that is its answer.
-	if res.Terminal != harness.Candidate || (len(changes) == 0 && !u.contract) {
+	if res.Terminal != harness.Candidate || (len(changes) == 0 && !u.isContract()) {
 		return c, fmt.Errorf("%s ended %s with %d change(s): %s", u.id, res.Terminal, len(changes), res.Summary)
 	}
 	if prof.format != nil {
@@ -1063,7 +1046,7 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	if u.preparatoryFor != "" && ok {
 		// What judges the change must fail before it, and fail for the stated
 		// reason: otherwise it judges nothing.
-		names := r.testNames(c.store, prof)
+		names := r.testNames(c.store)
 		if len(names) == 0 {
 			return c, fmt.Errorf("%s wrote no test this estate's runner can name", u.id)
 		}
@@ -1106,7 +1089,7 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 func (r *Run) pack(u unit) estate.Pack {
 	repo := r.cfg.Estate.Repo(r.repo)
 	var read []string
-	if u.tests {
+	if u.isTests() {
 		read = r.spec.Scope // the code the tests will exercise, as it stands
 	}
 	// A file the unit's ticket names, that exists, is read whole: a ticket
@@ -1126,7 +1109,7 @@ func (r *Run) pack(u unit) estate.Pack {
 		if prev.id == u.id {
 			break
 		}
-		if u.tests && !prev.contract {
+		if u.isTests() && !prev.isContract() {
 			continue // tests units rely on nothing another unit writes but the contract
 		}
 		dir := r.cands[prev.id]
@@ -1137,7 +1120,7 @@ func (r *Run) pack(u unit) estate.Pack {
 			rel, _ := filepath.Rel(dir, p)
 			if b, err := os.ReadFile(p); err == nil {
 				title := "Written by " + prev.id + ", which comes before you: " + filepath.ToSlash(rel)
-				if prev.tests {
+				if prev.isTests() {
 					title = "Must pass, written by " + prev.id + ": " + filepath.ToSlash(rel)
 				}
 				earlier = append(earlier, estate.Section{Title: title, Body: "```\n" + string(b) + "```"})
@@ -1194,7 +1177,7 @@ func (r *Run) goal(u unit) string {
 	// words, not a retelling of them — so that the tests and the code, written
 	// apart, agree: a detail one agent would otherwise invent and another
 	// invent otherwise is decided once, here.
-	if d := specDecisions(r.dir, u.tests); d != "" {
+	if d := specDecisions(r.dir, u.isTests()); d != "" {
 		brief += "\n\n## What the specification decides — build exactly this; a detail it decides is decided for every unit, and none may decide it otherwise\n\n" + d
 	}
 	// Every agent is handed the contract between the units — what each code
@@ -1202,7 +1185,7 @@ func (r *Run) goal(u unit) string {
 	// and no unit defines what another provides.
 	var contract []string
 	for _, o := range r.units {
-		for _, p := range o.provides {
+		for _, p := range signatures(o.provides) {
 			who := o.id
 			if o.id == u.id {
 				who += ", you"
@@ -1213,22 +1196,22 @@ func (r *Run) goal(u unit) string {
 	if len(contract) > 0 {
 		brief += "\n\n## The contract between the units — use these names and signatures exactly; define only those marked you\n\n" + strings.Join(contract, "\n")
 	}
-	if why := r.again[u.id]; u.tests && why != "" {
+	if why := r.again[u.id]; u.isTests() && why != "" {
 		brief += "\n\n## Why you are asked again\n\nTests written for this unit before were found wrong by the code that had to pass them; it could not, because:\n\n" + why +
 			"\n\nWrite them again so that they call only what exists or the contract promises, and check only what the criteria say."
 	}
-	if r.mend != "" && !u.tests {
+	if r.mend != "" && !u.isTests() {
 		brief += "\n\n## Why you are asked again\n\n" + r.cfg.Person + " read the change this unit made before it could land, and did not affirm it:\n\n" + r.mend +
 			"\n\nMend exactly that; what they did not name stands as it was."
 	}
-	if u.contract {
+	if u.isContract() {
 		if why := r.again[u.id]; why != "" {
 			brief += "\n\n## Why you are asked again\n\nWhat you declared before did more than declare: " + why +
 				". Declare again, with no behaviour at all — every function and method returns its zero values or fails as not yet done."
 		}
 		return brief + "\n\nDeclare only: no unit's behaviour is yours to write, and no test is written yet."
 	}
-	if u.tests {
+	if u.isTests() {
 		return brief + "\n\nWrite only the tests. Assert what the criteria and the specification's decisions state, and nothing they leave open: a test that checks a detail the specification did not decide is a guess the code cannot know. The behaviour does not exist yet, and neither does the code that will provide it: " +
 			"call it by the names the brief gives, and leave it undefined — the code units define it, to pass your tests. " +
 			"Fakes of what the code depends on (a mailer, a clock, a payment provider) belong in the tests; what the code itself provides never does. " +
@@ -1240,7 +1223,7 @@ func (r *Run) goal(u unit) string {
 
 // failingTestFiles is the files of the tests units whose tests a run's
 // output says failed, each by its path.
-func (r *Run) failingTestFiles(out string, prof profile) []string {
+func (r *Run) failingTestFiles(out string) []string {
 	failed := map[string]bool{}
 	for _, m := range failedTest.FindAllStringSubmatch(out, -1) {
 		failed[m[1]] = true
@@ -1250,10 +1233,10 @@ func (r *Run) failingTestFiles(out string, prof profile) []string {
 	defer r.mu.Unlock()
 	for _, u := range r.units {
 		dir, ok := r.cands[u.id]
-		if !u.tests || !ok {
+		if !u.isTests() || !ok {
 			continue
 		}
-		for _, n := range r.testNames(filepath.Dir(dir), prof) {
+		for _, n := range r.testNames(filepath.Dir(dir)) {
 			if failed[n] {
 				files = append(files, u.scope...)
 				break
@@ -1305,7 +1288,7 @@ func specDecisions(dir string, tests bool) string {
 // chains divides the code units from to to (to not included) into chains
 // that can be carried at once: units that change a file in common are in
 // one chain, in the plan's order; without a contract declared first, so is
-// a unit and the one whose names it uses.
+// a unit and one whose names it uses.
 func (r *Run) chains(from, to int) [][]int {
 	if to-from < 2 {
 		return nil
@@ -1321,20 +1304,13 @@ func (r *Run) chains(from, to int) [][]int {
 		}
 		return group[i]
 	}
-	contract := len(r.units) > 0 && r.units[0].contract
+	contract := len(r.units) > 0 && r.units[0].isContract()
 	for i := from; i < to; i++ {
 		for j := from; j < i; j++ {
 			shared := slices.ContainsFunc(r.units[i].scope, func(f string) bool { return slices.Contains(r.units[j].scope, f) })
-			uses := false
-			if !contract {
-				text := withoutProvides(r.units[i].brief)
-				for _, name := range providedNames(r.units[j].provides) {
-					if regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`).MatchString(text) {
-						uses = true
-						break
-					}
-				}
-			}
+			// Without a contract declared first, a unit that uses another's
+			// names waits for it.
+			uses := !contract && slices.ContainsFunc(r.units[i].uses, func(n string) bool { return slices.Contains(r.units[j].names(), n) })
 			if shared || uses {
 				group[find(i)] = find(j)
 			}
@@ -1377,15 +1353,15 @@ func (r *Run) newTestNames(prof profile) []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, u := range r.units {
-		if dir, ok := r.cands[u.id]; ok && u.tests {
-			names = append(names, r.testNames(filepath.Dir(dir), prof)...)
+		if dir, ok := r.cands[u.id]; ok && u.isTests() {
+			names = append(names, r.testNames(filepath.Dir(dir))...)
 		}
 	}
 	slices.Sort(names)
 	return slices.Compact(names)
 }
 
-func (r *Run) testNames(store string, prof profile) []string {
+func (r *Run) testNames(store string) []string {
 	var names []string
 	_ = filepath.WalkDir(filepath.Join(store, "files"), func(p string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
@@ -1429,11 +1405,11 @@ func (r *Run) assure(ctx context.Context) error {
 	passed := map[string]bool{} // evidence id → passed
 	byCriterion := map[string]string{}
 	for i, prep := range r.units {
-		if !prep.tests {
+		if !prep.isTests() {
 			continue
 		}
 		ca := r.id("CA", i+1)
-		names := r.testNames(filepath.Join(r.dir, "candidates", ca), prof)
+		names := r.testNames(filepath.Join(r.dir, "candidates", ca))
 		cmd := prof.only(names)
 		ok, out, took := runIn(ctx, ws, resolve(ws, cmd))
 		ev := r.id("EV", i+1, 1)
@@ -1724,75 +1700,8 @@ func (r *Run) inFlight() []flight {
 	return out
 }
 
-// judgeTests accepts a vet of tests written before their code when every
-// failure it names is a name the units' contract promises, and returns the
-// rest to the tests' agent.
-func (r *Run) judgeTests() func(bool, string) (bool, string) {
-	promised := map[string]bool{}
-	for _, u := range r.units {
-		for _, p := range u.provides {
-			for _, w := range identifier.FindAllString(p, -1) {
-				promised[w] = true
-			}
-		}
-	}
-	// Only a package the code units write into may lack a name, and only a
-	// package a code unit creates may be missing whole: the tests import it
-	// before it exists.
-	local := harness.ScopePackages(r.codeScope())
-	created := map[string]bool{}
-	for _, p := range r.codeScope() {
-		created[filepath.ToSlash(filepath.Dir(p))] = true
-	}
-	return func(passed bool, out string) (bool, string) {
-		if passed {
-			return true, ""
-		}
-		var theirs []string
-		tolerated := 0
-		for _, line := range strings.Split(out, "\n") {
-			if !faultLine.MatchString(line) {
-				continue
-			}
-			if strings.Contains(line, stubFile) {
-				tolerated++ // the contract's own stub: not the tests' to mend
-				continue
-			}
-			// What the code units will define may be missing; nothing
-			// else may — least of all a name of a library, which no unit
-			// can define.
-			if m := undefinedName.FindStringSubmatch(line); m != nil && promised[m[1]+m[2]+m[3]] && harness.MissingHere(line, local) {
-				tolerated++
-				continue
-			}
-			if m := missingPackage.FindStringSubmatch(line); m != nil && createdBy(m[1]+m[2], created) {
-				tolerated++
-				continue
-			}
-			theirs = append(theirs, strings.TrimSpace(line))
-		}
-		if len(theirs) == 0 && tolerated == 0 {
-			// It fails, and nothing it says is a line of the tests: they
-			// are not there to judge — a folder missing, a file not written.
-			return false, "The check fails, and not because of a line of your tests: they are not all written yet. Write every file in your scope.\n\n" + lastLines(out, 12)
-		}
-		if len(theirs) == 0 {
-			return true, ""
-		}
-		return false, "Your tests do not build for reasons of their own, not because what they call is still to be written — only names the contract promises may be missing:\n\n" +
-			strings.Join(theirs, "\n") + "\n\nUse only what exists, by the signatures you were shown, and what the contract promises. A library's source can be read where the brief says."
-	}
-}
-
 // lastLines is the last n lines of out.
 func lastLines(out string, n int) string {
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	return strings.Join(lines[max(0, len(lines)-n):], "\n")
 }
-
-var (
-	identifier     = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
-	faultLine      = regexp.MustCompile(`^\s*(?:vet: )?[\w./-]+\.\w+:\d+:\d+: `)
-	missingPackage = regexp.MustCompile(`no required module provides package ([^\s;]+)|could not import ([^\s;]+)`)
-	undefinedName  = regexp.MustCompile(`undefined: (?:\w+\.)?(\w+)|has no field or method (\w+)|unknown field (\w+) in struct literal`)
-)

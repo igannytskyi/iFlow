@@ -102,13 +102,14 @@ func (w *workspace) run() (ok bool, out, why string) {
 	return ok, out, why
 }
 
-// Blocked is a unit its agent says cannot be done as it is asked, and why.
-type Blocked struct{ Why string }
+// Blocked is a unit its agent says cannot be done as it is asked: why, and
+// the files it names as the cause.
+type Blocked struct {
+	Why   string
+	Files []string
+}
 
-func (b Blocked) Error() string { return "blocked: " + b.Why }
-
-// BlockedPrefix starts the summary of a unit that ended blocked.
-const BlockedPrefix = "blocked: "
+func (b Blocked) Error() string { return "cannot be done as asked: " + b.Why }
 
 // errRefused marks a call the harness would not carry out.
 type errRefused struct{ why string }
@@ -263,9 +264,15 @@ var tools = []tool{
 			return "edited" + how + "; now:\n" + around(out, a["new"]) + w.builds(rel), nil
 		}},
 	{"cannot", "Say that the unit cannot be done as it is asked, and why: something it relies on does not exist, what it must change is outside its scope, it asks for what the estate cannot do. The unit goes back to be planned again with your reason. Say it as soon as you know — not after trying everything.",
-		`{"type":"object","properties":{"why":{"type":"string"}},"required":["why"]}`,
+		`{"type":"object","properties":{"why":{"type":"string"},"files":{"type":"array","items":{"type":"string"},"description":"the files that keep it from being done, where they are files: a test written before you, a file outside your scope"}},"required":["why"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
-			return "", Blocked{strings.TrimSpace(a["why"])}
+			var files []string
+			for _, f := range strings.Split(a["files"], "\n") {
+				if f = strings.TrimSpace(f); f != "" {
+					files = append(files, f)
+				}
+			}
+			return "", Blocked{Why: strings.TrimSpace(a["why"]), Files: files}
 		}},
 	{"run_check", "Run the unit's check — the repository's own tests or build — and see the result.", `{"type":"object","properties":{}}`,
 		func(w *workspace, _ map[string]string) (string, error) {

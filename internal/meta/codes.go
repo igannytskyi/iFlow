@@ -53,6 +53,14 @@ type Provenance string
 // Confidence is how far a derivation can be trusted.
 type Confidence string
 
+// UnitKind is what a unit of work writes: the contract every other unit
+// builds on, the tests that judge the change, or its code.
+type UnitKind string
+
+// DeclKind is what a name in a contract is: what the code declares it as,
+// or, for a contract written before names were kept apart, a description.
+type DeclKind string
+
 // Codes is every code by its type's name in the model, with the values it
 // may hold, in the order conventions.md gives them.
 var Codes = map[string][]string{
@@ -72,6 +80,8 @@ var Codes = map[string][]string{
 	"RefusedBy":        {"person", "area"},
 	"Provenance":       {"derived", "attested", "produced"},
 	"Confidence":       {"high", "medium", "low"},
+	"UnitKind":         {"contract", "tests", "code"},
+	"DeclKind":         {"function", "method", "type", "field", "variable", "constant", "described"},
 }
 
 // Allowed reports whether v is one of the values of the code named.
@@ -91,6 +101,18 @@ const (
 
 	TestRun          EvidenceKind = "test-run"
 	HumanAffirmation EvidenceKind = "human-affirmation"
+
+	ContractUnit UnitKind = "contract"
+	TestsUnit    UnitKind = "tests"
+	CodeUnit     UnitKind = "code"
+
+	Function  DeclKind = "function"
+	Method    DeclKind = "method"
+	TypeDecl  DeclKind = "type"
+	Field     DeclKind = "field"
+	Variable  DeclKind = "variable"
+	Constant  DeclKind = "constant"
+	Described DeclKind = "described"
 
 	Admitted AdmissionOutcome = "admitted"
 	Held     AdmissionOutcome = "held"

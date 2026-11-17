@@ -232,7 +232,7 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			break
 		}
 		if why, ok := cannot(answer); ok {
-			res.Terminal, res.Summary = FailedTask, BlockedPrefix+why
+			res.Terminal, res.Summary, res.Cannot = FailedTask, why, why
 			break
 		}
 		files, summary := parseFiles(answer)
@@ -295,7 +295,7 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			// What fails is in files this unit may not change — tests
 			// written before it, a unit before it — and no agent of this
 			// unit can mend it: say so now rather than spend the attempts.
-			res.Terminal = FailedTask
+			res.Terminal, res.Blames = FailedTask, outside
 			res.Summary = "the check fails in " + strings.Join(outside, ", ") + ", which this unit may not change; what wrote it must be carried again: " + faultsIn(out, outside)
 			break
 		}

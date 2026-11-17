@@ -1,6 +1,7 @@
 package artifact
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -87,7 +88,7 @@ func Migrate(dir string, dry bool) (Migration, error) {
 		if crossings != nil {
 			m.Written = append(m.Written, "record")
 		}
-		return m, nil
+		return m, upgradePlan(dir, name, true, &m) // said, not written
 	}
 	for _, p := range todo {
 		if err := keep(dir, string(p.stage)+".md"); err != nil {
@@ -123,7 +124,50 @@ func Migrate(dir string, dry bool) (Migration, error) {
 			return m, err
 		}
 	}
-	return m, nil
+	return m, upgradePlan(dir, name, dry, &m)
+}
+
+// upgradePlan writes a plan kept in an older version of its model in this
+// one — read whole, nothing dropped — keeps the older JSON under legacy/,
+// and says so in the record. The other documents keep their version, and
+// with it the specification its digest.
+func upgradePlan(dir, name string, dry bool, m *Migration) error {
+	b, err := os.ReadFile(JSONFile(dir, Plan))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var head struct {
+		Schema int `json:"schema"`
+	}
+	if err := json.Unmarshal(b, &head); err != nil || head.Schema >= meta.PlanVersion {
+		return err
+	}
+	var p meta.Plan
+	if _, err := LoadJSON(dir, Plan, &p); err != nil {
+		m.Problems = append(m.Problems, err.Error())
+		return nil
+	}
+	if ps := meta.Validate(p); len(ps) > 0 {
+		for _, pr := range ps {
+			m.Problems = append(m.Problems, string(Plan)+": "+pr.String())
+		}
+		return nil
+	}
+	m.Written = append(m.Written, string(Plan))
+	if dry {
+		return nil
+	}
+	if err := keep(dir, filepath.Base(JSONFile(dir, Plan))); err != nil {
+		return err
+	}
+	if err := Save(dir, Plan, p); err != nil {
+		return err
+	}
+	return AppendRecord(dir, name, meta.Crossing{At: today(), Stage: "migrated", Object: "the plan",
+		Note: fmt.Sprintf("its plan written in version %d of the model, from version %d, which is kept under %s/", meta.PlanVersion, head.Schema, LegacyDir)})
 }
 
 func today() string { return time.Now().Format("2006-01-02") }

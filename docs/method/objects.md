@@ -57,7 +57,7 @@ Written by the planner, read by a reviewer.
 
 The units come in this order:
 
-1. **The contract**, where two or more code units give each other names — added by the framework, not the planner: one unit that declares every such name, without behaviour, in the file of the unit that provides it. Everything after it builds against an interface that compiles, so no unit guesses what another will declare. It is judged by what the estate's own suite judges: declared, nothing else moves.
+1. **The contract**, where the tests and the code are written apart and the code provides names — added by the framework, not the planner: one unit that declares every such name, without behaviour, in the file its provision names. Everything after it builds against an interface that compiles, so no unit guesses what another will declare. It is judged by what the estate's own suite judges: declared, nothing else moves.
 2. **The tests**, written against the contract, before any behaviour exists, and failing until it does.
 3. **The code units**. Those that change no file in common are carried at once, a chain each — units that share a file are one chain, in order — and taken in the plan's order as if carried one by one. The last unit completes the change: it runs the change's own tests, then the whole suite, and may mend any code the change wrote.
 
@@ -65,13 +65,13 @@ The units come in this order:
 
 1. **Objective** — what the unit is for.
 2. **Serves** — the requirements and criteria.
-3. **Relies on** — what exists, or what an earlier unit provides.
+3. **Relies on** — what exists, or what an earlier unit provides; the names it uses of other units' are kept apart, as data (`uses`), and the plan is sent back where one is provided only after it, or by no unit and nowhere in the estate.
 4. **Tasks** — in order.
 5. **Provides** — every name another unit uses, with its full signature.
 6. **Constraints** — what not to touch.
 7. **Edge cases**.
 8. **Done when** — the check, and what it shows.
-9. **The contract between the units** — every unit's *Provides*, so that the tests call what the code defines and no unit defines what another provides.
+9. **The contract between the units** — every unit's *Provides*: each a named entry — file, name, kind, signature — so that the tests call what the code defines, no unit defines what another provides, and a unit is not done until every name it provides is in its files.
 
 ## The candidate — `candidates/CA-…/`
 

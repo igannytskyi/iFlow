@@ -226,7 +226,7 @@ var plannedBy = regexp.MustCompile(`^Planned by (.+)\.$`)
 func DecodePlan(name, text string) (meta.Plan, []string) {
 	d := &decoder{stage: Plan}
 	secs := sectionsOf(text)
-	out := meta.Plan{Schema: meta.SchemaVersion, Name: name}
+	out := meta.Plan{Schema: meta.PlanVersion, Name: name}
 	for _, s := range secs {
 		for _, t := range s.tables {
 			rows := placed(t)
@@ -239,7 +239,8 @@ func DecodePlan(name, text string) (meta.Plan, []string) {
 				for _, r := range rows {
 					out.Units = append(out.Units, meta.WorkUnit{ID: r.Cell("Id"), Phase: d.int("Phase of "+r.Cell("Id"), r.Cell("Phase")), Class: meta.Class(r.Cell("Class")),
 						Scope: ids(r.Cell("Scope")), AreaOfEffect: r.Cell("Area of effect"), Criteria: ids(r.Cell("Criteria")),
-						DependsOn: ids(r.Cell("Depends on")), PreparatoryFor: ids(r.Cell("Preparatory for"))})
+						DependsOn: ids(r.Cell("Depends on")), PreparatoryFor: ids(r.Cell("Preparatory for")),
+						Kind: kindOf(ids(r.Cell("Preparatory for")))})
 				}
 			case t.Has("Question", "Answer"):
 				for _, r := range rows {

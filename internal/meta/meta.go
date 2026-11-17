@@ -14,10 +14,24 @@ package meta
 // it for a person, never read back. docs/method/data-model.md describes the
 // model, and docs/method/schema/ holds the JSON Schema generated from it.
 
-// SchemaVersion is the version of the model a document was written in. A
-// document of an older version is read by Migrate into this one; a document
-// of a newer version is refused.
+// SchemaVersion is the version of the model a document is written in; a
+// document whose shape has changed since has a version of its own —
+// PlanVersion. A document of an older version is read into this one, and
+// iflow migrate writes it so; one of a newer version is refused.
 const SchemaVersion = 1
+
+// PlanVersion is the version of a plan: 2 since a unit says what it writes
+// and its contract is named entries, not prose.
+const PlanVersion = 2
+
+// Version is the version of the model this program writes a document in.
+func Version(doc any) int {
+	switch doc.(type) {
+	case Plan, *Plan:
+		return PlanVersion
+	}
+	return SchemaVersion
+}
 
 // Intent is 00-intent.json: what is to be achieved, said once.
 type Intent struct {
@@ -148,13 +162,24 @@ type WorkUnit struct {
 	Criteria       []string `json:"criteria" doc:"the acceptance criteria"`
 	DependsOn      []string `json:"depends_on,omitempty" doc:"the units it relies on"`
 	PreparatoryFor []string `json:"preparatory_for,omitempty" doc:"the criteria whose arbiter this unit writes, before their code"`
+	// Kind is what the unit writes.
+	Kind UnitKind `json:"kind" doc:"what the unit writes: the contract, the tests that judge the change, or its code"`
 	// What the unit's agent is told: its title, its brief — the ticket in
-	// units/ — the names and signatures it gives the others, and whether it
-	// writes the tests that judge the change rather than its code.
-	Title    string   `json:"title,omitempty" doc:"the unit in a few words"`
-	Brief    string   `json:"brief,omitempty" doc:"its ticket: objective, what it serves and relies on, tasks, constraints, edge cases, when it is done"`
-	Provides []string `json:"provides,omitempty" doc:"the names and signatures it gives the other units, exactly"`
-	Tests    bool     `json:"writes_tests,omitempty" doc:"whether it writes the tests that judge the change, before its code"`
+	// units/ — the names it gives the others, and the names of theirs it
+	// uses.
+	Title    string      `json:"title,omitempty" doc:"the unit in a few words"`
+	Brief    string      `json:"brief,omitempty" doc:"its ticket: objective, what it serves and relies on, tasks, constraints, edge cases, when it is done"`
+	Provides []Provision `json:"provides,omitempty" doc:"the names it gives the other units: the contract between them"`
+	Uses     []string    `json:"uses,omitempty" doc:"the names other units of the plan provide that it uses"`
+}
+
+// Provision is one name a unit gives the others: where it is declared, as
+// what, and exactly how.
+type Provision struct {
+	File      string   `json:"file,omitempty" doc:"the file it is declared in; empty only for one described"`
+	Name      string   `json:"name,omitempty" doc:"the name the other units call it by; empty only for one described"`
+	Kind      DeclKind `json:"kind" doc:"what the code declares it as"`
+	Signature string   `json:"signature" doc:"its declaration as the estate's language writes it, or, described, what was said of it"`
 }
 
 // Answer is a question the method asks, and the answer given.

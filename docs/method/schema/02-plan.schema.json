@@ -156,6 +156,15 @@
             "pattern": "^WU-\\d{3}-\\d{2}$",
             "type": "string"
           },
+          "kind": {
+            "description": "what the unit writes: the contract, the tests that judge the change, or its code",
+            "enum": [
+              "contract",
+              "tests",
+              "code"
+            ],
+            "type": "string"
+          },
           "phase": {
             "description": "the phase it lands in",
             "minimum": 0,
@@ -169,9 +178,41 @@
             "type": "array"
           },
           "provides": {
-            "description": "the names and signatures it gives the other units, exactly",
+            "description": "the names it gives the other units: the contract between them",
             "items": {
-              "type": "string"
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the file it is declared in; empty only for one described",
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "what the code declares it as",
+                  "enum": [
+                    "function",
+                    "method",
+                    "type",
+                    "field",
+                    "variable",
+                    "constant",
+                    "described"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "description": "the name the other units call it by; empty only for one described",
+                  "type": "string"
+                },
+                "signature": {
+                  "description": "its declaration as the estate's language writes it, or, described, what was said of it",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "signature"
+              ],
+              "type": "object"
             },
             "type": "array"
           },
@@ -186,8 +227,12 @@
             "description": "the unit in a few words",
             "type": "string"
           },
-          "writes_tests": {
-            "description": "whether it writes the tests that judge the change, before its code"
+          "uses": {
+            "description": "the names other units of the plan provide that it uses",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -195,7 +240,8 @@
           "phase",
           "class",
           "scope",
-          "criteria"
+          "criteria",
+          "kind"
         ],
         "type": "object"
       },

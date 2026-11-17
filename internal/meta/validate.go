@@ -39,10 +39,31 @@ func Validate(doc any) []Problem {
 		v = v.Elem()
 	}
 	var out []Problem
-	if f := v.FieldByName("Schema"); f.IsValid() && f.Int() != SchemaVersion {
-		out = append(out, Problem{"schema", fmt.Sprintf("version %d, and this program writes %d", f.Int(), SchemaVersion)})
+	if f := v.FieldByName("Schema"); f.IsValid() && f.Int() != int64(Version(v.Interface())) {
+		out = append(out, Problem{"schema", fmt.Sprintf("version %d, and this program writes %d", f.Int(), Version(v.Interface()))})
 	}
 	walk(v, "", &out)
+	if p, ok := v.Interface().(Plan); ok {
+		out = append(out, planProblems(p)...)
+	}
+	return out
+}
+
+// planProblems is what a plan's own shape asks beyond its codes: a name
+// declared says where and what it is; only a description may say neither.
+func planProblems(p Plan) []Problem {
+	var out []Problem
+	for i, u := range p.Units {
+		for j, pr := range u.Provides {
+			at := fmt.Sprintf("units[%d].provides[%d]", i, j)
+			if pr.Kind != Described && (pr.Name == "" || pr.File == "") {
+				out = append(out, Problem{at, "a " + string(pr.Kind) + " names its name and its file"})
+			}
+			if pr.Signature == "" {
+				out = append(out, Problem{at, "no signature"})
+			}
+		}
+	}
 	return out
 }
 

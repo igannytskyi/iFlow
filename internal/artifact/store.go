@@ -71,6 +71,9 @@ func LoadJSON(dir string, s Stage, d any) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if b, err = upgrade(s, b); err != nil {
+		return true, fmt.Errorf("%s: %w", JSONFile(dir, s), err)
+	}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields() // a field the model does not have is an error, not a variation
 	if err := dec.Decode(d); err != nil {

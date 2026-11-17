@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -21,15 +19,31 @@ import (
 type unit struct {
 	id, class, aoe string
 	title, brief   string
-	provides       []string // the names and signatures it gives the others
-	tests          bool     // it writes the tests that judge the change
-	// contract says it declares, without behaviour, every name the code
-	// units give each other, before anything else is written: the tests
-	// and the code then build against one interface that compiles.
-	contract        bool
+	kind           meta.UnitKind
+	// provides is the names it gives the others; uses, the names of
+	// theirs it builds on. Together they are the contract.
+	provides        []meta.Provision
+	uses            []string
 	scope, criteria []string
 	preparatoryFor  string
 	dependsOn       string
+}
+
+// isTests says the unit writes the tests that judge the change.
+func (u unit) isTests() bool { return u.kind == meta.TestsUnit }
+
+// isContract says the unit declares the contract every other unit builds on.
+func (u unit) isContract() bool { return u.kind == meta.ContractUnit }
+
+// names is every name the unit gives the others.
+func (u unit) names() []string {
+	var out []string
+	for _, p := range u.provides {
+		if p.Kind != meta.Described && !slices.Contains(out, p.Name) {
+			out = append(out, p.Name)
+		}
+	}
+	return out
 }
 
 const plannerSystem = `You divide a specified change into units of work. Each unit is carried out by an agent that sees its own unit — the brief you write, the files it may change, the code around them — and the specification's decisions; it never sees the person or the other units' briefs. You answer with one JSON object and nothing else.
@@ -37,14 +51,15 @@ const plannerSystem = `You divide a specified change into units of work. Each un
 Rules you must follow:
 - Tests come first: one or more units of kind "tests", whose scope is only among the new test files you are given. They judge the change from outside, calling the code by the names the code units will give it; they never define what the change itself provides — only fakes of what it depends on.
 - Then units of kind "code", in the order they are carried out, whose scope is only among the files the change may touch. Each later unit can read what the earlier ones wrote, and nothing a later one will write — so order them by what they provide: the types and interfaces first, then what uses them, then what wires them into the entry point. A unit never defines what another unit provides. Keep a unit to one coherent piece; wiring something into what exists is a unit of its own when it touches another file.
-- "provides" of a code unit is the contract: every type, function and method it defines that another unit uses, each with its full signature in the estate's language (for Go: "func NewServer(c *Catalog, clock Clock) *Server", "type Clock interface { Now() time.Time }"). Every agent is handed every unit's provides, and the tests call exactly these.
+- "provides" of a code unit is the contract: every name it declares that another unit or the tests use, each as {"file": where it is declared, "name": the name it is called by, "kind": one of "function", "method", "type", "field", "variable", "constant", "signature": its full declaration in the estate's language} — for Go, {"file": "server.go", "name": "NewServer", "kind": "function", "signature": "func NewServer(c *Catalog, clock Clock) *Server"}. A field added to a type is a "field" whose signature is the field as the type declares it. Every agent is handed every unit's provides, and the tests call exactly these.
+- "uses" of a unit is the names, from other units' provides, that it builds on — exactly as they are named there. A unit uses only what an earlier unit provides.
 - Every criterion is assigned to at least one code unit; the last code unit carries the criterion that nothing else moves. A tests unit carries the criteria its tests judge. A criterion the person decides needs no test: assign it to the code unit that makes it true.
 - A unit relies only on what exists — as the estate you are shown says — or on what an earlier unit provides. Never on a helper, method or ability you assume is there: if it is not in what you are shown, a unit provides it first, or the unit does without it.
 - Each unit is written as a ticket complete for someone who has read nothing else: its objective; the requirements (FR-n) and criteria it serves; what it relies on that exists or that earlier units provide; its tasks in order; the names and signatures it provides, exactly — the same in the tests units and the code units; its constraints (what not to touch or change); its edge cases; and when it is done.
 
 The JSON object has exactly these keys:
 - "approach": {"summary": one paragraph, "steps": points in order, "risks": points}
-- "units": a list of {"title", "kind": "tests" or "code", "scope": [paths], "criteria": [criterion ids], "requirements": [FR ids], "objective": one paragraph, "relies_on": [points], "tasks": [points, in order], "provides": [signatures or names], "constraints": [points], "edge_cases": [points], "done_when": [points]}`
+- "units": a list of {"title", "kind": "tests" or "code", "scope": [paths], "criteria": [criterion ids], "requirements": [FR ids], "objective": one paragraph, "relies_on": [points], "tasks": [points, in order], "provides": [{"file", "name", "kind", "signature"}], "uses": [names], "constraints": [points], "edge_cases": [points], "done_when": [points]}`
 
 // planDraft is what the planner answers.
 type planDraft struct {
@@ -59,18 +74,49 @@ type planDraft struct {
 // ticket is one unit as the planner writes it: everything its agent needs,
 // and nothing about the other units but what it relies on from them.
 type ticket struct {
-	Title        string   `json:"title"`
-	Kind         string   `json:"kind"`
-	Scope        []string `json:"scope"`
-	Criteria     []string `json:"criteria"`
-	Requirements []string `json:"requirements"`
-	Objective    string   `json:"objective"`
-	ReliesOn     []string `json:"relies_on"`
-	Tasks        []string `json:"tasks"`
-	Provides     []string `json:"provides"`
-	Constraints  []string `json:"constraints"`
-	EdgeCases    []string `json:"edge_cases"`
-	DoneWhen     []string `json:"done_when"`
+	Title        string           `json:"title"`
+	Kind         string           `json:"kind"`
+	Scope        []string         `json:"scope"`
+	Criteria     []string         `json:"criteria"`
+	Requirements []string         `json:"requirements"`
+	Objective    string           `json:"objective"`
+	ReliesOn     []string         `json:"relies_on"`
+	Tasks        []string         `json:"tasks"`
+	Provides     []meta.Provision `json:"provides"`
+	Uses         []string         `json:"uses"`
+	Constraints  []string         `json:"constraints"`
+	EdgeCases    []string         `json:"edge_cases"`
+	DoneWhen     []string         `json:"done_when"`
+}
+
+// provisionProblem says what is wrong with what a code unit provides: a
+// name with no file, kind or signature, a file the unit may not write.
+func provisionProblem(u unit) string {
+	for _, p := range u.provides {
+		switch {
+		case p.Name == "" || p.File == "" || p.Signature == "":
+			return fmt.Sprintf("it provides %q without its name, file and signature", p.Signature+p.Name)
+		case !meta.Allowed("DeclKind", string(p.Kind)) || p.Kind == meta.Described:
+			return fmt.Sprintf("%s is of kind %q, which is not one of function, method, type, field, variable, constant", p.Name, p.Kind)
+		case !slices.Contains(u.scope, p.File):
+			return fmt.Sprintf("%s is declared in %s, which is not in its scope", p.Name, p.File)
+		}
+	}
+	return ""
+}
+
+// signatures is each provision as its agent reads it: its declaration, and
+// where.
+func signatures(provides []meta.Provision) []string {
+	var out []string
+	for _, p := range provides {
+		if p.File == "" {
+			out = append(out, p.Signature)
+			continue
+		}
+		out = append(out, p.Signature+" — in "+p.File)
+	}
+	return out
 }
 
 // brief is the ticket as its agent reads it.
@@ -83,7 +129,7 @@ func (t ticket) brief() string {
 	for _, sec := range []struct {
 		title  string
 		points []string
-	}{{"Relies on", t.ReliesOn}, {"Tasks", t.Tasks}, {"Provides", t.Provides}, {"Constraints", t.Constraints},
+	}{{"Relies on", t.ReliesOn}, {"Tasks", t.Tasks}, {"Provides", signatures(t.Provides)}, {"Constraints", t.Constraints},
 		{"Edge cases", t.EdgeCases}, {"Done when", t.DoneWhen}} {
 		if len(sec.points) == 0 {
 			continue
@@ -154,7 +200,7 @@ func (r *Run) plan(ctx context.Context) error {
 	repo := r.cfg.Estate.Repo(r.repo)
 	totalFirm, totalReach := 0, 0
 	for i := range units {
-		if units[i].tests {
+		if units[i].isTests() {
 			units[i].aoe = "the arbiter only, derived, high"
 			continue
 		}
@@ -184,12 +230,12 @@ func (r *Run) plan(ctx context.Context) error {
 		doc.Briefs = append(doc.Briefs, artifact.Part{Title: u.id + " — " + u.title, Text: u.brief})
 		r.say(2, u.id, "%s: %s — %s", u.id, u.title, strings.Join(u.scope, ", "))
 	}
-	record := meta.Plan{Schema: meta.SchemaVersion, Name: r.slug, Specification: r.id("SPEC"), Phases: 1,
+	record := meta.Plan{Schema: meta.PlanVersion, Name: r.slug, Specification: r.id("SPEC"), Phases: 1,
 		IntermediateValid: doc.Intermediate, Residue: doc.Residue, CoverageText: doc.Coverage, Planner: planner}
 	for _, u := range units {
 		record.Units = append(record.Units, meta.WorkUnit{ID: u.id, Phase: 1, Class: meta.Class(u.class), Scope: u.scope,
 			AreaOfEffect: u.aoe, Criteria: u.criteria, DependsOn: splitIDs(u.dependsOn), PreparatoryFor: splitIDs(u.preparatoryFor),
-			Title: u.title, Brief: u.brief, Provides: u.provides, Tests: u.tests})
+			Kind: u.kind, Title: u.title, Brief: u.brief, Provides: u.provides, Uses: u.uses})
 	}
 	if err := artifact.Save(r.dir, artifact.Plan, record); err != nil {
 		return r.fail(2, "the plan could not be written: %v", err)
@@ -263,17 +309,20 @@ func (r *Run) planned(ctx context.Context, all, byTests []string, feedback strin
 func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 	var tests, code []unit
 	for _, pu := range p.Units {
-		u := unit{title: pu.Title, class: r.spec.Class, scope: pu.Scope, brief: pu.brief(), tests: pu.Kind == "tests"}
-		if !u.tests {
-			u.provides = pu.Provides
-		}
+		u := unit{title: pu.Title, class: r.spec.Class, scope: pu.Scope, brief: pu.brief(), kind: meta.UnitKind(pu.Kind), uses: pu.Uses}
 		if len(u.scope) == 0 || strings.TrimSpace(pu.Objective) == "" || len(pu.Tasks) == 0 {
 			return nil, fmt.Sprintf("unit %q has no scope, no objective or no tasks", pu.Title)
 		}
 		allowed := r.spec.Scope
-		if u.tests {
+		switch u.kind {
+		case meta.TestsUnit:
 			allowed = r.spec.NewTests
-		} else if pu.Kind != "code" {
+		case meta.CodeUnit:
+			u.provides = pu.Provides
+			if why := provisionProblem(u); why != "" {
+				return nil, fmt.Sprintf("unit %q: %s", pu.Title, why)
+			}
+		default:
 			return nil, fmt.Sprintf("unit %q is of kind %q, which is neither tests nor code", pu.Title, pu.Kind)
 		}
 		for _, s := range u.scope {
@@ -287,7 +336,7 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 			}
 		}
 		u.criteria = pu.Criteria
-		if u.tests {
+		if u.isTests() {
 			tests = append(tests, u)
 		} else {
 			code = append(code, u)
@@ -337,47 +386,25 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 	return r.number(append(tests, code...)), ""
 }
 
-// orderOf says where a code unit relies on a name that only a unit after
-// it provides — a name the estate does not have yet — which no agent can
-// build on: what is provided must come first.
+// orderOf says where a code unit uses a name it cannot build on: one a
+// unit after it provides, or one no unit provides and the estate does not
+// define.
 func (r *Run) orderOf(code []unit) string {
-	var existing strings.Builder
-	for _, u := range code {
-		for _, f := range u.scope {
-			if b, err := os.ReadFile(filepath.Join(r.repo, filepath.FromSlash(f))); err == nil {
-				existing.Write(b)
-			}
-		}
-	}
+	repo := r.cfg.Estate.Repo(r.repo)
 	for i, u := range code {
-		text := withoutProvides(u.brief)
-		for _, later := range code[i+1:] {
-			for _, name := range providedNames(later.provides) {
-				word := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
-				if len(name) < 3 || !word.MatchString(text) || word.MatchString(existing.String()) ||
-					slices.Contains(providedNames(u.provides), name) {
-					continue
+		for _, name := range u.uses {
+			by := slices.IndexFunc(code, func(o unit) bool { return slices.Contains(o.names(), name) })
+			switch {
+			case by > i:
+				return fmt.Sprintf("unit %q uses %s, which %q provides after it — order the code units so that what one provides comes before every unit that uses it", u.title, name, code[by].title)
+			case by < 0:
+				if places, err := repo.WhereDefined(name); err == nil && len(places) == 0 {
+					return fmt.Sprintf("unit %q uses %s, which no unit provides and the estate does not define — a unit provides it first, or the unit does without it", u.title, name)
 				}
-				return fmt.Sprintf("unit %q relies on %s, which %q provides after it — order the code units so that what one provides comes before every unit that uses it", u.title, name, later.title)
 			}
 		}
 	}
 	return ""
-}
-
-// withoutProvides is a ticket without its Provides section: what the unit
-// uses, not what it gives.
-func withoutProvides(brief string) string {
-	before, after, found := strings.Cut(brief, "\nProvides:\n")
-	if !found {
-		return brief
-	}
-	if i := strings.Index(after, ":\n"); i >= 0 {
-		if j := strings.LastIndex(after[:i], "\n\n"); j >= 0 {
-			return before + after[j:]
-		}
-	}
-	return before
 }
 
 // number gives units their ids and their order: every tests unit prepares
@@ -386,17 +413,17 @@ func (r *Run) number(units []unit) []unit {
 	for i := range units {
 		units[i].id = r.id("WU", i+1)
 	}
-	firstCode := slices.IndexFunc(units, func(u unit) bool { return !u.tests && !u.contract })
+	firstCode := slices.IndexFunc(units, func(u unit) bool { return !u.isTests() && !u.isContract() })
 	var testIDs []string
 	for i := range units {
 		switch {
-		case units[i].contract:
-		case units[i].tests:
+		case units[i].isContract():
+		case units[i].isTests():
 			units[i].preparatoryFor = units[firstCode].id
 			testIDs = append(testIDs, units[i].id)
 		case i == firstCode:
 			units[i].dependsOn = joinIDs(testIDs)
-			if units[0].contract {
+			if units[0].isContract() {
 				units[i].dependsOn = joinIDs(append([]string{units[0].id}, testIDs...))
 			}
 		default:
@@ -406,52 +433,39 @@ func (r *Run) number(units []unit) []unit {
 	return units
 }
 
-// contractTitle begins the title of the unit that declares the contract;
-// a plan read back knows that unit by it.
-const contractTitle = "the contract"
-
-// withContract puts first, where two or more code units give each other
-// names, a unit that declares every one of them without behaviour, each in
-// the file of the unit that provides it. The tests are written against
-// that interface and the code units fill it in, apart and at once where
-// they can: none guesses what another will declare.
+// withContract puts first, where the tests and the code are written apart
+// and the code provides names, a unit that declares every one of them
+// without behaviour, each in the file it is provided in. The tests are written against that interface
+// and the code units fill it in, apart and at once where they can: none
+// guesses what another will declare.
 func (r *Run) withContract(units []unit) []unit {
-	var code []unit
-	var tests []unit
+	var code, tests []unit
 	for _, u := range units {
-		switch {
-		case u.contract:
+		switch u.kind {
+		case meta.ContractUnit:
 			return units // already there
-		case u.tests:
+		case meta.TestsUnit:
 			tests = append(tests, u)
 		default:
 			code = append(code, u)
 		}
 	}
-	if len(code) < 2 {
-		return units
+	if len(code) == 0 || len(tests) == 0 {
+		return units // nothing is written apart that must agree
 	}
-	var scope, provides []string
+	var scope []string
+	var provides []meta.Provision
 	var b strings.Builder
 	for _, u := range code {
-		if len(providedNames(u.provides)) == 0 {
-			continue
-		}
-		var files []string
-		for _, f := range u.scope {
-			if !strings.Contains(path.Base(f), "_test.") && !strings.HasPrefix(path.Base(f), "test_") {
-				files = append(files, f)
-			}
-		}
-		for _, f := range files {
-			if !slices.Contains(scope, f) {
-				scope = append(scope, f)
-			}
-		}
-		provides = append(provides, u.provides...)
-		b.WriteString("- in " + strings.Join(files, " or ") + ", for " + u.title + ":\n")
 		for _, p := range u.provides {
-			b.WriteString("  - " + p + "\n")
+			if p.Kind == meta.Described {
+				continue
+			}
+			if !slices.Contains(scope, p.File) {
+				scope = append(scope, p.File)
+			}
+			provides = append(provides, p)
+			b.WriteString("- " + p.Signature + " — in " + p.File + ", for " + u.title + "\n")
 		}
 	}
 	if len(provides) == 0 {
@@ -477,8 +491,8 @@ func (r *Run) withContract(units []unit) []unit {
 	if len(criteria) == 0 {
 		criteria = code[len(code)-1].criteria
 	}
-	contract := unit{criteria: criteria, title: contractTitle + " — every name the units give each other, declared without behaviour", class: r.spec.Class,
-		scope: scope, provides: provides, contract: true,
+	contract := unit{kind: meta.ContractUnit, criteria: criteria, class: r.spec.Class, scope: scope, provides: provides,
+		title: "the contract — every name the units give each other, declared without behaviour",
 		brief: "Declare exactly these names, each in the file given, as the estate's language declares them, and nothing else:\n\n" + b.String() +
 			"\nNo behaviour: a function or method returns its zero values, or fails as not yet done, in the way the language does; a type has its fields; a constant or variable its declared type. " +
 			"Keep what each file already holds working, and the estate building. The tests and the code units are written after you, against exactly what you declare.\n"}
@@ -491,10 +505,10 @@ func (r *Run) derivedUnits(all, byTests []string) []unit {
 	d := r.spec
 	var units []unit
 	if len(d.NewTests) > 0 {
-		units = append(units, unit{title: "the tests that judge the change", class: d.Class, scope: d.NewTests, criteria: byTests, tests: true,
+		units = append(units, unit{kind: meta.TestsUnit, title: "the tests that judge the change", class: d.Class, scope: d.NewTests, criteria: byTests,
 			brief: "Write the tests that decide the criteria named, as the specification states them."})
 	}
-	units = append(units, unit{title: "the change", class: d.Class, scope: d.Scope, criteria: all,
+	units = append(units, unit{kind: meta.CodeUnit, title: "the change", class: d.Class, scope: d.Scope, criteria: all,
 		brief: "Make the criteria hold: " + r.statement})
 	return r.number(units)
 }
@@ -513,7 +527,7 @@ func planText(units []unit, approach []artifact.Part) string {
 	}
 	for _, u := range units {
 		kind := "code"
-		if u.tests {
+		if u.isTests() {
 			kind = "tests"
 		}
 		fmt.Fprintf(&b, "\n## %s — %s (%s)\nScope: %s\nCriteria: %s\n\n%s", u.id, u.title, kind, strings.Join(u.scope, ", "), joinIDs(u.criteria), u.brief)

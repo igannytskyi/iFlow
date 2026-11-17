@@ -27,7 +27,7 @@ func (r *Run) rebased(ctx context.Context) (merged map[string][]byte, moved []st
 	merged = map[string][]byte{}
 	var conflicts []string
 	for _, u := range r.units {
-		if u.tests {
+		if u.isTests() {
 			continue // the change's own files; no baseline holds them
 		}
 		dir := r.cands[u.id]

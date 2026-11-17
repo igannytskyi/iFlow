@@ -3,6 +3,7 @@ package harness
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -158,6 +159,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			}
 			if judged == "" {
 				if outside := faultsOutside(out, t.Scope, ws.local()); len(outside) > 0 {
+					res.Blames = outside
 					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+faultsIn(out, outside))
 				}
 			}
@@ -186,9 +188,10 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			ws.last.ran = false
 			ws.calls++
 			answer, kind, blocked := l.call(ws, call)
-			if blocked {
-				emit(Event{At: time.Now(), Kind: Said, Detail: answer})
-				return end(FailedTask, answer) // the agent says it cannot be done as asked
+			if blocked != nil {
+				emit(Event{At: time.Now(), Kind: Said, Detail: blocked.Error()})
+				res.Cannot, res.Blames = blocked.Why, blocked.Files
+				return end(FailedTask, blocked.Why) // the agent says it cannot be done as asked
 			}
 			switch {
 			case strings.HasPrefix(answer, "written") || strings.HasPrefix(answer, "edited"):
@@ -215,6 +218,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			// them is carried again, rather than spend its steps.
 			if ws.last.ran && !ws.last.ok && ws.last.why == "" {
 				if outside := faultsOutside(ws.last.out, t.Scope, ws.local()); len(outside) > 0 {
+					res.Blames = outside
 					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+faultsIn(ws.last.out, outside))
 				}
 			}
@@ -259,31 +263,44 @@ func compact(msgs []model.Message) []model.Message {
 
 // call carries out one tool call, and says what it answered, what kind of
 // step that was, and whether the agent said its unit cannot be done.
-func (l Loop) call(ws *workspace, call model.ToolCall) (string, Kind, bool) {
+func (l Loop) call(ws *workspace, call model.ToolCall) (string, Kind, *Blocked) {
 	t, ok := lookup(call.Function.Name)
 	if !ok {
-		return "there is no tool called " + call.Function.Name, Refused, false
+		return "there is no tool called " + call.Function.Name, Refused, nil
 	}
 	args := map[string]string{}
 	var raw map[string]any
 	if call.Function.Arguments != "" && json.Unmarshal([]byte(repairArgs(call.Function.Arguments)), &raw) != nil {
-		return "the arguments are not JSON", Refused, false
+		return "the arguments are not JSON", Refused, nil
 	}
 	for k, v := range raw {
-		args[k] = fmt.Sprint(v)
+		args[k] = argument(v)
 	}
 	out, err := t.run(ws, args)
-	if b, ok := err.(Blocked); ok {
-		return b.Error(), Got, true
-	}
-	switch err.(type) {
-	case nil:
-		return out, Got, false
-	case errRefused:
-		return "refused: " + err.Error(), Refused, false
+	var b Blocked
+	switch {
+	case errors.As(err, &b):
+		return "", Got, &b
+	case err == nil:
+		return out, Got, nil
+	case errors.As(err, new(errRefused)):
+		return "refused: " + err.Error(), Refused, nil
 	default:
-		return "error: " + err.Error(), Got, false
+		return "error: " + err.Error(), Got, nil
 	}
+}
+
+// argument is a tool argument as a tool reads it: a list one item a line,
+// anything else as it prints.
+func argument(v any) string {
+	if list, ok := v.([]any); ok {
+		items := make([]string, len(list))
+		for i, item := range list {
+			items[i] = fmt.Sprint(item)
+		}
+		return strings.Join(items, "\n")
+	}
+	return fmt.Sprint(v)
 }
 
 // index is what the estate said, with each long section cut to its heading:

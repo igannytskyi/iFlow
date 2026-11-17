@@ -32,7 +32,7 @@ What the gate judges is what the documents mean: whether every criterion has an 
 
 ## Versions and migration
 
-Every document carries `schema`, the version of the model it was written in; this program writes and reads version 1. A change written before the model kept its documents as Markdown only. `iflow migrate [--dry] <changes>` reads such a change into the model once:
+Every document carries `schema`, the version of the model it was written in. A document's version is its own: a plan is version 2 — a unit says what it writes (`kind`: contract, tests, code), its contract is named entries (`provides`: file, name, kind, signature) and its dependencies are names (`uses`) — and every other document is version 1. A document of an older version is read into the current one whole, nothing dropped, what the older model left unsaid kept as unknown (a provision version 1 wrote in prose, with no one file it could be in, is `described`); `iflow migrate` writes it so, keeps the older JSON under `legacy/`, and says so in the record. Raising one document's version leaves the others — and with them the specification's digest — as they were. A change written before the model kept its documents as Markdown only. `iflow migrate [--dry] <changes>` reads such a change into the model once:
 
 - every table and section of every document lands in a field, or, where the model has no field for it — the population and hypothesis of a study's specification — in the document's `sections`, kept as written;
 - what the Markdown says that the document read from it does not — a cell, a line of prose — stops the migration of that change, which is left as it is and named;
@@ -42,4 +42,4 @@ R1 holds the specification fixed from admission: the digest taken at admission i
 
 ## Changing the model
 
-A field is added to the type with its `json` name and its `doc` description; a field a document may leave out is `omitempty`, any other is required. A new code is added to `meta.Codes` and to conventions.md together. Then the schema is written anew — `IFLOW_WRITE_SCHEMA=1 go test ./internal/meta` — and a change of meaning, not only of shape, raises `SchemaVersion` and teaches `Migrate` to carry the documents of the version before it.
+A field is added to the type with its `json` name and its `doc` description; a field a document may leave out is `omitempty`, any other is required. A new code is added to `meta.Codes` and to conventions.md together. Then the schema is written anew — `IFLOW_WRITE_SCHEMA=1 go test ./internal/meta` — and a change of shape or meaning raises that document's version (`meta.Version`) and teaches the reader (`artifact.upgrade`) and `Migrate` to carry the documents of the version before it.

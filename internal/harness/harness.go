@@ -44,6 +44,9 @@ type Task struct {
 	// in place of its exit status, and says why not: tests written before
 	// their code fail to build, and only some of those failures are theirs.
 	Judge func(passed bool, output string) (ok bool, why string)
+	// Role is what the unit writes — "contract", "tests" or "code" — for an
+	// executor that does its work differently by it.
+	Role string
 	// Provides is the names the unit's contract says it gives the others:
 	// the unit is not done, whatever the check says, until each is in its
 	// files.
@@ -108,10 +111,15 @@ const (
 type Result struct {
 	Terminal string
 	Summary  string
-	Steps    int
-	Turns    int
-	Usage    model.Usage
-	Elapsed  time.Duration
+	// Cannot, where set, is why the agent said the unit cannot be done as it
+	// is asked; Blames, the files it named as the cause, or the files outside
+	// the unit's scope the check failed in.
+	Cannot  string
+	Blames  []string
+	Steps   int
+	Turns   int
+	Usage   model.Usage
+	Elapsed time.Duration
 }
 
 // Executor carries out a task. Run returns when the task has ended, and

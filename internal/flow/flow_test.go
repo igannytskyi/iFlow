@@ -63,8 +63,8 @@ func countReviews(prompts []string) int {
 // plan is what the planner answers: the tests, then the change.
 const plan = `{"approach":{"summary":"Add Shout beside Greet.","steps":["write the test","add Shout"],"risks":["none"]},
 "units":[
- {"title":"the shout test","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"requirements":["FR-1"],"objective":"Judge shouting from outside.","tasks":["Test that Shout(\"a\") is HELLO, A."],"provides":["TestShout"],"done_when":["it fails before Shout exists"]},
- {"title":"Shout","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"requirements":["FR-1"],"objective":"Shout greets in capitals.","tasks":["Add func Shout(n string) string returning Greet(n) in capitals."],"provides":["func Shout(n string) string"],"constraints":["leave Greet as it is"],"done_when":["the suite passes"]}]}`
+ {"title":"the shout test","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"requirements":["FR-1"],"objective":"Judge shouting from outside.","tasks":["Test that Shout(\"a\") is HELLO, A."],"done_when":["it fails before Shout exists"]},
+ {"title":"Shout","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"requirements":["FR-1"],"objective":"Shout greets in capitals.","tasks":["Add func Shout(n string) string returning Greet(n) in capitals."],"provides":[{"file":"greet.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}],"constraints":["leave Greet as it is"],"done_when":["the suite passes"]}]}`
 
 // stubExecutor writes what each unit's scope asks for: the test first, then
 // the repair; and keeps the pack each unit was handed where asked to.
@@ -92,7 +92,7 @@ func (s stubExecutor) Run(_ context.Context, t harness.Task, emit func(harness.E
 	for _, p := range t.Scope {
 		emit(harness.Event{At: time.Now(), Kind: harness.Called, Tool: "write_file", Detail: p})
 		body := s.files[p]
-		if strings.Contains(t.Goal, "Declare exactly these names") {
+		if t.Role == string(meta.ContractUnit) {
 			d, ok := s.files["declared "+p]
 			if !ok {
 				continue // a contract declares, and does nothing; here, it has nothing to declare
@@ -141,19 +141,21 @@ func TestATaskTravelsThePath(t *testing.T) {
 	cfg := Config{
 		Model: stubModel{spec, &prompts},
 		Executor: stubExecutor{packs: &packs, goals: &goals, files: map[string]string{
-			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
-			"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+			"shout_test.go":     "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":          "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+			"declared greet.go": "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return \"\" }\n",
 		}},
 		Estate: est, Gate: gate.New(est), Person: "a test",
 	}
 	defer func() {
-		if len(goals) != 2 || !strings.Contains(goals[1], "Add func Shout") {
+		// The contract first, then the tests against it, then the code.
+		if len(goals) != 3 || !strings.Contains(goals[0], "Declare exactly these names") || !strings.Contains(goals[2], "Add func Shout") {
 			t.Errorf("the units were not handed their briefs: %q", goals)
 		}
 		if b, _ := os.ReadFile(filepath.Join(landed, "plan.md")); !strings.Contains(string(b), "## The units") || !strings.Contains(string(b), "Planned by stub") {
 			t.Errorf("the plan does not describe its units:\n%s", b)
 		}
-		if b, _ := os.ReadFile(filepath.Join(landed, "units", "WU-001-02.md")); !strings.Contains(string(b), "Add func Shout") {
+		if b, _ := os.ReadFile(filepath.Join(landed, "units", "WU-001-03.md")); !strings.Contains(string(b), "Add func Shout") {
 			t.Errorf("the code unit's ticket is not kept:\n%s", b)
 		}
 		// Each agent is handed the least it needs: the model stating the
@@ -186,10 +188,10 @@ func TestATaskTravelsThePath(t *testing.T) {
 				t.Errorf("review %s was not kept", f)
 			}
 		}
-		if len(packs) != 2 {
+		if len(packs) != 3 {
 			t.Fatalf("%d packs handed", len(packs))
 		}
-		for i, want := range [][]string{{"May change: shout_test.go", "Read: greet.go", `"Hello, "`}, {"Must pass, written by WU-001-01", "TestShout", "May change: greet.go"}} {
+		for i, want := range [][]string{{"May change: greet.go"}, {"May change: shout_test.go", "Written by WU-001-01", `return ""`}, {"Must pass, written by WU-001-02", "TestShout", "May change: greet.go"}} {
 			for _, w := range want {
 				if !strings.Contains(packs[i], w) {
 					t.Errorf("unit %d was not handed %q:\n%s", i+1, w, packs[i])
@@ -251,7 +253,7 @@ func TestATaskTravelsThePath(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(repo, "greet.go")); !strings.Contains(string(b), "Shout") {
 		t.Error("the repair did not enter the estate")
 	}
-	if b, _ := os.ReadFile(filepath.Join(v.Dir, "candidates", "CA-001-01", "failing-before.txt")); !strings.Contains(string(b), "FAIL") {
+	if b, _ := os.ReadFile(filepath.Join(v.Dir, "candidates", "CA-001-02", "failing-before.txt")); !strings.Contains(string(b), "FAIL") {
 		t.Errorf("the reproduction was not shown to fail before the change: %s", b)
 	}
 	if b, _ := os.ReadFile(filepath.Join(v.Dir, "05-assurance.md")); !strings.Contains(string(b), "| earlier#1 | this change |") {
@@ -435,37 +437,6 @@ func TestNumbersAreTakenOnce(t *testing.T) {
 	}
 }
 
-// Tests written first may fail to build only for what the contract
-// promises; anything else they got wrong goes back to their agent.
-func TestTestsWrittenFirstAreJudgedByTheContract(t *testing.T) {
-	r := &Run{units: []unit{{id: "WU-001-03", scope: []string{"internal/notify/notify.go", "internal/flow/flow.go"}, provides: []string{"Step.Doing string"}}, {id: "WU-001-02", provides: []string{"func Shout(n string) string", "func (p *project) closeTop() bool", "key.NameN"}}}}
-	judge := r.judgeTests()
-	if ok, why := judge(false, "vet: ./shout_test.go:5:9: undefined: Shout\n./x_test.go:9:4: p.closeTop undefined (type *project has no field or method closeTop)\n"); !ok {
-		t.Errorf("a missing promised name was held against the tests: %s", why)
-	}
-	if ok, why := judge(false, "vet: internal/ui/graph_test.go:32:24: r.Semantic undefined (type *input.Router has no field or method Semantic)\n"); ok || !strings.Contains(why, "Semantic") {
-		t.Errorf("an invented method of a library passed: %v %s", ok, why)
-	}
-	if ok, why := judge(false, "internal/ui/graph_test.go:33:53: unknown field Doing in struct literal of type flow.Step\n"); !ok {
-		t.Errorf("a field the contract promises was held against the tests: %s", why)
-	}
-	if ok, why := judge(false, "vet: ./shortcuts_test.go:53:40: undefined: key.NameN\n"); ok || !strings.Contains(why, "key.NameN") {
-		t.Errorf("a name a library does not have passed: %v %s", ok, why)
-	}
-	if ok, why := judge(false, "internal/ui/notify_test.go:6:2: no required module provides package ex.com/m/internal/notify; to add it:\n"); !ok {
-		t.Errorf("a package a code unit creates was held against the tests: %s", why)
-	}
-	if ok, _ := judge(false, "internal/ui/notify_test.go:6:2: no required module provides package ex.com/m/internal/elsewhere; to add it:\n"); ok {
-		t.Error("a package no unit creates passed")
-	}
-	if ok, _ := judge(false, "vet: x_test.go:11:15: not enough arguments in call to testUI\n"); ok {
-		t.Error("the wrong arguments to a function that exists passed")
-	}
-	if ok, why := judge(false, "# ./internal/notify\nstat /tmp/ws/internal/notify: directory not found\nFAIL\t./internal/notify [setup failed]\n"); ok || !strings.Contains(why, "not all written") {
-		t.Errorf("tests not written yet passed: %v %s", ok, why)
-	}
-}
-
 // secondTry is an executor whose tests are wrong the first time: the code
 // cannot pass them, says so, and passes the tests written again.
 type secondTry struct {
@@ -477,6 +448,9 @@ func (s secondTry) Name() string    { return "second try" }
 func (s secondTry) Version() string { return "1" }
 func (s secondTry) Run(_ context.Context, t harness.Task, _ func(harness.Event)) (harness.Result, error) {
 	*s.goals = append(*s.goals, t.Goal)
+	if t.Role == string(meta.ContractUnit) {
+		return harness.Result{Terminal: harness.Candidate, Summary: "every name is declared already"}, nil
+	}
 	scope := t.Scope[0]
 	s.calls[scope]++
 	files := map[string]string{
@@ -484,7 +458,7 @@ func (s secondTry) Run(_ context.Context, t harness.Task, _ func(harness.Event))
 		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
 	}
 	if scope == "greet.go" && s.calls["shout_test.go"] == 1 {
-		return harness.Result{Terminal: harness.FailedTask, Summary: "the check fails in shout_test.go, which this unit may not change: undefined: strings.Shouty"}, nil
+		return harness.Result{Terminal: harness.FailedTask, Summary: "the check fails in shout_test.go, which this unit may not change: undefined: strings.Shouty", Blames: []string{"shout_test.go"}}, nil
 	}
 	if err := os.WriteFile(filepath.Join(t.Workspace, scope), []byte(files[scope]), 0o644); err != nil {
 		return harness.Result{}, err
@@ -835,7 +809,7 @@ type saysCannot struct {
 func (s saysCannot) Run(ctx context.Context, t harness.Task, emit func(harness.Event)) (harness.Result, error) {
 	if !*s.said && !strings.HasSuffix(t.Scope[0], "_test.go") {
 		*s.said = true
-		return harness.Result{Terminal: harness.FailedTask, Summary: harness.BlockedPrefix + "the helper Shoutify it relies on does not exist"}, nil
+		return harness.Result{Terminal: harness.FailedTask, Summary: "the helper Shoutify it relies on does not exist", Cannot: "the helper Shoutify it relies on does not exist"}, nil
 	}
 	return s.stubExecutor.Run(ctx, t, emit)
 }
@@ -1118,54 +1092,6 @@ func TestARunStoppedWhilePlanningStops(t *testing.T) {
 	}
 }
 
-// Tests written before the package they import exists are vetted against
-// a stub of it made from the contract, so that what they get wrong beyond
-// the missing package is found then — a value miscounted, a name misspelt
-// — and not by the code that has to pass them.
-func TestTestsWrittenFirstAreVettedAgainstTheContract(t *testing.T) {
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("no go toolchain")
-	}
-	ws := t.TempDir()
-	write := func(p, s string) {
-		if err := os.MkdirAll(filepath.Dir(filepath.Join(ws, p)), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(ws, p), []byte(s), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("go.mod", "module ex.com/m\n\ngo 1.22\n")
-	write("ui/ui.go", "package ui\n")
-	write("ui/ui_test.go", "package ui\n\nimport (\n\t\"testing\"\n\n\t\"ex.com/m/notify\"\n)\n\nfunc TestIt(t *testing.T) {\n\tname := notify.Choose(\"darwin\")\n\t_ = name\n\tvar s notify.Sender = notify.System{}\n\ts.Send(\"a\", \"b\")\n}\n")
-	r := &Run{units: []unit{
-		{id: "WU-001-01", tests: true, scope: []string{"ui/ui_test.go"}},
-		{id: "WU-001-02", scope: []string{"notify/notify.go"}, provides: []string{
-			"type Sender interface { Send(title, message string) }",
-			"type System struct{}",
-			"func (System) Send(title, message string)",
-			"func Choose(goos string) (name string, args []string, ok bool) — what runs on goos",
-			"the package is stateless",
-		}},
-	}}
-	overlay, done := r.contractOverlay(ws)
-	defer done()
-	if overlay == "" {
-		t.Fatal("no stub was made for the package the code unit creates")
-	}
-	cmd := append([]string{"go", "test", overlay}, goVet([]string{"ui/ui_test.go"})[2:]...)
-	c := exec.Command(cmd[0], cmd[1:]...)
-	c.Dir = ws
-	out, err := c.CombinedOutput()
-	ok, why := r.judgeTests()(err == nil, string(out))
-	if ok || !strings.Contains(why, "assignment mismatch") {
-		t.Errorf("the miscounted values passed: %v\n%s\n%s", ok, why, out)
-	}
-	if _, err := os.Stat(filepath.Join(ws, "notify")); err == nil {
-		t.Error("the stub was written in the workspace")
-	}
-}
-
 // A configuration that leaves out the estate and the gate carries a task
 // all the same, on the estate on disk and the gate over it.
 func TestAConfigWithoutEstateOrGateWorks(t *testing.T) {
@@ -1205,42 +1131,26 @@ func TestAFileTheTicketNamesIsHanded(t *testing.T) {
 	}
 }
 
-// The names a contract says a unit provides are read from it as the code
-// declares them; what it says in prose names nothing.
-func TestTheNamesAContractProvides(t *testing.T) {
-	got := providedNames([]string{
-		"package notify",
-		"type Sender interface { Send(title, message string) }",
-		"func (System) Send(title, message string)",
-		"func commandFor(goos string) (name string, ok bool)",
-		"var lookPath = exec.LookPath  // replaced by tests",
-		"field Notify notify.Sender on type Options (internal/ui/app.go)",
-		"func (u *UI) quiet() bool",
-		"(no new names; the frame now calls u.notifyStates(p))",
-		"def shout(name):",
-	})
-	want := []string{"Sender", "Send", "commandFor", "lookPath", "Notify", "quiet", "shout"}
-	if !slices.Equal(got, want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
-}
-
-// A plan whose code unit relies on a name only a later unit provides, and
-// the estate does not have, is sent back; one ordered right is not.
+// A plan whose code unit uses a name only a later unit provides, or one no
+// unit provides and the estate does not define, is sent back; one ordered
+// right, using what exists or what comes before, is not.
 func TestAPlanUsesOnlyWhatComesBefore(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, "app.go"), []byte("package ui\n\nfunc (u *UI) frame() {}\n"), 0o644); err != nil {
-		t.Fatal(err)
+	repo := estateFixture(t)
+	r := &Run{repo: repo, cfg: Config{Estate: estate.NewLocal()}}
+	fn := func(file, name string) meta.Provision {
+		return meta.Provision{File: file, Name: name, Kind: meta.Function, Signature: "func " + name + "()"}
 	}
-	r := &Run{repo: repo}
-	helper := unit{title: "the helper", scope: []string{"project.go"}, brief: "Relies on:\n- u.notify, set by the app unit; frame, as it is\n\nProvides:\n- func (u *UI) notifyStates()\n",
-		provides: []string{"func (u *UI) notifyStates()"}}
-	fields := unit{title: "the fields", scope: []string{"app.go"}, brief: "Tasks:\n1. add notify\n", provides: []string{"field notify notify.Sender on type UI", "func (u *UI) frame()"}}
-	if got := r.orderOf([]unit{helper, fields}); !strings.Contains(got, "relies on notify") {
+	helper := unit{title: "the helper", scope: []string{"project.go"}, provides: []meta.Provision{fn("project.go", "notifyStates")}, uses: []string{"notify", "Greet"}}
+	fields := unit{title: "the fields", scope: []string{"app.go"}, provides: []meta.Provision{{File: "app.go", Name: "notify", Kind: meta.Field, Signature: "notify notify.Sender"}}}
+	if got := r.orderOf([]unit{helper, fields}); !strings.Contains(got, "uses notify, which \"the fields\" provides after it") {
 		t.Errorf("a plan out of order passed: %q", got)
 	}
 	if got := r.orderOf([]unit{fields, helper}); got != "" {
 		t.Errorf("a plan in order was sent back: %q", got)
+	}
+	helper.uses = append(helper.uses, "Nowhere")
+	if got := r.orderOf([]unit{fields, helper}); !strings.Contains(got, "no unit provides and the estate does not define") {
+		t.Errorf("a name nothing provides passed: %q", got)
 	}
 }
 
@@ -1256,7 +1166,7 @@ func (s tiring) Name() string    { return "tiring" }
 func (s tiring) Version() string { return "1" }
 func (s tiring) Run(_ context.Context, t harness.Task, _ func(harness.Event)) (harness.Result, error) {
 	*s.goals = append(*s.goals, t.Goal)
-	if strings.Contains(t.Goal, "Declare exactly these names") {
+	if t.Role == string(meta.ContractUnit) {
 		return harness.Result{Terminal: harness.Candidate, Summary: "every name is declared already"}, nil
 	}
 	scope := t.Scope[0]
@@ -1359,9 +1269,9 @@ func TestTwoCodeUnitsBuildOnAContract(t *testing.T) {
 	twoFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go"]`, 1)
 	twoUnits := `{"approach":{"summary":"Shout, then Loud.","steps":["test","shout","loud"],"risks":["none"]},
 "units":[
- {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Loud."],"provides":["TestShout"],"done_when":["it fails first"]},
- {"title":"Shout","kind":"code","scope":["shout.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":["func Shout(n string) string"],"done_when":["builds"]},
- {"title":"Loud","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Loud greets.","relies_on":["Shout, from the unit before"],"tasks":["Add Loud using Shout."],"provides":["func Loud(n string) string"],"done_when":["the suite passes"]}]}`
+ {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Loud."],"done_when":["it fails first"]},
+ {"title":"Shout","kind":"code","scope":["shout.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":[{"file":"shout.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}],"done_when":["builds"]},
+ {"title":"Loud","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Loud greets.","relies_on":["Shout, from the unit before"],"tasks":["Add Loud using Shout."],"provides":[{"file":"greet.go","name":"Loud","kind":"function","signature":"func Loud(n string) string"}],"uses":["Shout"],"done_when":["the suite passes"]}]}`
 	files := map[string]string{
 		"shout_test.go":     "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Loud(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
 		"shout.go":          "package greet\n\nimport \"strings\"\n\nfunc Shout(n string) string { return strings.ToUpper(n) }\n",
@@ -1397,8 +1307,8 @@ func TestTwoCodeUnitsBuildOnAContract(t *testing.T) {
 // change a file in common share one, in the plan's order.
 func TestChainsOfCodeUnits(t *testing.T) {
 	r := &Run{units: []unit{
-		{id: "c", contract: true},
-		{id: "t", tests: true},
+		{id: "c", kind: meta.ContractUnit},
+		{id: "t", kind: meta.TestsUnit},
 		{id: "a", scope: []string{"notify.go"}},
 		{id: "b", scope: []string{"settings.go"}},
 		{id: "c1", scope: []string{"app.go"}},
@@ -1410,9 +1320,9 @@ func TestChainsOfCodeUnits(t *testing.T) {
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("chains %v, want %v", got, want)
 	}
-	r.units[0].contract = false
-	r.units[3].brief = "Relies on:\n- Send, from notify\n"
-	r.units[2].provides = []string{"func Send()"}
+	r.units[0].kind = meta.CodeUnit
+	r.units[3].uses = []string{"Send"}
+	r.units[2].provides = []meta.Provision{{File: "notify.go", Name: "Send", Kind: meta.Function, Signature: "func Send()"}}
 	if got := r.chains(2, 6); fmt.Sprint(got) != fmt.Sprint([][]int{{2, 3}, {4, 5}}) {
 		t.Errorf("without a contract, a unit using another's name was not chained to it: %v", got)
 	}
@@ -1426,10 +1336,10 @@ func TestChainsAreCarriedAtOnce(t *testing.T) {
 	threeFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go","whisper.go"]`, 1)
 	plan := `{"approach":{"summary":"Shout and whisper, then loud.","steps":["test","shout","whisper","loud"],"risks":["none"]},
 "units":[
- {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Loud."],"provides":["TestShout"],"done_when":["it fails first"]},
- {"title":"Shout","kind":"code","scope":["shout.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":["func Shout(n string) string"],"done_when":["builds"]},
- {"title":"Whisper","kind":"code","scope":["whisper.go"],"criteria":["CR-001-01"],"objective":"Whisper.","tasks":["Add Whisper."],"provides":["func Whisper(n string) string"],"done_when":["builds"]},
- {"title":"Loud","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Loud greets.","tasks":["Add Loud using Shout."],"provides":["func Loud(n string) string"],"done_when":["the suite passes"]}]}`
+ {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Loud."],"done_when":["it fails first"]},
+ {"title":"Shout","kind":"code","scope":["shout.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":[{"file":"shout.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}],"done_when":["builds"]},
+ {"title":"Whisper","kind":"code","scope":["whisper.go"],"criteria":["CR-001-01"],"objective":"Whisper.","tasks":["Add Whisper."],"provides":[{"file":"whisper.go","name":"Whisper","kind":"function","signature":"func Whisper(n string) string"}],"done_when":["builds"]},
+ {"title":"Loud","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Loud greets.","tasks":["Add Loud using Shout."],"provides":[{"file":"greet.go","name":"Loud","kind":"function","signature":"func Loud(n string) string"}],"uses":["Shout"],"done_when":["the suite passes"]}]}`
 	files := map[string]string{
 		"shout_test.go":       "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Loud(\"a\") != \"HELLO, A\" || Whisper(\"A\") != \"a\" {\n\t\tt.Fatal()\n\t}\n}\n",
 		"shout.go":            "package greet\n\nimport \"strings\"\n\nfunc Shout(n string) string { return strings.ToUpper(n) }\n",
@@ -1553,7 +1463,7 @@ type overreach struct {
 }
 
 func (o overreach) Run(ctx context.Context, t harness.Task, emit func(harness.Event)) (harness.Result, error) {
-	if strings.Contains(t.Goal, "Declare exactly these names") {
+	if t.Role == string(meta.ContractUnit) {
 		if *o.contracts++; *o.contracts == 1 {
 			full := o.stubExecutor
 			full.files = map[string]string{}
@@ -1562,7 +1472,7 @@ func (o overreach) Run(ctx context.Context, t harness.Task, emit func(harness.Ev
 					full.files[k] = v
 				}
 			}
-			t.Goal = "" // it writes as if it were the code
+			t.Role = string(meta.CodeUnit) // it writes as if it were the code
 			return full.Run(ctx, t, emit)
 		}
 	}
@@ -1577,9 +1487,9 @@ func TestAContractThatBehavesIsDeclaredAgain(t *testing.T) {
 	twoFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go"]`, 1)
 	twoUnits := `{"approach":{"summary":"Shout, then Loud.","steps":["test","shout","loud"],"risks":["none"]},
 "units":[
- {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Loud."],"provides":["TestShout"],"done_when":["it fails first"]},
- {"title":"Shout","kind":"code","scope":["shout.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":["func Shout(n string) string"],"done_when":["builds"]},
- {"title":"Loud","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Loud greets.","tasks":["Add Loud using Shout."],"provides":["func Loud(n string) string"],"done_when":["the suite passes"]}]}`
+ {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Loud."],"done_when":["it fails first"]},
+ {"title":"Shout","kind":"code","scope":["shout.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":[{"file":"shout.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}],"done_when":["builds"]},
+ {"title":"Loud","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Loud greets.","tasks":["Add Loud using Shout."],"provides":[{"file":"greet.go","name":"Loud","kind":"function","signature":"func Loud(n string) string"}],"uses":["Shout"],"done_when":["the suite passes"]}]}`
 	files := map[string]string{
 		"shout_test.go":     "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Loud(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
 		"shout.go":          "package greet\n\nimport \"strings\"\n\nfunc Shout(n string) string { return strings.ToUpper(n) }\n",
