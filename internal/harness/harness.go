@@ -36,6 +36,10 @@ type Task struct {
 	// Check is a command the agent may run to see where it stands — the
 	// estate's own tests. It is not what judges the unit.
 	Check []string
+	// First, where given, is run before Check — the change's own tests,
+	// seconds where the whole check takes minutes — and while it fails it
+	// is what the check says; Check runs only once it passes.
+	First []string
 	// Judge, where given, decides whether the check's outcome is acceptable
 	// in place of its exit status, and says why not: tests written before
 	// their code fail to build, and only some of those failures are theirs.

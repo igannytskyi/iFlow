@@ -269,7 +269,7 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			res.Terminal = Candidate
 			break
 		}
-		ok, out := check(ctx, t.Workspace, t.Check)
+		ok, out := checkFirst(ctx, t.Workspace, t.First, t.Check)
 		judged := ""
 		if t.Judge != nil {
 			ok, judged = t.Judge(ok, out)
@@ -349,6 +349,17 @@ func check(ctx context.Context, dir string, cmd []string) (bool, string) {
 	c.Dir = dir
 	out, err := c.CombinedOutput()
 	return err == nil, string(out)
+}
+
+// checkFirst runs first, where given, and the check only once it passes:
+// what fails fast is said fast.
+func checkFirst(ctx context.Context, dir string, first, cmd []string) (bool, string) {
+	if len(first) > 0 {
+		if ok, out := check(ctx, dir, first); !ok {
+			return false, out
+		}
+	}
+	return check(ctx, dir, cmd)
 }
 
 // tail is the last n lines of what a command said, where failures are.

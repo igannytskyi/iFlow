@@ -77,7 +77,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	if l.Model == nil {
 		return Result{Terminal: FailedSubstrate}, errNoModel
 	}
-	ws := &workspace{dir: t.Workspace, scope: t.Scope, check: t.Check, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
+	ws := &workspace{dir: t.Workspace, scope: t.Scope, check: t.Check, first: t.First, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
 	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t) + libraryNote(t.Workspace)}}
 	// What the estate says is read once: from the agent's third turn on it
 	// is sent as an index of what it held, and the agent reads what it

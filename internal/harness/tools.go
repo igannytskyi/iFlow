@@ -35,6 +35,7 @@ type workspace struct {
 	scope []string
 	check []string
 	judge func(passed bool, output string) (ok bool, why string)
+	first []string
 	quick func(files []string) []string
 	focus func(pattern, path string) []string
 	ctx   context.Context
@@ -92,7 +93,7 @@ func (w *workspace) readable(p string) (string, error) {
 // says: whether it passes, what it said, and why it does not pass where a
 // judge says so.
 func (w *workspace) run() (ok bool, out, why string) {
-	ok, out = check(w.ctx, w.dir, w.check)
+	ok, out = checkFirst(w.ctx, w.dir, w.first, w.check)
 	if w.judge != nil {
 		ok, why = w.judge(ok, out)
 	}

@@ -853,6 +853,11 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 		// afterwards, by failing against the estate as it stands.
 	case i == len(r.units)-1:
 		task.Check = resolve(ws, prof.suite) // the last unit completes the change
+		// The change's own tests run first: seconds, where the whole suite
+		// takes minutes, and most of what fails fails there.
+		if names := r.newTestNames(prof); len(names) > 0 {
+			task.First = resolve(ws, prof.only(names))
+		}
 	case len(prof.build) > 0:
 		task.Check = resolve(ws, prof.build) // an earlier one leaves the estate building
 	}
@@ -1057,9 +1062,24 @@ func (r *Run) goal(u unit) string {
 		return brief + "\n\nWrite only the tests. The behaviour does not exist yet, and neither does the code that will provide it: " +
 			"call it by the names the brief gives, and leave it undefined — the code units define it, to pass your tests. " +
 			"Fakes of what the code depends on (a mailer, a clock, a payment provider) belong in the tests; what the code itself provides never does. " +
-			"The tests fail against the estate as it stands, if only because what they call is not there yet. Name each test after what it checks."
+			"The tests fail against the estate as it stands, if only because what they call is not there yet. Name each test after what it checks. " +
+			"No test waits longer than five seconds for anything: wait on a channel or poll a condition with a short deadline, so that a failing test fails in seconds, not minutes."
 	}
 	return brief + "\n\nTests that decide the criteria were written first; do not change them."
+}
+
+// newTestNames is every test the tests units of the change wrote.
+func (r *Run) newTestNames(prof profile) []string {
+	var names []string
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, u := range r.units {
+		if dir, ok := r.cands[u.id]; ok && u.tests {
+			names = append(names, r.testNames(filepath.Dir(dir), prof)...)
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 func (r *Run) testNames(store string, prof profile) []string {

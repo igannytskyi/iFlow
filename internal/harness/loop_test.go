@@ -425,3 +425,25 @@ func TestAUnitIsNotDoneWithoutWhatItProvides(t *testing.T) {
 		t.Errorf("the agent was not told what it left out: %s", told)
 	}
 }
+
+// The fast check runs first; while it fails, the whole check is not run.
+func TestTheFastCheckRunsFirst(t *testing.T) {
+	ws := t.TempDir()
+	w := &workspace{dir: ws, ctx: context.Background(),
+		first: []string{"sh", "-c", "echo the change test fails; exit 1"},
+		check: []string{"sh", "-c", "touch whole-ran; exit 0"}}
+	ok, out, _ := w.run()
+	if ok || !strings.Contains(out, "the change") {
+		t.Errorf("the fast check's failure was not said: %v %q", ok, out)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "whole-ran")); err == nil {
+		t.Error("the whole check ran while the fast one failed")
+	}
+	w.first = []string{"true"}
+	if ok, _, _ := w.run(); !ok {
+		t.Error("the whole check did not decide once the fast one passed")
+	}
+	if _, err := os.Stat(filepath.Join(ws, "whole-ran")); err != nil {
+		t.Error("the whole check did not run once the fast one passed")
+	}
+}
