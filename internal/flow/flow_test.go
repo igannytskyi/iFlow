@@ -563,3 +563,78 @@ func TestARequirementIsNumberedOnce(t *testing.T) {
 		}
 	}
 }
+
+// A change is carried again in its own folder, from its plan or from its
+// specification: what it wrote from there on is kept under superseded/, the
+// record says it was reopened, and it lands again passing the gate.
+func TestAReopenedChangeIsCarriedAgain(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}
+	var prompts []string
+	cfg := Config{Model: stubModel{spec, &prompts}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	carry := func(run *Run) {
+		t.Helper()
+		run.changed = func() {
+			if v := run.View(); v.Question != "" {
+				go run.Accept()
+			}
+		}
+		if err := run.Start(context.Background()); err != nil {
+			for _, s := range run.View().Steps {
+				t.Logf("%d %s", s.Area, s.Text)
+			}
+			t.Fatalf("the change did not land: %v", err)
+		}
+	}
+	first := New(cfg, repo, "make it possible to shout the greeting", nil)
+	carry(first)
+	dir := first.View().Dir
+	for i, from := range []int{2, 1} {
+		// What the person asks for is new behaviour: tests that fail on the
+		// estate as the first landing left it, and code that passes them.
+		bang := strings.Repeat("!", i+1)
+		files["shout_test.go"] = "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A" + bang + "\" {\n\t\tt.Fatal()\n\t}\n}\n"
+		files["greet.go"] = "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) + \"" + bang + "\" }\n"
+		prompts = nil
+		run, err := Reopen(cfg, repo, dir, from, "shout with an exclamation mark", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		carry(run)
+		if run.View().Dir != dir {
+			t.Errorf("reopened into %s, not its own folder", run.View().Dir)
+		}
+		handed := strings.Join(prompts, "\n")
+		if !strings.Contains(handed, "shout with an exclamation mark") {
+			t.Errorf("from %d: the person's words were not handed on", from)
+		}
+		c, err := artifact.Load(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
+			t.Errorf("from %d: the change does not pass the gate again: %v", from, rep.Problems())
+		}
+		reopened := 0
+		for _, cr := range c.Meta.Record {
+			if cr.Stage == "reopened" {
+				reopened++
+			}
+		}
+		if reopened == 0 || c.Meta.Intent.ID != "INT-001" {
+			t.Errorf("from %d: the record does not say it was reopened, or the number moved: %d, %s", from, reopened, c.Meta.Intent.ID)
+		}
+	}
+	for _, kept := range []string{"superseded/1/02-plan.json", "superseded/2/01-specification.json", "superseded/2/change.md"} {
+		if _, err := os.Stat(filepath.Join(dir, kept)); err != nil {
+			t.Errorf("%s was not kept", kept)
+		}
+	}
+	if _, err := Reopen(cfg, repo, dir, 3, "x", nil); err == nil {
+		t.Error("reopened from area 3")
+	}
+}

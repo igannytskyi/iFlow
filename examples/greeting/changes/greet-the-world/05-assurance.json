@@ -75,5 +75,12 @@
       "raised_against": "area 1",
       "to": "the example's author"
     }
+  ],
+  "escalations_closed": [
+    {
+      "escalation": "greet-the-world#1",
+      "resolved_by": "Illia Gannytskyi, by a decision",
+      "note": "resolved by trim-name-whitespace, which landed after it: a name made only of whitespace is now absent, and Greet greets the world"
+    }
   ]
 }

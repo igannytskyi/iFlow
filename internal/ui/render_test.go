@@ -23,6 +23,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/method"
 	"github.com/igannytskyi/iflow/internal/model"
+	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
 // painter draws frames without a window and, when IFLOW_SHOTS names a
@@ -115,7 +116,19 @@ func TestHistoryRenders(t *testing.T) {
 	if _, ok := p.shownOf(); ok {
 		t.Fatal("a project opens on a task rather than on its overview")
 	}
-	newest, old := p.order[0], p.order[len(p.order)-1]
+	// The task with what it cost, and the one before it.
+	var newest, old *workspace.Change
+	for _, c := range p.order {
+		switch c.Name() {
+		case "trim-name-whitespace":
+			newest = c
+		case "greet-the-world":
+			old = c
+		}
+	}
+	if newest == nil || old == nil {
+		t.Fatal("the example's tasks are not there")
+	}
 	for _, s := range []struct {
 		name string
 		set  func()
@@ -131,7 +144,17 @@ func TestHistoryRenders(t *testing.T) {
 		{"task-older", func() { p.show(old.Change.Dir, old) }},
 		{"task-area", func() { p.area = 5 }},
 		{"task-object", func() { p.item = old.Item("VE-001-01") }},
-		{"new-intent", func() { p.selected = newKey }},
+		{"task-resolve", func() {
+			// The task that raised an escalation, its matters open, deciding.
+			for _, c := range p.order {
+				if c.Name() == "greet-the-world" {
+					p.show(c.Change.Dir, c)
+					p.open["matters/"+c.Change.Dir] = true
+					p.resolving, p.resolveMode = c.Change.Dir+"|greet-the-world#1", resolveSettle
+				}
+			}
+		}},
+		{"new-intent", func() { p.selected, p.resolving = newKey, "" }},
 		{"foundation-economy", func() { p.selected, p.foundation = "", 9 }},
 		{"foundation-estate", func() { p.foundation = 7 }},
 		{"settings", func() { u.preferring = true }},

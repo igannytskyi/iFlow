@@ -21,3 +21,9 @@
 | # | Standing | Ground | Raised against | To |
 |---|---|---|---|---|
 | 1 | open | A name made only of spaces is greeted as it is, and no criterion says whether that is a name — the criteria under-determine the result there, which belongs to area 1 | area 1 | the example's author |
+
+## Escalations closed
+
+| Escalation | Resolved by | Note |
+|---|---|---|
+| greet-the-world#1 | Illia Gannytskyi, by a decision | resolved by trim-name-whitespace, which landed after it: a name made only of whitespace is now absent, and Greet greets the world |

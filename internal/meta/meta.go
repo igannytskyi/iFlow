@@ -56,6 +56,10 @@ type Specification struct {
 	// Inputs are what the arbiters read, and whether each is in the scope:
 	// an input in the scope has its prior state captured at admission (R7b).
 	Inputs []ArbiterInput `json:"arbiter_inputs,omitempty" doc:"what the arbiters read, and whether each is in the scope"`
+	// NewTests are the tests written for this change before its code, and
+	// SuiteTests those already there that judge it.
+	NewTests   []string `json:"new_tests,omitempty" doc:"the tests written for this change, before its code"`
+	SuiteTests []string `json:"existing_tests,omitempty" doc:"the tests already there that judge it"`
 	// Sections are the further sections a study's specification keeps —
 	// its population, hypothesis, measures — as headed prose and tables.
 	Sections []Section `json:"sections,omitempty" doc:"headed parts the model has no field for, kept as they were written"`
@@ -72,6 +76,7 @@ type Criterion struct {
 	Procedure Procedure    `json:"procedure" doc:"how the criterion is decided"`
 	Evidence  EvidenceKind `json:"required_evidence" doc:"what kind of evidence settles the criterion"`
 	Threshold string       `json:"threshold,omitempty" doc:"the bound a result must meet"`
+	New       bool         `json:"judged_by_new_tests,omitempty" doc:"whether tests written for this change, before its code, judge it"`
 }
 
 // Termination is a condition on which work stops without acceptance.

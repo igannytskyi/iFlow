@@ -42,6 +42,9 @@ security add-generic-password -s iflow.openrouter -a iflow -w
 iflow desk <project>...                 # the workbench: type a task, watch it carried area by area
 iflow run [--accept] <project> <task>   # the same without a window
 iflow models                            # which model does each piece of work
+iflow reopen [--ask] <change> <1|2> <what is to change>  # carry a change again in its own folder,
+                                        # from its specification (1) or its plan (2)
+iflow settle <change> <n> <decision>    # close an escalation the change raised by your decision
 ```
 
 The workbench shows each area as the task passes through it, every object it hands on, what the gate said at each boundary, what the agent did step by step, and what each step cost — model, tokens and money.
@@ -62,6 +65,7 @@ In the window:
 
 - **+ New intent** under a project, or Cmd/Ctrl+N: type what should change, Enter starts it; the specification waits for you to accept it or send it back.
 - The box at the foot is **Chat** or **Intent**. Chat talks with the model about what is on view: each task has its own conversation, handed that task's specification, plan and record, and the model may read the repository before it answers. *Make it an intent* turns an answer into a task.
+- A task's problems and escalations open from the chip under its heading. Each can be fixed in the task itself — carried again from its specification or from its plan, with what is to change — or by a new intent; an escalation can also be settled by a decision, kept with your others.
 - Cmd/Ctrl+1…9 choose a project; Escape closes the open object, handover, foundation page, then the settings.
 - **Settings** at the bottom left: which model does each piece of work, and what each costs.
 

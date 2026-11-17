@@ -61,6 +61,9 @@
             "pattern": "^CR-\\d{3}-\\d{2}$",
             "type": "string"
           },
+          "judged_by_new_tests": {
+            "description": "whether tests written for this change, before its code, judge it"
+          },
           "plan": {
             "description": "whether settling it needs an evidence plan",
             "enum": [
@@ -123,6 +126,13 @@
       ],
       "type": "string"
     },
+    "existing_tests": {
+      "description": "the tests already there that judge it",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "id": {
       "description": "SPEC-\u003cnnn\u003e",
       "pattern": "^SPEC-\\d{3}$",
@@ -135,6 +145,13 @@
     "name": {
       "description": "the change's folder name, its slug",
       "type": "string"
+    },
+    "new_tests": {
+      "description": "the tests written for this change, before its code",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
     },
     "prose": {
       "description": "what the document says besides its fields, for one written before the model held it",

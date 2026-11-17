@@ -124,9 +124,22 @@ func (u *UI) mattersPanel(p *project, c *workspace.Change) W {
 		if u.clicked(gtx, ask) {
 			u.askAbout(p, c, ms)
 		}
-		return u.pressable(gtx, ask, false, 6, box(u.p.AccentSoft, colorNRGBA{}, 6, 0,
-			inset(5, 12, u.text(sizeSmall, u.p.Accent, "What does this mean and what can I do?"))))
+		return u.pressable(gtx, ask, false, 6, box(u.p.Sunken, colorNRGBA{}, 6, 0,
+			inset(5, 12, u.text(sizeSmall, u.p.Text, "What does this mean and what can I do?"))))
 	})
+	// Each escalation is resolved on its own; the problems of the task
+	// together, by fixing the task or starting another.
+	problems := false
+	for _, m := range ms {
+		if m.kind == "escalation" {
+			rows = append(rows, column(4, u.text(sizeSmall, u.p.Faint, "RESOLVE "+m.ref), u.resolveActions(p, c, m.ref, m.text)))
+		} else {
+			problems = true
+		}
+	}
+	if problems {
+		rows = append(rows, column(4, u.text(sizeSmall, u.p.Faint, "RESOLVE THE PROBLEMS"), u.resolveActions(p, c, "", "its problems")))
+	}
 	return box(u.p.Surface, u.p.Line, 8, 12, column(8, rows...))
 }
 

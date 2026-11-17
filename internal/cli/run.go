@@ -66,8 +66,16 @@ func (app *App) RunTask(ctx context.Context, args []string) int {
 		fmt.Fprintln(app.Out, "usage: iflow run [--accept | --ask] <estate> <task…>")
 		return Misused
 	}
-	// With --ask the person answers on standard input, one line a question:
-	// "accept", or the notes the specification is sent back with.
+	return app.carry(ctx, accept, ask, func(cfg flow.Config, changed func()) (*flow.Run, error) {
+		return flow.New(cfg, rest[0], strings.Join(rest[1:], " "), changed), nil
+	})
+}
+
+// carry runs what start makes, printing each step as it comes. With --accept
+// the criteria are accepted as written, which the record says; with --ask
+// the person answers on standard input, one line a question: "accept", or
+// the notes the specification is sent back with.
+func (app *App) carry(ctx context.Context, accept, ask bool, start func(flow.Config, func()) (*flow.Run, error)) int {
 	answers := bufio.NewScanner(os.Stdin)
 	asking := false
 	cfg, problems := app.FlowConfig()
@@ -114,12 +122,15 @@ func (app *App) RunTask(ctx context.Context, args []string) int {
 			}()
 		}
 	}
-	run = flow.New(cfg, rest[0], strings.Join(rest[1:], " "), func() {
+	run, err := start(cfg, func() {
 		if run != nil {
 			print()
 		}
 	})
-	err := run.Start(ctx)
+	if err != nil {
+		return app.fatal(err)
+	}
+	err = run.Start(ctx)
 	print()
 	v := run.View()
 	fmt.Fprintf(app.Out, "  spent $%.2f, %d tokens in (%d from cache), %d out\n", v.Spent.CostUSD, v.Spent.In(), v.Spent.CacheRead, v.Spent.Output)
@@ -128,4 +139,35 @@ func (app *App) RunTask(ctx context.Context, args []string) int {
 	}
 	fmt.Fprintf(app.Out, "  landed: %s\n", v.Dir)
 	return OK
+}
+
+// Reopen carries a change again in its own folder from its specification (1)
+// or its plan (2), with what the person says is to change:
+// iflow reopen [--accept|--ask] <change folder> <1|2> <what is to change>.
+func (app *App) Reopen(ctx context.Context, args []string) int {
+	accept, ask := false, false
+	var rest []string
+	for _, a := range args {
+		switch a {
+		case "--accept":
+			accept = true
+		case "--ask":
+			ask = true
+		default:
+			rest = append(rest, a)
+		}
+	}
+	if len(rest) < 3 || (rest[1] != "1" && rest[1] != "2") {
+		fmt.Fprintln(app.Out, "usage: iflow reopen [--accept | --ask] <change folder> <1 | 2> <what is to change…>")
+		return Misused
+	}
+	dir := absolute(rest[0])
+	repo := filepath.Dir(filepath.Dir(dir))
+	from := 1
+	if rest[1] == "2" {
+		from = 2
+	}
+	return app.carry(ctx, accept, ask, func(cfg flow.Config, changed func()) (*flow.Run, error) {
+		return flow.Reopen(cfg, repo, dir, from, strings.Join(rest[2:], " "), changed)
+	})
 }

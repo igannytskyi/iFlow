@@ -111,7 +111,11 @@ func (r *Run) plan(ctx context.Context) error {
 	}
 	var units []unit
 	var approach []artifact.Part
-	var planner, feedback string
+	var planner string
+	feedback := ""
+	if r.from == 2 {
+		feedback = r.reopened
+	}
 	for round := 1; ; round++ {
 		units, approach, planner = r.planned(ctx, all, byTests, feedback)
 		if units == nil || round > reviewRounds {

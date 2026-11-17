@@ -121,6 +121,10 @@ type Run struct {
 	// again is, for a tests unit carried again, what the code that could
 	// not pass its tests found wrong with them.
 	again map[string]string
+	// from is the area a reopened change is carried again from, 0 for a new
+	// one; reopened is what its author or planner is handed of why.
+	from     int
+	reopened string
 }
 
 type decision struct {
@@ -333,7 +337,14 @@ func (r *Run) Start(ctx context.Context) error {
 		}
 		r.changed()
 	}()
-	for _, area := range []func(context.Context) error{r.intent, r.plan, r.admit, r.execute, r.assure, r.land} {
+	if r.from > 0 {
+		_ = os.WriteFile(filepath.Join(r.dir, RunningFile), []byte(fmt.Sprint(os.Getpid())), 0o644)
+	}
+	for i, area := range []func(context.Context) error{r.intent, r.plan, r.admit, r.execute, r.assure, r.land} {
+		if i+1 < r.from {
+			r.set(i+1, Done) // carried before, and kept: the change is reopened after it
+			continue
+		}
 		if err := area(ctx); err != nil {
 			return err
 		}

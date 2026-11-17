@@ -82,6 +82,11 @@ type project struct {
 	// settles are escalations the next task typed is meant to close.
 	settles []string
 	ground  widget.Editor
+	// resolving is the matter whose way out is being written, as the task's
+	// folder and the escalation; resolveMode which way; resolveText the
+	// words, resolveErr what stopped it.
+	resolving, resolveMode, resolveErr string
+	resolveText                        widget.Editor
 
 	// talk is the project's conversations with a model, one per task.
 	talk talk

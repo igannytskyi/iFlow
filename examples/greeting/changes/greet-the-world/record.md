@@ -18,3 +18,4 @@ Append-only. Each crossing of a stage boundary is one line.
 | 12 | 2026-11-14 | landing | WU-001-02 |  | entered |
 | 13 | 2026-11-14 | assurance | VE-001-04 |  | the reproduction's own verdict, missing at first: the gate refused the landing without it (A6) |
 | 14 | 2026-11-16 | migrated | the data model | 3519490f41b1adb3 | its documents written in the data model, schema 1; the Markdown they were read from is kept under legacy/ |
+| 15 | 2026-11-17 | settled | greet-the-world#1 |  | Illia Gannytskyi decided: resolved by trim-name-whitespace, which landed after it: a name made only of whitespace is now absent, and Greet greets the world |

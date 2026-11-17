@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/unit"
 	"gioui.org/widget/material"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
+	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
 // statsPanel stands beside every task: what that task has cost, in a few
@@ -280,32 +280,27 @@ func (u *UI) escalations(p *project) W {
 	rows := []W{u.text(sizeSmall, u.p.Faint, "OPEN ESCALATIONS — what a task left for a person")}
 	for _, o := range p.led.Owed {
 		name, _, _ := strings.Cut(o.Ref, "#")
-		btn, settle := u.clicks.of("owed/"+p.path+o.Ref), u.clicks.of("owed/settle/"+p.path+o.Ref)
+		var c *workspace.Change
+		for _, x := range p.order {
+			if x.Name() == name {
+				c = x
+			}
+		}
+		btn := u.clicks.of("owed/" + p.path + o.Ref)
 		rows = append(rows, func(gtx C) D {
-			if u.clicked(gtx, settle) {
-				p.task.SetText("Close " + o.Ref + ": " + o.Ground)
-				p.settles = []string{o.Ref}
-				p.selected, p.item = newKey, nil
-				gtx.Execute(key.FocusCmd{Tag: &p.task})
+			if u.clicked(gtx, btn) && c != nil {
+				p.show(c.Change.Dir, c)
+				p.item = c.Item(o.Ref)
 			}
-			if u.clicked(gtx, btn) {
-				for _, c := range p.order {
-					if c.Name() == name {
-						p.show(c.Change.Dir, c)
-						p.item = c.Item(o.Ref)
-					}
-				}
+			parts := []W{func(gtx C) D {
+				return u.pressable(gtx, btn, false, 4, stretch(inset(5, 6, column(2,
+					u.mono(sizeSmall, u.p.Note, o.Ref),
+					u.text(sizeSmall, u.p.Text, o.Ground)))))
+			}}
+			if c != nil {
+				parts = append(parts, u.resolveActions(p, c, o.Ref, o.Ground))
 			}
-			return column(4,
-				func(gtx C) D {
-					return u.pressable(gtx, btn, false, 4, stretch(inset(5, 6, column(2,
-						u.mono(sizeSmall, u.p.Note, o.Ref),
-						u.text(sizeSmall, u.p.Text, o.Ground)))))
-				},
-				func(gtx C) D {
-					return u.pressable(gtx, settle, false, 6, box(u.p.AccentSoft, colorNRGBA{}, 6, 0,
-						inset(4, 10, u.text(sizeSmall, u.p.Accent, "Close it with a new intent"))))
-				})(gtx)
+			return column(4, parts...)(gtx)
 		})
 	}
 	return column(4, rows...)

@@ -12,3 +12,4 @@
 {"n":12,"at":"2026-11-14","stage":"landing","object":"WU-001-02","note":"entered"}
 {"n":13,"at":"2026-11-14","stage":"assurance","object":"VE-001-04","note":"the reproduction's own verdict, missing at first: the gate refused the landing without it (A6)"}
 {"n":14,"at":"2026-11-16","stage":"migrated","object":"the data model","digest":"3519490f41b1adb3","note":"its documents written in the data model, schema 1; the Markdown they were read from is kept under legacy/"}
+{"n":15,"at":"2026-11-17","stage":"settled","object":"greet-the-world#1","note":"Illia Gannytskyi decided: resolved by trim-name-whitespace, which landed after it: a name made only of whitespace is now absent, and Greet greets the world"}

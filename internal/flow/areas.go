@@ -205,10 +205,12 @@ var slugRE = regexp.MustCompile(`[^a-z0-9-]+`)
 func (r *Run) intent(ctx context.Context) error {
 	r.set(1, Working)
 	r.mu.Lock()
-	r.n = nextNumber(r.repo)
+	if r.n == 0 {
+		r.n = nextNumber(r.repo)
+	}
 	r.mu.Unlock()
 	prompt := "The task, as a person wrote it:\n\n" + r.statement + "\n\n" + r.overview()
-	var feedback string
+	feedback := r.reopened
 	for sent := 0; ; sent++ {
 		d, err := r.specified(ctx, prompt, feedback)
 		if err != nil {
@@ -388,7 +390,8 @@ func (r *Run) writeIntent(d draft) error {
 		return err
 	}
 	spec := meta.Specification{Schema: meta.SchemaVersion, Name: r.slug, ID: r.id("SPEC"), Intent: r.id("INT"), Class: meta.Class(d.Class), Prose: d.Prose,
-		Scope: meta.Scope{Included: d.Scope, Excluded: append(slices.Clone(d.NewTests), d.SuiteTests...)},
+		Scope:    meta.Scope{Included: d.Scope, Excluded: append(slices.Clone(d.NewTests), d.SuiteTests...)},
+		NewTests: d.NewTests, SuiteTests: d.SuiteTests,
 	}
 	var byNew, bySuite []string
 	for i, c := range d.Criteria {
@@ -398,7 +401,7 @@ func (r *Run) writeIntent(d draft) error {
 			plan = meta.Required
 		}
 		spec.Criteria = append(spec.Criteria, meta.Criterion{ID: id, Criterion: c.Criterion, When: c.When,
-			Then: c.Then, Plan: plan, Procedure: meta.Machine, Evidence: meta.TestRun, Threshold: c.Threshold})
+			Then: c.Then, Plan: plan, Procedure: meta.Machine, Evidence: meta.TestRun, Threshold: c.Threshold, New: c.New})
 		if c.New && len(d.NewTests) > 0 {
 			byNew = append(byNew, id)
 		} else {
