@@ -362,3 +362,28 @@ func TestAFirstRungsCannotStandsUnlessShownWrong(t *testing.T) {
 		t.Errorf("the unit ended %s: %s", res.Terminal, res.Summary)
 	}
 }
+
+// An agent told it has read enough is shown where the check fails.
+func TestANudgeNamesWhereTheCheckFails(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	turns := []model.Message{calling("run_check", map[string]string{})}
+	for i := range 7 {
+		turns = append(turns, calling("list_dir", map[string]string{"path": fmt.Sprint(".", strings.Repeat("/.", i))}))
+	}
+	turns = append(turns, model.Message{Content: "stop"}, model.Message{Content: "stop"}, model.Message{Content: "stop"})
+	var sent [][]model.Message
+	check := []string{"sh", "-c", "echo 'a.go:3:10: cannot use box(...) (value of func type W) as D value'; exit 1"}
+	_, _ = Loop{Model: chatting{sent: &sent, turns: turns}}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: check}, func(Event) {})
+	for _, msgs := range sent {
+		if last := msgs[len(msgs)-1]; last.Role == "user" && strings.Contains(last.Content, "read enough") {
+			if !strings.Contains(last.Content, "a.go:3:10: cannot use box") {
+				t.Errorf("the nudge did not say where the check fails:\n%s", last.Content)
+			}
+			return
+		}
+	}
+	t.Error("no nudge was sent")
+}

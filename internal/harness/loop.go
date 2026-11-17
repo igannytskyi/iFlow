@@ -203,7 +203,11 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 		// each call answered before anything else is said.
 		if idle >= idleNudge && !nudged {
 			nudged = true
-			msgs = append(msgs, model.Message{Role: "user", Content: fmt.Sprintf("You have taken %d steps without changing anything. You have read enough: change the file that makes the check pass now, or say in one sentence why no change in your scope can.", idle)})
+			nudge := fmt.Sprintf("You have taken %d steps without changing anything. You have read enough: change the file that makes the check pass now, or say in one sentence why no change in your scope can.", idle)
+			if f := firstFaults(ws.last.out, 3); !ws.last.ok && f != "" { // the check as it last ran
+				nudge += "\n\nThe check fails here — change these lines first:\n" + f
+			}
+			msgs = append(msgs, model.Message{Role: "user", Content: nudge})
 		}
 	}
 	return end(Exhausted, fmt.Sprintf("stopped after %d steps without finishing", res.Steps))
@@ -291,4 +295,16 @@ func sections(s string) []string {
 		}
 	}
 	return append(out, s[start:])
+}
+
+// firstFaults is the first n lines of out that name a file, line and column
+// as the place something is wrong.
+func firstFaults(out string, n int) string {
+	var got []string
+	for _, l := range strings.Split(out, "\n") {
+		if faultAt.MatchString(l) && len(got) < n {
+			got = append(got, strings.TrimSpace(l))
+		}
+	}
+	return strings.Join(got, "\n")
 }
