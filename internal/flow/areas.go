@@ -948,6 +948,14 @@ func (r *Run) pack(u unit) estate.Pack {
 	if u.tests {
 		read = r.spec.Scope // the code the tests will exercise, as it stands
 	}
+	// A file the unit's ticket names, that exists, is read whole: a ticket
+	// that says "as render_test.go does" asks for what an agent with no
+	// tools would otherwise never see.
+	for _, f := range r.named(u) {
+		if !slices.Contains(read, f) && !slices.Contains(u.scope, f) {
+			read = append(read, f)
+		}
+	}
 	p := repo.PackFor(u.scope, read, r.cfg.packBudget())
 	// What earlier units wrote is not in the estate yet, only in their
 	// candidates; a unit that depends on them reads them from there.
@@ -977,6 +985,30 @@ func (r *Run) pack(u unit) estate.Pack {
 	p.Sections = append(earlier, p.Sections...)
 	return p
 }
+
+// named is every file of the estate the unit's ticket names, by its path
+// or, in a folder of the unit's scope, by its name alone.
+func (r *Run) named(u unit) []string {
+	var out []string
+	for _, m := range fileName.FindAllString(u.title+"\n"+u.brief, -1) {
+		m = strings.Trim(m, "./")
+		candidates := []string{m}
+		if !strings.Contains(m, "/") {
+			candidates = nil
+			for _, s := range u.scope {
+				candidates = append(candidates, path.Join(path.Dir(s), m))
+			}
+		}
+		for _, c := range candidates {
+			if fileExists(filepath.Join(r.repo, filepath.FromSlash(c))) && !slices.Contains(out, c) {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
+
+var fileName = regexp.MustCompile(`[\w./-]*\w\.(?:go|py|ts|tsx|js|jsx|rs|java|kt|rb|swift|c|h|cpp|cs|php)\b`)
 
 func inScope(p string, scope []string) bool {
 	return slices.ContainsFunc(scope, func(s string) bool {

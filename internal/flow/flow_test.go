@@ -1176,3 +1176,23 @@ func TestAConfigWithoutEstateOrGateWorks(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A file a unit's ticket names, by path or by name in a folder of its
+// scope, is in what the unit's agent is handed.
+func TestAFileTheTicketNamesIsHanded(t *testing.T) {
+	repo := t.TempDir()
+	for p, s := range map[string]string{"ui/render_test.go": "package ui\n\nfunc testUI() {}\n", "lib/x.go": "package lib\n"} {
+		if err := os.MkdirAll(filepath.Join(repo, filepath.Dir(p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, p), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &Run{repo: repo}
+	u := unit{scope: []string{"ui/notify_test.go"}, brief: "Relies on:\n- testUI, as render_test.go builds it, and lib/x.go; not missing.go"}
+	got := r.named(u)
+	if !slices.Equal(got, []string{"ui/render_test.go", "lib/x.go"}) {
+		t.Errorf("named %v", got)
+	}
+}
