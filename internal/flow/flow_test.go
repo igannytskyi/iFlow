@@ -1283,7 +1283,9 @@ func TestTestsNoCodeCanPassAreWrittenAgain(t *testing.T) {
 	if err := run.Start(context.Background()); err != nil {
 		t.Fatalf("the run ended: %v", err)
 	}
-	if !slices.ContainsFunc(goals, func(g string) bool { return strings.Contains(g, "Why you are asked again") && strings.Contains(g, "shout_test.go:") }) {
+	if !slices.ContainsFunc(goals, func(g string) bool {
+		return strings.Contains(g, "Why you are asked again") && strings.Contains(g, "shout_test.go:")
+	}) {
 		t.Error("the tests were not written again with where they failed")
 	}
 }
