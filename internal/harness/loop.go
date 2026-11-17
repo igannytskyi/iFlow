@@ -74,6 +74,11 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	}
 	ws := &workspace{dir: t.Workspace, scope: t.Scope, check: t.Check, judge: t.Judge, ctx: ctx}
 	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t) + libraryNote(t.Workspace)}}
+	// What the estate says is read once: from the agent's third turn on it
+	// is sent as an index of what it held, and the agent reads what it
+	// needs again, so that every turn does not carry every file.
+	slim := msgs[1]
+	slim.Content = prompt(Task{Goal: t.Goal, Scope: t.Scope, Check: t.Check, Context: index(t.Context)}) + libraryNote(t.Workspace)
 	maxSteps := t.MaxSteps
 	if maxSteps <= 0 {
 		maxSteps = 30
@@ -104,7 +109,11 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 		if read := res.Usage.In(); read >= maxRead(t) {
 			return end(Exhausted, fmt.Sprintf("read %d tokens, the most one unit may; a unit that needs more is too large or cannot be done as it is asked", read))
 		}
-		msg, u, err := l.Model.Chat(ctx, compact(msgs), specs())
+		sent := compact(msgs)
+		if res.Turns >= 2 {
+			sent[1] = slim
+		}
+		msg, u, err := l.Model.Chat(ctx, sent, specs())
 		res.Usage = res.Usage.Add(u)
 		res.Turns++
 		emit(Event{At: time.Now(), Kind: Spent, Usage: u})
@@ -209,11 +218,11 @@ func libraryNote(dir string) string {
 // compact is the conversation as sent: the system, the unit and the latest
 // turns whole, older tool answers cut to their first lines.
 func compact(msgs []model.Message) []model.Message {
-	if len(msgs) <= keepWhole+2 {
-		return msgs
-	}
 	out := make([]model.Message, len(msgs))
 	copy(out, msgs)
+	if len(msgs) <= keepWhole+2 {
+		return out
+	}
 	for i := 2; i < len(out)-keepWhole; i++ {
 		if out[i].Role == "tool" && len(out[i].Content) > 240 {
 			out[i].Content = clip(out[i].Content, 160) + "\n[cut: this answer is old; call the tool again if you need it]"
@@ -249,4 +258,35 @@ func (l Loop) call(ws *workspace, call model.ToolCall) (string, Kind, bool) {
 	default:
 		return "error: " + err.Error(), Got, false
 	}
+}
+
+// index is what the estate said, with each long section cut to its heading:
+// the agent has read it whole once, and reads again what it needs.
+func index(context string) string {
+	if context == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, sec := range sections(context) {
+		head, _, _ := strings.Cut(sec, "\n")
+		if len(sec) <= 600 {
+			b.WriteString(sec)
+		} else {
+			b.WriteString(head + "\n\n[shown to you at the start; read_file or search it again for what you need]\n\n")
+		}
+	}
+	return b.String()
+}
+
+// sections splits Markdown at its headings, each section with its heading.
+func sections(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '#' && (i == 0 || s[i-1] == '\n') && i > start {
+			out = append(out, s[start:i])
+			start = i
+		}
+	}
+	return append(out, s[start:])
 }

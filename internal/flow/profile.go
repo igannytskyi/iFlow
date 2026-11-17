@@ -28,6 +28,9 @@ type profile struct {
 	// vet checks the packages of the files named without running them;
 	// nil where the estate's language has no such step.
 	vet func(files []string) []string
+	// format writes the files named in the estate's one form, where its
+	// language has one; nil where it has none.
+	format func(files []string) []string
 	// names finds the tests a file declares.
 	names *regexp.Regexp
 }
@@ -42,17 +45,18 @@ func detect(repo string) (profile, bool) {
 	alternation := func(names []string) string { return "^(" + strings.Join(names, "|") + ")$" }
 	switch {
 	case has("test.sh"):
-		return profile{"test.sh", []string{"test.sh"},
-			func(n []string) []string { return []string{"test.sh", alternation(n)} }, nil, nil, goTests}, true
+		return profile{name: "test.sh", suite: []string{"test.sh"},
+			only:  func(n []string) []string { return []string{"test.sh", alternation(n)} },
+			names: goTests}, true
 	case has("go.mod"):
-		return profile{"go test", []string{"go", "test", "-count=1", "./..."},
-			func(n []string) []string { return []string{"go", "test", "-count=1", "-run", alternation(n), "./..."} },
-			[]string{"go", "build", "./..."}, goVet, goTests}, true
+		return profile{name: "go test", suite: []string{"go", "test", "-count=1", "./..."},
+			only:  func(n []string) []string { return []string{"go", "test", "-count=1", "-run", alternation(n), "./..."} },
+			build: []string{"go", "build", "./..."}, vet: goVet, format: gofmt, names: goTests}, true
 	case has("pyproject.toml") || has("pytest.ini") || has("setup.py"):
-		return profile{"pytest", []string{"python3", "-m", "pytest", "-q"},
-			func(n []string) []string {
+		return profile{name: "pytest", suite: []string{"python3", "-m", "pytest", "-q"},
+			only: func(n []string) []string {
 				return []string{"python3", "-m", "pytest", "-q", "-k", strings.Join(n, " or ")}
-			}, nil, nil, pythonTests}, true
+			}, names: pythonTests}, true
 	}
 	return profile{}, false
 }
@@ -166,6 +170,20 @@ func decisions(repo string, budget int) string {
 		used += len(lines[i]) / 4
 	}
 	return strings.Join(out, "\n")
+}
+
+// gofmt writes the Go files named in gofmt's form; nil where none is Go.
+func gofmt(files []string) []string {
+	var goFiles []string
+	for _, f := range files {
+		if strings.HasSuffix(f, ".go") {
+			goFiles = append(goFiles, f)
+		}
+	}
+	if len(goFiles) == 0 {
+		return nil
+	}
+	return append([]string{"gofmt", "-w"}, goFiles...)
 }
 
 // goVet builds the tests of the packages holding the files named, running

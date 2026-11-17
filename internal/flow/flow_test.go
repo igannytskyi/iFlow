@@ -1040,3 +1040,31 @@ func TestAMendStoppedIsResumedWithThePersonsWords(t *testing.T) {
 		t.Errorf("an admitted mend is resumed with again: %q", got)
 	}
 }
+
+// What an agent writes is put in the estate's one form before it is kept:
+// form is not the agent's to spend turns on.
+func TestACandidateIsKeptInTheEstatesForm(t *testing.T) {
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string {\nreturn strings.ToUpper(Greet(n))\n}\n",
+	}
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(repo, "greet.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "\n\treturn strings.ToUpper") {
+		t.Errorf("what entered is not in gofmt's form:\n%s", b)
+	}
+}

@@ -879,6 +879,20 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	if res.Terminal != harness.Candidate || len(changes) == 0 {
 		return c, fmt.Errorf("%s ended %s with %d change(s): %s", u.id, res.Terminal, len(changes), res.Summary)
 	}
+	if prof.format != nil {
+		// Form is not the agent's to spend turns on: what it wrote is put in
+		// the estate's one form before it is kept, and what cannot be is
+		// left as written, for the check to say why.
+		var written []string
+		for _, ch := range changes {
+			if !ch.Gone {
+				written = append(written, ch.Path)
+			}
+		}
+		if cmd := prof.format(written); cmd != nil {
+			_, _, _ = runIn(ctx, ws, resolve(ws, cmd))
+		}
+	}
 	if err := harness.Keep(ws, changes, filepath.Join(c.store, "files")); err != nil {
 		return c, fmt.Errorf("%s: the candidate could not be kept: %v", u.id, err)
 	}

@@ -202,3 +202,35 @@ func TestAnAgentReadsNoMoreThanItMay(t *testing.T) {
 		t.Errorf("ended %+v", res)
 	}
 }
+
+// What the estate says is sent whole for the agent's first turns, then as
+// an index of what it held: no turn after carries every file again.
+func TestTheEstateIsReadOnceThenIndexed(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	big := "# May change: a.go\n\n" + strings.Repeat("// a line of the file\n", 200) + "# Used from elsewhere\n\nA()\n"
+	var sent [][]model.Message
+	m := chatting{sent: &sent, turns: []model.Message{
+		calling("read_file", map[string]string{"path": "a.go"}),
+		calling("list_dir", map[string]string{"path": "."}),
+		calling("search", map[string]string{"pattern": "package"}),
+		{Content: "nothing to change"},
+	}}
+	if _, err := (Loop{Model: m}).Run(context.Background(), Task{Workspace: ws, Goal: "the unit", Scope: []string{"a.go"}, Context: big}, func(Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sent[0][1].Content, "a line of the file") || !strings.Contains(sent[1][1].Content, "a line of the file") {
+		t.Error("the first turns were not sent the estate whole")
+	}
+	later := sent[2][1].Content
+	if strings.Contains(later, "a line of the file") {
+		t.Error("a later turn was sent the estate whole again")
+	}
+	for _, want := range []string{"# May change: a.go", "read_file", "# Used from elsewhere\n\nA()", "the unit"} {
+		if !strings.Contains(later, want) {
+			t.Errorf("the index lost %q:\n%s", want, later)
+		}
+	}
+}
