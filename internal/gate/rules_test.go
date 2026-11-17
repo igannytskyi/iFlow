@@ -2,8 +2,8 @@ package gate
 
 import (
 	"context"
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
