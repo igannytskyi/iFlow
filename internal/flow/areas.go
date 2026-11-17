@@ -837,7 +837,16 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 		// vetted, and every failure that is not a name the units' contract
 		// promises goes back to their agent: a function of a library that
 		// has none, the wrong arguments to one that exists.
-		task.Check = resolve(ws, prof.vet(u.scope))
+		cmd := prof.vet(u.scope)
+		if overlay, done := r.contractOverlay(ws); overlay != "" && prof.name == "go test" && len(cmd) > 2 && cmd[1] == "test" {
+			// What the code units will create is stubbed from the contract,
+			// so that the compiler says all the tests got wrong.
+			defer done()
+			cmd = append([]string{cmd[0], cmd[1], overlay}, cmd[2:]...)
+		} else {
+			done()
+		}
+		task.Check = resolve(ws, cmd)
 		task.Judge = r.judgeTests()
 	case !ok || u.tests:
 		// Without a runner to vet with, tests written first are judged
@@ -1380,6 +1389,10 @@ func (r *Run) judgeTests() func(bool, string) (bool, string) {
 		tolerated := 0
 		for _, line := range strings.Split(out, "\n") {
 			if !faultLine.MatchString(line) {
+				continue
+			}
+			if strings.Contains(line, stubFile) {
+				tolerated++ // the contract's own stub: not the tests' to mend
 				continue
 			}
 			// What the code units will define may be missing; nothing

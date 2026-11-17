@@ -1109,3 +1109,51 @@ func TestARunStoppedWhilePlanningStops(t *testing.T) {
 		t.Error("a plan was made in the planner's place, though the run was stopped")
 	}
 }
+
+// Tests written before the package they import exists are vetted against
+// a stub of it made from the contract, so that what they get wrong beyond
+// the missing package is found then — a value miscounted, a name misspelt
+// — and not by the code that has to pass them.
+func TestTestsWrittenFirstAreVettedAgainstTheContract(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no go toolchain")
+	}
+	ws := t.TempDir()
+	write := func(p, s string) {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(ws, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(ws, p), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module ex.com/m\n\ngo 1.22\n")
+	write("ui/ui.go", "package ui\n")
+	write("ui/ui_test.go", "package ui\n\nimport (\n\t\"testing\"\n\n\t\"ex.com/m/notify\"\n)\n\nfunc TestIt(t *testing.T) {\n\tname := notify.Choose(\"darwin\")\n\t_ = name\n\tvar s notify.Sender = notify.System{}\n\ts.Send(\"a\", \"b\")\n}\n")
+	r := &Run{units: []unit{
+		{id: "WU-001-01", tests: true, scope: []string{"ui/ui_test.go"}},
+		{id: "WU-001-02", scope: []string{"notify/notify.go"}, provides: []string{
+			"type Sender interface { Send(title, message string) }",
+			"type System struct{}",
+			"func (System) Send(title, message string)",
+			"func Choose(goos string) (name string, args []string, ok bool) — what runs on goos",
+			"the package is stateless",
+		}},
+	}}
+	overlay, done := r.contractOverlay(ws)
+	defer done()
+	if overlay == "" {
+		t.Fatal("no stub was made for the package the code unit creates")
+	}
+	cmd := append([]string{"go", "test", overlay}, goVet([]string{"ui/ui_test.go"})[2:]...)
+	c := exec.Command(cmd[0], cmd[1:]...)
+	c.Dir = ws
+	out, err := c.CombinedOutput()
+	ok, why := r.judgeTests()(err == nil, string(out))
+	if ok || !strings.Contains(why, "assignment mismatch") {
+		t.Errorf("the miscounted values passed: %v\n%s\n%s", ok, why, out)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "notify")); err == nil {
+		t.Error("the stub was written in the workspace")
+	}
+}
