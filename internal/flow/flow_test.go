@@ -1383,3 +1383,70 @@ func TestTwoCodeUnitsBuildOnAContract(t *testing.T) {
 		t.Errorf("it does not pass the gate: %v", rep.Problems())
 	}
 }
+
+// Code units that share no file are put in chains of their own; units that
+// change a file in common share one, in the plan's order.
+func TestChainsOfCodeUnits(t *testing.T) {
+	r := &Run{units: []unit{
+		{id: "c", contract: true},
+		{id: "t", tests: true},
+		{id: "a", scope: []string{"notify.go"}},
+		{id: "b", scope: []string{"settings.go"}},
+		{id: "c1", scope: []string{"app.go"}},
+		{id: "c2", scope: []string{"project.go", "app.go"}},
+		{id: "last", scope: []string{"view.go"}},
+	}}
+	got := r.chains(2, 6)
+	want := [][]int{{2}, {3}, {4, 5}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("chains %v, want %v", got, want)
+	}
+	r.units[0].contract = false
+	r.units[3].brief = "Relies on:\n- Send, from notify\n"
+	r.units[2].provides = []string{"func Send()"}
+	if got := r.chains(2, 6); fmt.Sprint(got) != fmt.Sprint([][]int{{2, 3}, {4, 5}}) {
+		t.Errorf("without a contract, a unit using another's name was not chained to it: %v", got)
+	}
+}
+
+// Code units in chains of their own are carried at once, and the change
+// lands as if they had been carried one by one.
+func TestChainsAreCarriedAtOnce(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	threeFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go","whisper.go"]`, 1)
+	plan := `{"approach":{"summary":"Shout and whisper, then loud.","steps":["test","shout","whisper","loud"],"risks":["none"]},
+"units":[
+ {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Loud."],"provides":["TestShout"],"done_when":["it fails first"]},
+ {"title":"Shout","kind":"code","scope":["shout.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":["func Shout(n string) string"],"done_when":["builds"]},
+ {"title":"Whisper","kind":"code","scope":["whisper.go"],"criteria":["CR-001-01"],"objective":"Whisper.","tasks":["Add Whisper."],"provides":["func Whisper(n string) string"],"done_when":["builds"]},
+ {"title":"Loud","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Loud greets.","tasks":["Add Loud using Shout."],"provides":["func Loud(n string) string"],"done_when":["the suite passes"]}]}`
+	files := map[string]string{
+		"shout_test.go":       "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Loud(\"a\") != \"HELLO, A\" || Whisper(\"A\") != \"a\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"shout.go":            "package greet\n\nimport \"strings\"\n\nfunc Shout(n string) string { return strings.ToUpper(n) }\n",
+		"whisper.go":          "package greet\n\nimport \"strings\"\n\nfunc Whisper(n string) string { return strings.ToLower(n) }\n",
+		"greet.go":            "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Loud(n string) string { return Shout(Greet(n)) }\n",
+		"declared shout.go":   "package greet\n\nfunc Shout(n string) string { return \"\" }\n",
+		"declared whisper.go": "package greet\n\nfunc Whisper(n string) string { return \"\" }\n",
+		"declared greet.go":   "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Loud(n string) string { return \"\" }\n",
+	}
+	var goals []string
+	cfg := Config{Model: planned{stubModel{answer: threeFiles}, plan}, Executor: stubExecutor{files: files, goals: &goals}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout and whisper", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		c, _ := artifact.Load(run.View().Dir)
+		t.Fatalf("%v: %v", err, cfg.Gate.Check(context.Background(), c).Problems())
+	}
+	if len(goals) != 5 {
+		t.Errorf("%d units were carried, want the contract, the tests and three code units", len(goals))
+	}
+	b, _ := os.ReadFile(filepath.Join(repo, "whisper.go"))
+	if !strings.Contains(string(b), "ToLower") {
+		t.Errorf("what a chain carried did not land:\n%s", b)
+	}
+}

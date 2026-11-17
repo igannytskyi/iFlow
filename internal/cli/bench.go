@@ -51,6 +51,8 @@ type benchResult struct {
 	Out     int               `json:"out"`
 	Calls   int               `json:"calls"`
 	Seconds float64           `json:"seconds"`
+	// Kept is where a task that did not come to what it should was left.
+	Kept string `json:"kept,omitempty"`
 }
 
 // Bench carries every reference task — or those named with --only — with
@@ -131,6 +133,9 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 			results[i].Commit, results[i].Label, results[i].Set = commit, label, set
 			r := results[i]
 			fmt.Fprintf(app.Out, "  %-18s %-8s %-6v $%.3f  %7d in  %6d out  %4.0fs  %s\n", r.Task, r.Outcome, r.OK, r.USD, r.In, r.Out, r.Seconds, clipLine(r.Why, 90))
+			if r.Kept != "" {
+				fmt.Fprintf(app.Out, "  %-18s kept at %s\n", "", r.Kept)
+			}
 		})
 	}
 	wg.Wait()
@@ -182,15 +187,23 @@ func vary(cfg *flow.Config, set map[string]string) error {
 }
 
 // benchOne carries one task on a fresh copy of its estate.
-func benchOne(ctx context.Context, cfg flow.Config, estate string, t benchTask) benchResult {
-	res := benchResult{At: time.Now().Format(time.RFC3339), Task: t.Name, Expect: t.Expect}
+func benchOne(ctx context.Context, cfg flow.Config, estate string, t benchTask) (res benchResult) {
+	res = benchResult{At: time.Now().Format(time.RFC3339), Task: t.Name, Expect: t.Expect}
 	dir, err := os.MkdirTemp("", "iflow-bench-"+t.Name+"-")
 	if err != nil {
 		res.Outcome, res.Why = "broken", err.Error()
 		return res
 	}
-	defer os.RemoveAll(dir)
 	repo := filepath.Join(dir, filepath.Base(estate))
+	// A task that came to what it should leaves nothing; one that did not
+	// is kept where it ran, its change folder and all, to be read.
+	defer func() {
+		if res.OK {
+			os.RemoveAll(dir)
+		} else {
+			res.Kept = repo
+		}
+	}()
 	if out, err := exec.Command("cp", "-R", estate, repo).CombinedOutput(); err != nil {
 		res.Outcome, res.Why = "broken", strings.TrimSpace(string(out))
 		return res

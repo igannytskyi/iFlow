@@ -646,10 +646,47 @@ func (r *Run) execute(ctx context.Context) error {
 		doc.Candidates = append(doc.Candidates, cand)
 		overlays = append(overlays, filepath.Join(c.store, "files"))
 	}
+	// Code units that share no file are carried at once, a chain of them
+	// each — every chain on the contract and the tests, and on its own
+	// earlier units — and taken below in the plan's order, as if carried
+	// one by one; the last unit, which completes the change, comes after
+	// them all. A chain stops at its first unit that fails, and what comes
+	// after that is carried one by one.
+	early := map[int]bool{}
+	if chains := r.chains(head, len(r.units)-1); len(chains) > 1 {
+		pre := slices.Clone(overlays)
+		for i := range head {
+			if errs[i] == nil && results[i].store != "" && !slices.Contains(pre, filepath.Join(results[i].store, "files")) {
+				pre = append(pre, filepath.Join(results[i].store, "files"))
+			}
+		}
+		var cw sync.WaitGroup
+		var mu sync.Mutex
+		for _, chain := range chains {
+			cw.Go(func() {
+				mine := slices.Clone(pre)
+				for _, i := range chain {
+					res, err := r.carry(ctx, i, mine, prof, ok)
+					mu.Lock()
+					results[i], errs[i], early[i] = res, err, true
+					mu.Unlock()
+					if err != nil {
+						return
+					}
+					mine = append(mine, filepath.Join(res.store, "files"))
+				}
+			})
+		}
+		cw.Wait()
+	}
 	carriedAgain := map[int]bool{}
 	for i := 0; i < len(r.units); i++ {
 		if i >= head {
-			results[i], errs[i] = r.carry(ctx, i, overlays, prof, ok)
+			if early[i] {
+				delete(early, i) // carried already, in its chain: taken as it came
+			} else {
+				results[i], errs[i] = r.carry(ctx, i, overlays, prof, ok)
+			}
 			// Code that cannot pass because the tests written first are
 			// wrong — they call what no unit can define, or check what the
 			// specification does not say — sends those tests back, once,
@@ -1171,6 +1208,60 @@ func specDecisions(dir string, tests bool) string {
 		}
 	}
 	return strings.Join(out, "\n\n")
+}
+
+// chains divides the code units from to to (to not included) into chains
+// that can be carried at once: units that change a file in common are in
+// one chain, in the plan's order; without a contract declared first, so is
+// a unit and the one whose names it uses.
+func (r *Run) chains(from, to int) [][]int {
+	if to-from < 2 {
+		return nil
+	}
+	group := make([]int, len(r.units))
+	for i := range group {
+		group[i] = i
+	}
+	var find func(int) int
+	find = func(i int) int {
+		if group[i] != i {
+			group[i] = find(group[i])
+		}
+		return group[i]
+	}
+	contract := len(r.units) > 0 && r.units[0].contract
+	for i := from; i < to; i++ {
+		for j := from; j < i; j++ {
+			shared := slices.ContainsFunc(r.units[i].scope, func(f string) bool { return slices.Contains(r.units[j].scope, f) })
+			uses := false
+			if !contract {
+				text := withoutProvides(r.units[i].brief)
+				for _, name := range providedNames(r.units[j].provides) {
+					if regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`).MatchString(text) {
+						uses = true
+						break
+					}
+				}
+			}
+			if shared || uses {
+				group[find(i)] = find(j)
+			}
+		}
+	}
+	byRoot := map[int][]int{}
+	var roots []int
+	for i := from; i < to; i++ {
+		root := find(i)
+		if _, seen := byRoot[root]; !seen {
+			roots = append(roots, root)
+		}
+		byRoot[root] = append(byRoot[root], i)
+	}
+	var out [][]int
+	for _, root := range roots {
+		out = append(out, byRoot[root])
+	}
+	return out
 }
 
 // newTestNames is every test the tests units of the change wrote.
