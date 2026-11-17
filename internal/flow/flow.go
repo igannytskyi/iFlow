@@ -59,8 +59,10 @@ type Config struct {
 	Reviewer model.Model
 	Planner  model.Model
 	Executor harness.Executor
-	Estate   *estate.Local
-	Gate     *gate.Gate
+	// Estate and Gate read and judge the estate; where left out, the
+	// estate on disk and the gate over it.
+	Estate *estate.Local
+	Gate   *gate.Gate
 	// Person is who accepts criteria and is named where a person acted.
 	Person string
 	// BudgetUSD bounds each unit's execution.
@@ -146,6 +148,14 @@ type decision struct {
 func New(cfg Config, repo, statement string, changed func()) *Run {
 	if abs, err := filepath.Abs(repo); err == nil {
 		repo = abs
+	}
+	// A configuration that leaves the estate or the gate out reads the
+	// estate on disk and judges with the gate over it: the zero value works.
+	if cfg.Estate == nil {
+		cfg.Estate = estate.NewLocal()
+	}
+	if cfg.Gate == nil {
+		cfg.Gate = gate.New(cfg.Estate)
 	}
 	r := &Run{cfg: cfg, repo: repo, statement: statement, agent: map[string][]harness.Event{},
 		answer: make(chan decision, 1), changed: changed, cands: map[string]string{}}

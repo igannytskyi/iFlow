@@ -1157,3 +1157,22 @@ func TestTestsWrittenFirstAreVettedAgainstTheContract(t *testing.T) {
 		t.Error("the stub was written in the workspace")
 	}
 }
+
+// A configuration that leaves out the estate and the gate carries a task
+// all the same, on the estate on disk and the gate over it.
+func TestAConfigWithoutEstateOrGateWorks(t *testing.T) {
+	repo := estateFixture(t)
+	cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}}, Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
