@@ -947,6 +947,7 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	if !u.tests {
 		task.Provides = providedNames(u.provides)
 	}
+	task.Graph = estateGraph{repo: r.cfg.Estate.Repo(r.repo), root: r.repo}
 	if ok && !u.tests && prof.quick != nil {
 		task.Quick = func(files []string) []string {
 			if cmd := prof.quick(files); cmd != nil {

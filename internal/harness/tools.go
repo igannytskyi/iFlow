@@ -36,6 +36,7 @@ type workspace struct {
 	check []string
 	judge func(passed bool, output string) (ok bool, why string)
 	first []string
+	graph Graph
 	quick func(files []string) []string
 	focus func(pattern, path string) []string
 	ctx   context.Context
@@ -280,6 +281,22 @@ var tools = []tool{
 				}
 			}
 			return status + "\n" + condense(out), nil
+		}},
+	{"find_definition", "Where a name — a function, type, method, constant — is defined in the repository as it stood before this change, with its first line: firmer than searching its text.",
+		`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`,
+		func(w *workspace, a map[string]string) (string, error) {
+			if w.graph == nil {
+				return "", errRefused{"the estate has no model of its code here; use search"}
+			}
+			return w.graph.Defined(strings.TrimSpace(a["name"]))
+		}},
+	{"find_callers", "Every place in the repository, as it stood before this change, that calls or uses a name, with the line: what changing it would touch.",
+		`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`,
+		func(w *workspace, a map[string]string) (string, error) {
+			if w.graph == nil {
+				return "", errRefused{"the estate has no model of its code here; use search"}
+			}
+			return w.graph.Callers(strings.TrimSpace(a["name"]))
 		}},
 	{"run_tests", "Run the tests whose names match a regular expression, under a folder of the repository, and see each pass or fail with its output — to find which test fails and why, faster than the whole check.",
 		`{"type":"object","properties":{"pattern":{"type":"string","description":"a regular expression matching test names"},"path":{"type":"string","description":"the folder whose tests to run"}},"required":["pattern","path"]}`,

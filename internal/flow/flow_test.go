@@ -1518,3 +1518,21 @@ func TestARunnerTheEstateKeepsAndItsLanguage(t *testing.T) {
 		t.Errorf("node's check: %q", got)
 	}
 }
+
+// An agent asks the estate's model where a name is defined and who uses
+// it, and is answered with places and their lines.
+func TestTheEstateAnswersAnAgentByName(t *testing.T) {
+	repo := estateFixture(t)
+	g := estateGraph{repo: estate.NewLocal().Repo(repo), root: repo}
+	def, err := g.Defined("Greet")
+	if err != nil || !strings.Contains(def, "greet.go:") || !strings.Contains(def, "func Greet") {
+		t.Errorf("Greet is defined at %q (%v)", def, err)
+	}
+	if none, _ := g.Defined("Nowhere"); !strings.Contains(none, "defined nowhere") {
+		t.Errorf("a name defined nowhere: %q", none)
+	}
+	callers, err := g.Callers("Greet")
+	if err != nil || !strings.Contains(callers, "_test.go:") {
+		t.Errorf("Greet is called from %q (%v)", callers, err)
+	}
+}

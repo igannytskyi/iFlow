@@ -39,7 +39,7 @@ func (l Loop) Version() string { return "loop/2" }
 const loopSystem = `You carry out one unit of work in a repository, with tools, until it is done.
 
 How to work:
-- Read before you change anything: read_file the files you will change and the ones they use; search for a name rather than guess where it is.
+- Read before you change anything: read_file the files you will change and the ones they use. To find where a name is defined or who uses it, ask find_definition or find_callers — the estate's model of its code — before searching its text; never guess where it is.
 - Change the least that reaches the goal. Prefer edit_file, with old text copied exactly from read_file's output (without the line numbers) and enough of it to occur once. Write a whole file only when it is new or short.
 - Change only files in the unit's scope; the harness refuses anything else. If the goal cannot be reached without changing a file outside the scope, say so and stop.
 - Each write and edit answers whether the code still builds: mend what it names before anything else.
@@ -77,7 +77,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	if l.Model == nil {
 		return Result{Terminal: FailedSubstrate}, errNoModel
 	}
-	ws := &workspace{dir: t.Workspace, scope: t.Scope, check: t.Check, first: t.First, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
+	ws := &workspace{dir: t.Workspace, scope: t.Scope, check: t.Check, first: t.First, graph: t.Graph, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
 	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t) + libraryNote(t.Workspace)}}
 	// What the estate says is read once: from the agent's third turn on it
 	// is sent as an index of what it held, and the agent reads what it

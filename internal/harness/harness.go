@@ -48,6 +48,10 @@ type Task struct {
 	// the unit is not done, whatever the check says, until each is in its
 	// files.
 	Provides []string
+	// Graph, where given, answers from the estate's model of its code where
+	// a name is defined and who calls it — what an agent would otherwise
+	// search the text for, and miss.
+	Graph Graph
 	// Quick, where given, is the fast check of the files named — whether
 	// they build — run after every write or edit, so that the agent sees
 	// a mistake one step after it makes it, not at the next whole check.
@@ -178,4 +182,11 @@ func Unprovided(t Task) []string {
 func unprovidedSaid(missing []string) string {
 	return "The check passes, but you are not done: the contract between the units says this unit provides " + strings.Join(missing, ", ") +
 		", and your files do not have them. The units after you call them by these names — add each, exactly as the contract states it."
+}
+
+// Graph is the estate's model of its code, asked by name: each answer is
+// lines a person could read, file:line first.
+type Graph interface {
+	Defined(name string) (string, error)
+	Callers(name string) (string, error)
 }
