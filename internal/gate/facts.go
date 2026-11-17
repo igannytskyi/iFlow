@@ -148,6 +148,11 @@ func ProducerCommand(c *artifact.Change, id string) []string {
 		// estate is judged by whatever it is judged by.
 		for _, base := range []string{".", c.Dir, c.Root} {
 			if p := filepath.Join(base, parts[0]); isFile(p) {
+				// Absolute, so that the command is the same command — and its
+				// repeat the same note — wherever the gate is run from.
+				if abs, err := filepath.Abs(p); err == nil {
+					p = abs
+				}
 				return append([]string{p}, parts[1:]...)
 			}
 		}

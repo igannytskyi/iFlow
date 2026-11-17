@@ -316,3 +316,20 @@ func TestAClosedChangeIsHeldToItsRecord(t *testing.T) {
 		t.Error("a change closed without saying why passes")
 	}
 }
+
+// The command evidence names is the same command wherever the gate is run
+// from, so that its repeat is the same note from the terminal and from the
+// workbench.
+func TestAProducerIsNamedAbsolutely(t *testing.T) {
+	root, dir := fixture(t)
+	write(t, filepath.Join(root, "run.sh"), "#!/bin/sh\n")
+	alter(t, dir, artifact.Assurance, func(d *meta.Assurance) { d.Evidence[0].Producer = "`run.sh --all`" })
+	c, err := artifact.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := ProducerCommand(c, "EV-001-01-01")
+	if len(cmd) != 2 || !filepath.IsAbs(cmd[0]) {
+		t.Errorf("named %v", cmd)
+	}
+}
