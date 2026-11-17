@@ -148,6 +148,13 @@ type WorkUnit struct {
 	Criteria       []string `json:"criteria" doc:"the acceptance criteria"`
 	DependsOn      []string `json:"depends_on,omitempty" doc:"the units it relies on"`
 	PreparatoryFor []string `json:"preparatory_for,omitempty" doc:"the criteria whose arbiter this unit writes, before their code"`
+	// What the unit's agent is told: its title, its brief — the ticket in
+	// units/ — the names and signatures it gives the others, and whether it
+	// writes the tests that judge the change rather than its code.
+	Title    string   `json:"title,omitempty" doc:"the unit in a few words"`
+	Brief    string   `json:"brief,omitempty" doc:"its ticket: objective, what it serves and relies on, tasks, constraints, edge cases, when it is done"`
+	Provides []string `json:"provides,omitempty" doc:"the names and signatures it gives the other units, exactly"`
+	Tests    bool     `json:"writes_tests,omitempty" doc:"whether it writes the tests that judge the change, before its code"`
 }
 
 // Answer is a question the method asks, and the answer given.

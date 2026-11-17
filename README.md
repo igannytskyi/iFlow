@@ -42,6 +42,8 @@ security add-generic-password -s iflow.openrouter -a iflow -w
 iflow desk <project>...                 # the workbench: type a task, watch it carried area by area
 iflow run [--accept] <project> <task>   # the same without a window
 iflow models                            # which model does each piece of work
+iflow stop <change>                     # ask the run carrying a change to stop, wherever it runs
+iflow resume [--ask] <change>           # carry a stopped change on from where it stopped
 iflow reopen [--ask] <change> <1|2> <what is to change>  # carry a change again in its own folder,
                                         # from its specification (1) or its plan (2)
 iflow settle <change> <n> <decision>    # close an escalation the change raised by your decision
@@ -65,6 +67,7 @@ In the window:
 
 - **+ New intent** under a project, or Cmd/Ctrl+N: type what should change, Enter starts it; the specification waits for you to accept it or send it back.
 - The box at the foot is **Chat** or **Intent**. Chat talks with the model about what is on view: each task has its own conversation, handed that task's specification, plan and record, and the model may read the repository before it answers. *Make it an intent* turns an answer into a task.
+- A task at work can be stopped, wherever it was started; one that stopped is resumed from where it stopped — a specification not yet accepted is put to you again as it is, a plan made is carried on from admission, units all carried are judged and landed — or carried again with something changed, or closed.
 - A task's problems and escalations open from the chip under its heading. Each can be fixed in the task itself — carried again from its specification or from its plan, with what is to change — or by a new intent; an escalation can also be settled by a decision, kept with your others.
 - Cmd/Ctrl+1…9 choose a project; Escape closes the open object, handover, foundation page, then the settings.
 - **Settings** at the bottom left: which model does each piece of work, and what each costs.

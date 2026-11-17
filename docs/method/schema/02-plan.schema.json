@@ -121,6 +121,10 @@
             "description": "how it was computed, and at what confidence",
             "type": "string"
           },
+          "brief": {
+            "description": "its ticket: objective, what it serves and relies on, tasks, constraints, edge cases, when it is done",
+            "type": "string"
+          },
           "class": {
             "description": "the unit's change class",
             "enum": [
@@ -164,12 +168,26 @@
             },
             "type": "array"
           },
+          "provides": {
+            "description": "the names and signatures it gives the other units, exactly",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "scope": {
             "description": "what the change may touch, as paths",
             "items": {
               "type": "string"
             },
             "type": "array"
+          },
+          "title": {
+            "description": "the unit in a few words",
+            "type": "string"
+          },
+          "writes_tests": {
+            "description": "whether it writes the tests that judge the change, before its code"
           }
         },
         "required": [

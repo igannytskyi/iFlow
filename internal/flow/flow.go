@@ -10,6 +10,7 @@ package flow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -125,6 +126,9 @@ type Run struct {
 	// one; reopened is what its author or planner is handed of why.
 	from     int
 	reopened string
+	// resumed says the specification already written is put to the person
+	// as it is, not written again.
+	resumed bool
 }
 
 type decision struct {
@@ -327,6 +331,9 @@ func (r *Run) ask(ctx context.Context, area int, question string) (decision, err
 // Start carries the task along the path, and returns when it has landed or
 // stopped. What stopped it is the last step.
 func (r *Run) Start(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go r.watchStop(ctx, cancel)
 	defer func() {
 		r.mu.Lock()
 		r.finished = true
@@ -350,6 +357,47 @@ func (r *Run) Start(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// StopFile asks the run carrying a change to stop, from wherever the run
+// was started: it says who asked.
+const StopFile = ".stop"
+
+// Stop asks the run carrying the change in dir to stop; the run stops within
+// a second, between steps, and its record says who stopped it. Resume
+// carries it on from there.
+func Stop(dir, person string) error {
+	if !Running(dir) {
+		return errors.New("nothing is carrying the change now")
+	}
+	return os.WriteFile(filepath.Join(dir, StopFile), []byte(person), 0o644)
+}
+
+// watchStop stops the run when asked to through StopFile.
+func (r *Run) watchStop(ctx context.Context, cancel context.CancelFunc) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		r.mu.Lock()
+		dir := r.dir
+		r.mu.Unlock()
+		if dir == "" {
+			continue
+		}
+		who, err := os.ReadFile(filepath.Join(dir, StopFile))
+		if err != nil {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, StopFile))
+		_ = r.record("stopped", r.id("INT"), "stopped by "+strings.TrimSpace(string(who))+"; it can be resumed from where it stopped")
+		cancel()
+		return
+	}
 }
 
 // RunningFile marks a change a run is carrying now, wherever that run was

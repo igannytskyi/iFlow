@@ -638,3 +638,159 @@ func TestAReopenedChangeIsCarriedAgain(t *testing.T) {
 		t.Error("reopened from area 3")
 	}
 }
+
+// failing fails the code unit once, as a process ending would leave it.
+type failing struct {
+	stubExecutor
+	fail *bool
+}
+
+func (f failing) Run(ctx context.Context, t harness.Task, emit func(harness.Event)) (harness.Result, error) {
+	if *f.fail && !strings.HasSuffix(t.Scope[0], "_test.go") {
+		*f.fail = false
+		return harness.Result{Terminal: harness.FailedSubstrate, Summary: "the process ended"}, nil
+	}
+	return f.stubExecutor.Run(ctx, t, emit)
+}
+
+// A change that stopped is carried on from where it stopped, in its own
+// folder, without doing again what it finished, and lands passing the gate.
+func TestAStoppedChangeIsResumed(t *testing.T) {
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}
+	land := func(t *testing.T, cfg Config, run *Run) {
+		t.Helper()
+		run.changed = func() {
+			if v := run.View(); v.Question != "" {
+				go run.Accept()
+			}
+		}
+		if err := run.Start(context.Background()); err != nil {
+			for _, s := range run.View().Steps {
+				t.Logf("%d %s", s.Area, s.Text)
+			}
+			t.Fatalf("it did not land: %v", err)
+		}
+		c, err := artifact.Load(run.View().Dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
+			t.Errorf("it does not pass the gate: %v", rep.Problems())
+		}
+	}
+	t.Run("at the specification", func(t *testing.T) {
+		repo := estateFixture(t)
+		est := estate.NewLocal()
+		var prompts []string
+		cfg := Config{Model: stubModel{spec, &prompts}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+		ctx, stop := context.WithCancel(context.Background())
+		var first *Run
+		first = New(cfg, repo, "make it possible to shout the greeting", func() {
+			if first.View().Question != "" {
+				stop() // the person never answers: the window is closed
+			}
+		})
+		if err := first.Start(ctx); err == nil {
+			t.Fatal("the run did not stop")
+		}
+		written := len(prompts)
+		run, err := Resume(cfg, repo, first.View().Dir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.from != 1 || !run.resumed {
+			t.Fatalf("resumed from %d", run.from)
+		}
+		land(t, cfg, run)
+		for _, p := range prompts[written:] {
+			if strings.HasPrefix(p, "The task, as a person wrote it") {
+				t.Error("the specification was written again")
+			}
+		}
+	})
+	t.Run("stopped by request", func(t *testing.T) {
+		repo := estateFixture(t)
+		est := estate.NewLocal()
+		cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+		var first *Run
+		asked := false
+		first = New(cfg, repo, "make it possible to shout the greeting", func() {
+			if v := first.View(); v.Question != "" && !asked {
+				asked = true
+				go func() {
+					if err := Stop(v.Dir, "someone in another window"); err != nil {
+						t.Error(err)
+					}
+				}()
+			}
+		})
+		if err := first.Start(context.Background()); err == nil {
+			t.Fatal("the run did not stop when asked")
+		}
+		c, err := artifact.Load(first.View().Dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last := c.Meta.Record[len(c.Meta.Record)-1]; last.Stage != "stopped" || !strings.Contains(last.Note, "someone in another window") {
+			t.Errorf("the record does not say who stopped it: %+v", last)
+		}
+		run, err := Resume(cfg, repo, first.View().Dir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		land(t, cfg, run)
+	})
+	t.Run("in execution", func(t *testing.T) {
+		repo := estateFixture(t)
+		est := estate.NewLocal()
+		fail := true
+		cfg := Config{Model: stubModel{answer: spec}, Executor: failing{stubExecutor{files: files}, &fail}, Estate: est, Gate: gate.New(est), Person: "a test"}
+		first := New(cfg, repo, "make it possible to shout the greeting", nil)
+		first.changed = func() {
+			if first.View().Question != "" {
+				go first.Accept()
+			}
+		}
+		if err := first.Start(context.Background()); err == nil {
+			t.Fatal("the run did not stop")
+		}
+		run, err := Resume(cfg, repo, first.View().Dir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.from != 3 {
+			t.Fatalf("resumed from %d", run.from)
+		}
+		land(t, cfg, run)
+	})
+	t.Run("after execution", func(t *testing.T) {
+		repo := estateFixture(t)
+		est := estate.NewLocal()
+		cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+		first := New(cfg, repo, "make it possible to shout the greeting", nil)
+		land(t, cfg, first)
+		dir := first.View().Dir
+		// As if it had stopped before it was judged: the code back as it
+		// was, no assurance, no landing.
+		for _, name := range []string{"05-assurance.json", "05-assurance.md", "06-landing.json", "06-landing.md"} {
+			os.Remove(filepath.Join(dir, name))
+		}
+		b, _ := os.ReadFile(filepath.Join(dir, "baseline", "greet.go.before"))
+		os.WriteFile(filepath.Join(repo, "greet.go"), b, 0o644)
+		os.Remove(filepath.Join(repo, "shout_test.go"))
+		run, err := Resume(cfg, repo, dir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.from != 5 {
+			t.Fatalf("resumed from %d", run.from)
+		}
+		land(t, cfg, run)
+		if b, _ := os.ReadFile(filepath.Join(repo, "greet.go")); !strings.Contains(string(b), "Shout") {
+			t.Error("the candidate did not land")
+		}
+	})
+}

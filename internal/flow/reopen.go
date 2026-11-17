@@ -96,13 +96,6 @@ func draftOf(in *meta.Intent, s *meta.Specification) draft {
 // supersede moves what the areas from one on wrote under superseded/<n>/:
 // their documents, and the objects they made.
 func supersede(dir string, from int) error {
-	n := 1
-	for ; ; n++ {
-		if _, err := os.Stat(filepath.Join(dir, "superseded", strconv.Itoa(n))); errors.Is(err, os.ErrNotExist) {
-			break
-		}
-	}
-	to := filepath.Join(dir, "superseded", strconv.Itoa(n))
 	var moving []string
 	for _, s := range artifact.Stages {
 		if s.Index() >= from {
@@ -113,6 +106,19 @@ func supersede(dir string, from int) error {
 		moving = append(moving, artifact.ChangeFile)
 	}
 	moving = append(moving, artifact.PlanFile, artifact.UnitsDir, "candidates", "evidence", "baseline")
+	return moveAside(dir, moving)
+}
+
+// moveAside moves what is named, where it is there, under the next
+// superseded/<n>/.
+func moveAside(dir string, moving []string) error {
+	n := 1
+	for ; ; n++ {
+		if _, err := os.Stat(filepath.Join(dir, "superseded", strconv.Itoa(n))); errors.Is(err, os.ErrNotExist) {
+			break
+		}
+	}
+	to := filepath.Join(dir, "superseded", strconv.Itoa(n))
 	for _, name := range moving {
 		src := filepath.Join(dir, name)
 		if _, err := os.Stat(src); err != nil {
@@ -126,4 +132,125 @@ func supersede(dir string, from int) error {
 		}
 	}
 	return nil
+}
+
+// Resume carries a change that stopped — its process ended, it was stopped,
+// it failed — on from where it stopped, in its own folder, without paying
+// again for what it finished: a specification written and not yet accepted
+// is put to the person again as it is; a plan made is carried on from
+// admission; units all carried are judged and landed. What the areas it
+// carries again wrote is kept under superseded/, and the record says it was
+// resumed. A plan written before the model kept its units whole is made
+// again.
+func Resume(cfg Config, repo, dir string, changed func()) (*Run, error) {
+	if Running(dir) {
+		return nil, errors.New("the change is being carried now")
+	}
+	c, err := artifact.Load(dir)
+	if err != nil {
+		return nil, err
+	}
+	m := c.Meta
+	switch {
+	case m.Intent == nil:
+		return nil, errors.New("only a change with an intent can be resumed")
+	case m.Landing != nil:
+		return nil, errors.New("the change has landed; reopen it to change it")
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(m.Intent.ID, "INT-"))
+	if err != nil {
+		return nil, fmt.Errorf("the intent's id %q names no number", m.Intent.ID)
+	}
+	r := New(cfg, repo, m.Intent.Statement, changed)
+	r.dir, r.slug, r.n = c.Dir, c.Name(), n
+	if abs, err := filepath.Abs(r.dir); err == nil {
+		r.dir = abs
+	}
+	units, whole := unitsOf(m.Plan)
+	switch {
+	case m.Specification == nil:
+		r.from = 1 // nothing to keep: the specification is written from the start
+	case m.Plan == nil:
+		r.from, r.resumed = 1, true
+		r.spec = draftOf(m.Intent, m.Specification)
+	case !whole:
+		r.from = 2
+		r.spec = draftOf(m.Intent, m.Specification)
+	case m.Execution != nil && executed(m.Execution, units):
+		r.from = 5
+		r.spec, r.units = draftOf(m.Intent, m.Specification), units
+		for _, ca := range m.Execution.Candidates {
+			r.cands[ca.Unit] = filepath.Join(r.dir, ca.StoredAt, "files")
+		}
+	default:
+		r.from = 3
+		r.spec, r.units = draftOf(m.Intent, m.Specification), units
+	}
+	if r.from > 1 { // a specification put to the person again is kept where it is
+		if err := supersedeFrom(r.dir, r.from); err != nil {
+			return nil, err
+		}
+	}
+	if err := r.record("resumed", m.Intent.ID, fmt.Sprintf("carried on from area %d by %s, after it stopped", r.from, cfg.Person)); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// unitsOf is a plan's units as a run holds them, and whether the plan kept
+// them whole: a plan written before the model kept each unit's ticket did
+// not.
+func unitsOf(p *meta.Plan) ([]unit, bool) {
+	if p == nil || len(p.Units) == 0 {
+		return nil, false
+	}
+	var out []unit
+	for _, u := range p.Units {
+		if u.Brief == "" {
+			return nil, false
+		}
+		out = append(out, unit{id: u.ID, class: string(u.Class), aoe: u.AreaOfEffect, title: u.Title, brief: u.Brief,
+			provides: u.Provides, tests: u.Tests, scope: u.Scope, criteria: u.Criteria,
+			preparatoryFor: strings.Join(u.PreparatoryFor, ", "), dependsOn: strings.Join(u.DependsOn, ", ")})
+	}
+	return out, true
+}
+
+// executed reports whether every unit was carried to a candidate.
+func executed(e *meta.Execution, units []unit) bool {
+	done := map[string]bool{}
+	for _, run := range e.Runs {
+		done[run.Unit] = run.Terminal == meta.CandidateEnd && run.Candidate != ""
+	}
+	for _, u := range units {
+		if !done[u.id] {
+			return false
+		}
+	}
+	return len(units) > 0
+}
+
+// supersedeFrom keeps what the areas from one on wrote, and what they made,
+// under superseded/ — the candidates only when they are made again.
+func supersedeFrom(dir string, from int) error {
+	if from >= 5 {
+		return supersedeOnly(dir, string(artifact.Assurance), string(artifact.Landing), "evidence")
+	}
+	if from >= 3 {
+		return supersedeOnly(dir, string(artifact.Admission), string(artifact.Execution), string(artifact.Assurance),
+			string(artifact.Landing), "candidates", "evidence", "baseline")
+	}
+	return supersede(dir, from)
+}
+
+func supersedeOnly(dir string, names ...string) error {
+	var moving []string
+	for _, n := range names {
+		if strings.HasPrefix(n, "0") {
+			moving = append(moving, n+".json", n+".md")
+		} else {
+			moving = append(moving, n)
+		}
+	}
+	return moveAside(dir, moving)
 }

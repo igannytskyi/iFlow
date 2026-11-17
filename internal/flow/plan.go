@@ -174,7 +174,8 @@ func (r *Run) plan(ctx context.Context) error {
 		IntermediateValid: doc.Intermediate, Residue: doc.Residue, CoverageText: doc.Coverage, Planner: planner}
 	for _, u := range units {
 		record.Units = append(record.Units, meta.WorkUnit{ID: u.id, Phase: 1, Class: meta.Class(u.class), Scope: u.scope,
-			AreaOfEffect: u.aoe, Criteria: u.criteria, DependsOn: splitIDs(u.dependsOn), PreparatoryFor: splitIDs(u.preparatoryFor)})
+			AreaOfEffect: u.aoe, Criteria: u.criteria, DependsOn: splitIDs(u.dependsOn), PreparatoryFor: splitIDs(u.preparatoryFor),
+			Title: u.title, Brief: u.brief, Provides: u.provides, Tests: u.tests})
 	}
 	if err := artifact.Save(r.dir, artifact.Plan, record); err != nil {
 		return r.fail(2, "the plan could not be written: %v", err)

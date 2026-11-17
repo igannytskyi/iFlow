@@ -163,3 +163,72 @@ var (
 	errNoModel = errors.New("no model is configured, so nothing can be carried from here")
 	errBusy    = errors.New("a task is running in this project; wait for it to end, or stop it, first")
 )
+
+// lifecycle is what can be done with a task as it stands: one at work is
+// stopped, wherever it runs; one that stopped is carried on from where it
+// stopped, carried again with something changed, or closed.
+func (u *UI) lifecycle(p *project, s shown) W {
+	c := s.c
+	if c == nil {
+		return nothing
+	}
+	state := s.state(p)
+	stop, resume := u.clicks.of("life/stop/"+c.Change.Dir), u.clicks.of("life/resume/"+c.Change.Dir)
+	return func(gtx C) D {
+		switch state {
+		case "working", "waiting for you":
+			if u.clicked(gtx, stop) {
+				if s.live && p.cancel != nil {
+					p.cancel() // this window's own run
+				} else if err := flow.Stop(c.Change.Dir, u.person()); err != nil {
+					p.resolveErr = err.Error()
+				}
+			}
+			return u.small(stop, "Stop", u.p.FailSoft, u.p.Fail)(gtx)
+		case "stopped":
+			if u.clicked(gtx, resume) {
+				p.resolveErr = ""
+				if err := u.resume(p, c); err != nil {
+					p.resolveErr = err.Error()
+				}
+			}
+			parts := []W{u.small(resume, "Resume from where it stopped", u.p.Accent, u.p.Surface), u.resolveActions(p, c, "", "it stopped")}
+			if p.resolveErr != "" && p.resolving == "" {
+				parts = append(parts, u.text(sizeSmall, u.p.Fail, p.resolveErr))
+			}
+			return column(8, parts...)(gtx)
+		}
+		return D{}
+	}
+}
+
+// resume carries a stopped task on from where it stopped, and shows its run.
+func (u *UI) resume(p *project, c *workspace.Change) error {
+	if u.flowConfig == nil {
+		return errNoModel
+	}
+	if p.running() {
+		return errBusy
+	}
+	ctx, cancel := context.WithCancel(u.ctx)
+	run, err := flow.Resume(*u.flowConfig, p.path, c.Change.Dir, u.invalidate)
+	if err != nil {
+		cancel()
+		return err
+	}
+	p.cancel = cancel
+	p.run, p.live, p.seen, p.item, p.selected = run, nil, 0, nil, runKey
+	go func() {
+		_ = run.Start(ctx)
+		p.stale.Store(true)
+		u.invalidate()
+	}()
+	return nil
+}
+
+func (u *UI) person() string {
+	if u.flowConfig != nil && u.flowConfig.Person != "" {
+		return u.flowConfig.Person
+	}
+	return "the person at the workbench"
+}

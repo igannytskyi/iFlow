@@ -171,3 +171,42 @@ func (app *App) Reopen(ctx context.Context, args []string) int {
 		return flow.Reopen(cfg, repo, dir, from, strings.Join(rest[2:], " "), changed)
 	})
 }
+
+// Resume carries a stopped change on from where it stopped:
+// iflow resume [--accept|--ask] <change folder>.
+func (app *App) Resume(ctx context.Context, args []string) int {
+	accept, ask := false, false
+	var rest []string
+	for _, a := range args {
+		switch a {
+		case "--accept":
+			accept = true
+		case "--ask":
+			ask = true
+		default:
+			rest = append(rest, a)
+		}
+	}
+	if len(rest) != 1 {
+		fmt.Fprintln(app.Out, "usage: iflow resume [--accept | --ask] <change folder>")
+		return Misused
+	}
+	dir := absolute(rest[0])
+	return app.carry(ctx, accept, ask, func(cfg flow.Config, changed func()) (*flow.Run, error) {
+		return flow.Resume(cfg, filepath.Dir(filepath.Dir(dir)), dir, changed)
+	})
+}
+
+// Stop asks the run carrying a change to stop, wherever it was started:
+// iflow stop <change folder>.
+func (app *App) Stop(args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(app.Out, "usage: iflow stop <change folder>")
+		return Misused
+	}
+	if err := flow.Stop(args[0], person()); err != nil {
+		return app.fatal(err)
+	}
+	fmt.Fprintf(app.Out, "  asked %s to stop; it stops within a second, and iflow resume carries it on\n", args[0])
+	return OK
+}

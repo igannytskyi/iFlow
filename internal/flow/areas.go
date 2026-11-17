@@ -212,9 +212,12 @@ func (r *Run) intent(ctx context.Context) error {
 	prompt := "The task, as a person wrote it:\n\n" + r.statement + "\n\n" + r.overview()
 	feedback := r.reopened
 	for sent := 0; ; sent++ {
-		d, err := r.specified(ctx, prompt, feedback)
-		if err != nil {
-			return err
+		d := r.spec
+		if sent > 0 || !r.resumed {
+			var err error
+			if d, err = r.specified(ctx, prompt, feedback); err != nil {
+				return err
+			}
 		}
 		r.spec = d
 		r.say(1, r.id("SPEC"), "specification written: %d criteria, class %s, scope %s", len(d.Criteria), d.Class, strings.Join(d.Scope, ", "))

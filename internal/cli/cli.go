@@ -23,6 +23,8 @@ const usage = `usage: iflow desk [project...]            the workbench: projects
                                          each answer on stdin: accept, or notes to send it back
        iflow describe <change>...        write, after the fact, the whole specification of changes
                                          carried before specifications were whole
+       iflow stop <change>                 ask the run carrying a change to stop, wherever it runs
+       iflow resume [--accept|--ask] <change>  carry a stopped change on from where it stopped
        iflow reopen [--accept|--ask] <change> <1|2> <what> carry a change again in its folder,
                                          from its specification (1) or its plan (2)
        iflow settle <change> <n> <decision>  close an escalation the change raised by your decision
@@ -74,6 +76,10 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		return app.Desk(ctx, args[1:])
 	case len(args) > 0 && args[0] == "describe":
 		return app.Describe(ctx, args[1:])
+	case len(args) > 0 && args[0] == "resume":
+		return app.Resume(ctx, args[1:])
+	case len(args) > 0 && args[0] == "stop":
+		return app.Stop(args[1:])
 	case len(args) > 0 && args[0] == "reopen":
 		return app.Reopen(ctx, args[1:])
 	case len(args) > 0 && args[0] == "settle":
