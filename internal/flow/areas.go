@@ -856,6 +856,9 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	case len(prof.build) > 0:
 		task.Check = resolve(ws, prof.build) // an earlier one leaves the estate building
 	}
+	if !u.tests {
+		task.Provides = providedNames(u.provides)
+	}
 	if ok && !u.tests && prof.quick != nil {
 		task.Quick = func(files []string) []string {
 			if cmd := prof.quick(files); cmd != nil {

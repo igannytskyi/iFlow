@@ -12,6 +12,8 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -38,6 +40,10 @@ type Task struct {
 	// in place of its exit status, and says why not: tests written before
 	// their code fail to build, and only some of those failures are theirs.
 	Judge func(passed bool, output string) (ok bool, why string)
+	// Provides is the names the unit's contract says it gives the others:
+	// the unit is not done, whatever the check says, until each is in its
+	// files.
+	Provides []string
 	// Quick, where given, is the fast check of the files named — whether
 	// they build — run after every write or edit, so that the agent sees
 	// a mistake one step after it makes it, not at the next whole check.
@@ -142,4 +148,30 @@ func ReadTrace(path string) ([]Event, error) {
 		out = append(out, e)
 	}
 	return out, nil
+}
+
+// Unprovided is the names of t.Provides that no file of t's scope, as the
+// workspace holds it, names: what the unit said it would give and did not.
+func Unprovided(t Task) []string {
+	var text strings.Builder
+	for _, p := range t.Scope {
+		if b, err := os.ReadFile(filepath.Join(t.Workspace, filepath.FromSlash(p))); err == nil {
+			text.Write(b)
+			text.WriteByte('\n')
+		}
+	}
+	var out []string
+	for _, name := range t.Provides {
+		if !regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`).MatchString(text.String()) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// unprovidedSaid is what an agent is told of the names it was to give and
+// did not.
+func unprovidedSaid(missing []string) string {
+	return "The check passes, but you are not done: the contract between the units says this unit provides " + strings.Join(missing, ", ") +
+		", and your files do not have them. The units after you call them by these names — add each, exactly as the contract states it."
 }

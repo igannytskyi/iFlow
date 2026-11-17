@@ -136,3 +136,24 @@ var stdlib = map[string]string{
 	"url": "net/url", "json": "encoding/json", "image": "image", "color": "image/color",
 	"fs": "io/fs", "exec": "os/exec", "regexp": "regexp", "sql": "database/sql", "slog": "log/slog",
 }
+
+// providedNames is the names a unit's contract says it gives the others,
+// each as the code declares it: the function, method or type, the variable
+// or constant, the field. What is said in prose names nothing.
+func providedNames(provides []string) []string {
+	var out []string
+	for _, p := range provides {
+		if m := declared.FindStringSubmatch(strings.TrimSpace(p)); m != nil {
+			for _, name := range m[1:] {
+				if name != "" && !slices.Contains(out, name) {
+					out = append(out, name)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// declared is the name a line of a contract declares: "func (u *UI) quiet()",
+// "func New(", "type Sender", "var lookPath", "field Notify notify.Sender".
+var declared = regexp.MustCompile(`^(?:func\s+(?:\([^)]*\)\s*)?(\w+)\s*\(|(?:type|var|const)\s+(\w+)\b|field\s+(\w+)\b|def\s+(\w+)\s*\(|class\s+(\w+)\b)`)

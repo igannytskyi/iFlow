@@ -1196,3 +1196,23 @@ func TestAFileTheTicketNamesIsHanded(t *testing.T) {
 		t.Errorf("named %v", got)
 	}
 }
+
+// The names a contract says a unit provides are read from it as the code
+// declares them; what it says in prose names nothing.
+func TestTheNamesAContractProvides(t *testing.T) {
+	got := providedNames([]string{
+		"package notify",
+		"type Sender interface { Send(title, message string) }",
+		"func (System) Send(title, message string)",
+		"func commandFor(goos string) (name string, ok bool)",
+		"var lookPath = exec.LookPath  // replaced by tests",
+		"field Notify notify.Sender on type Options (internal/ui/app.go)",
+		"func (u *UI) quiet() bool",
+		"(no new names; the frame now calls u.notifyStates(p))",
+		"def shout(name):",
+	})
+	want := []string{"Sender", "Send", "commandFor", "lookPath", "Notify", "quiet", "shout"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

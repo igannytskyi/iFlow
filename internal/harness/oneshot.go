@@ -277,6 +277,11 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 		res.Steps++
 		emit(Event{At: time.Now(), Kind: Called, Tool: "Check", Detail: strings.Join(t.Check, " ")})
 		emit(Event{At: time.Now(), Kind: Got, Detail: tail(out, 6)})
+		if missing := Unprovided(t); ok && len(missing) > 0 {
+			said = unprovidedSaid(missing)
+			res.Summary = "it left out what it was to provide: " + strings.Join(missing, ", ")
+			continue
+		}
 		if ok {
 			res.Terminal = Candidate
 			break

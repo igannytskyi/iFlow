@@ -403,3 +403,25 @@ func TestFindingOutIsNotIdling(t *testing.T) {
 		t.Errorf("an agent reading thirteen new things was stopped: %s %s", res.Terminal, res.Summary)
 	}
 }
+
+// A unit whose check passes is not done while a name its contract provides
+// is missing from its files; told so, it adds it.
+func TestAUnitIsNotDoneWithoutWhatItProvides(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package a\n\ntype Options struct{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var sent [][]model.Message
+	m := chatting{sent: &sent, turns: []model.Message{
+		{Content: "done"},
+		calling("edit_file", map[string]string{"path": "a.go", "old": "type Options struct{}", "new": "type Options struct{ Notify func() }"}),
+		{Content: "Notify added"},
+	}}
+	res, err := Loop{Model: m}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: []string{"true"}, Provides: []string{"Notify"}}, func(Event) {})
+	if err != nil || res.Terminal != Candidate || res.Summary != "Notify added" {
+		t.Fatalf("the run ended %+v %v", res, err)
+	}
+	if told := sent[1][len(sent[1])-1].Content; !strings.Contains(told, "provides Notify") {
+		t.Errorf("the agent was not told what it left out: %s", told)
+	}
+}
