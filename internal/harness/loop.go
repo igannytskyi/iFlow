@@ -44,6 +44,7 @@ How to work:
 - Change only files in the unit's scope; the harness refuses anything else. If the goal cannot be reached without changing a file outside the scope, say so and stop.
 - After changing files, call run_check. Read what fails, fix it, and run it again. Do not stop while it fails because of your files.
 - Do not change tests to make them pass unless the unit is the one that writes them.
+- Tests written for this change before you are not yours to change, and may be wrong. If the check fails in them — a test's own setup or fakes (a config missing what the code needs, a fake that does not do what it stands for), a panic whose cause is what a test handed in — and no change to your files can pass them, call cannot at once, naming the test file and the line and what is wrong there; that file is written again, and you are carried again after it.
 - If the unit cannot be done as it is asked — what it relies on does not exist, what it must change is outside its scope — call cannot with why, at once; do not search on for what is not there.
 - When the check passes, answer without calling a tool, in two sentences: what you changed and why. The harness runs the check once more; if it fails, you are told and go on.`
 
