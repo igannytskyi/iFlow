@@ -55,7 +55,7 @@ Written by the planner, read by a reviewer.
 
 `plan.md`: **Approach** — how the change is built as a whole, the steps in order, what could go wrong — then every unit.
 
-`units/WU-…md` — one ticket a unit, all its agent is told of the change:
+`units/WU-…md` — one ticket a unit, what its agent is told to do; beside it the agent is handed the specification's own decisions (below, under the candidate):
 
 1. **Objective** — what the unit is for.
 2. **Serves** — the requirements and criteria.
@@ -70,7 +70,7 @@ Written by the planner, read by a reviewer.
 ## The candidate — `candidates/CA-…/`
 
 - `files/` — the unit's files, whole, as it left them; shown as a difference from `baseline/`.
-- `pack.md` — what its agent was handed: its ticket and the least of the estate the work needs.
+- `pack.md` — what its agent was handed: its ticket; the specification's decisions, word for word — its requirements, data model, interfaces, components and edge cases, and for a tests unit its test strategy — so that the units, written apart, build from one source and none decides again what the specification decided; and the least of the estate the work needs.
 - `trace.jsonl` — every step, with what each model turn cost.
 - `summary.txt` — what the agent said it did, in a sentence.
 - `failing-before.txt` — for tests written first: their run against the estate as it stood, failing.
