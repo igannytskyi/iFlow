@@ -1049,6 +1049,13 @@ func (r *Run) goal(u unit) string {
 		}
 	}
 	brief := "## What to do: " + u.title + "\n\n" + u.brief + "\n\n## The criteria this unit serves\n\n" + strings.Join(crit, "\n")
+	// Every agent builds from the same decisions — the specification's own
+	// words, not a retelling of them — so that the tests and the code, written
+	// apart, agree: a detail one agent would otherwise invent and another
+	// invent otherwise is decided once, here.
+	if d := specDecisions(r.dir, u.tests); d != "" {
+		brief += "\n\n## What the specification decides — build exactly this; a detail it decides is decided for every unit, and none may decide it otherwise\n\n" + d
+	}
 	// Every agent is handed the contract between the units — what each code
 	// unit provides, exactly — so that the tests call what the code defines
 	// and no unit defines what another provides.
@@ -1074,7 +1081,7 @@ func (r *Run) goal(u unit) string {
 			"\n\nMend exactly that; what they did not name stands as it was."
 	}
 	if u.tests {
-		return brief + "\n\nWrite only the tests. The behaviour does not exist yet, and neither does the code that will provide it: " +
+		return brief + "\n\nWrite only the tests. Assert what the criteria and the specification's decisions state, and nothing they leave open: a test that checks a detail the specification did not decide is a guess the code cannot know. The behaviour does not exist yet, and neither does the code that will provide it: " +
 			"call it by the names the brief gives, and leave it undefined — the code units define it, to pass your tests. " +
 			"Fakes of what the code depends on (a mailer, a clock, a payment provider) belong in the tests; what the code itself provides never does. " +
 			"The tests fail against the estate as it stands, if only because what they call is not there yet. Name each test after what it checks. " +
@@ -1123,6 +1130,29 @@ func testFaults(out string) string {
 }
 
 var testFaultLine = regexp.MustCompile(`[\w./-]*(?:_test\.go|test_\w+\.py|\w+_test\.py):\d+`)
+
+// specDecisions is what the specification of the change in dir decides that
+// every unit builds from: its requirements, its design, its edge cases —
+// and, for the tests, its test strategy — as change.md states them.
+func specDecisions(dir string, tests bool) string {
+	b, err := os.ReadFile(filepath.Join(dir, "change.md"))
+	if err != nil {
+		return ""
+	}
+	want := []string{"Functional requirements", "Non-functional requirements", "Data model", "Interfaces", "Components and files", "Edge cases and errors"}
+	if tests {
+		want = append(want, "Test strategy")
+	}
+	var out []string
+	for _, sec := range strings.Split("\n"+string(b), "\n#") {
+		heading, body, _ := strings.Cut(sec, "\n")
+		title := strings.TrimSpace(strings.TrimLeft(heading, "#"))
+		if slices.Contains(want, title) && strings.TrimSpace(body) != "" {
+			out = append(out, "### "+title+"\n\n"+strings.TrimSpace(body))
+		}
+	}
+	return strings.Join(out, "\n\n")
+}
 
 // newTestNames is every test the tests units of the change wrote.
 func (r *Run) newTestNames(prof profile) []string {

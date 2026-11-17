@@ -1289,3 +1289,37 @@ func TestTestsNoCodeCanPassAreWrittenAgain(t *testing.T) {
 		t.Error("the tests were not written again with where they failed")
 	}
 }
+
+// Every unit's agent builds from the specification's own decisions — its
+// requirements and interfaces, and for the tests its test strategy — so
+// that what the tests check and what the code does are decided once.
+func TestEveryAgentIsHandedTheSpecificationsDecisions(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	var goals []string
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}
+	cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: files, goals: &goals}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(goals) < 2 {
+		t.Fatalf("%d units were carried", len(goals))
+	}
+	for i, g := range goals {
+		if !strings.Contains(g, "What the specification decides") || !strings.Contains(g, "func Shout(n string) string") || !strings.Contains(g, "A shouted greeting is the greeting in capitals") {
+			t.Errorf("unit %d was not handed the specification's decisions:\n%s", i, g)
+		}
+	}
+	if !strings.Contains(goals[0], "shout_test.go calls Shout") {
+		t.Error("the tests were not handed the test strategy")
+	}
+}
