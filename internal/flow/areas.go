@@ -1224,7 +1224,7 @@ func testFaults(out string) string {
 	return strings.Join(at, "\n")
 }
 
-var testFaultLine = regexp.MustCompile(`[\w./-]*(?:_test\.go|test_\w+\.py|\w+_test\.py):\d+`)
+var testFaultLine = regexp.MustCompile(`[\w./-]*(?:_test\.go|test_\w+\.py|\w+_test\.py|\.(?:test|spec)\.[cm]?[jt]sx?):\d+|File "[^"]*(?:test_\w+|\w+_test)\.py", line \d+`)
 
 // specDecisions is what the specification of the change in dir decides that
 // every unit builds from: its requirements, its design, its edge cases —
@@ -1337,9 +1337,7 @@ func (r *Run) testNames(store string, prof profile) []string {
 	_ = filepath.WalkDir(filepath.Join(store, "files"), func(p string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			if b, err := os.ReadFile(p); err == nil {
-				for _, m := range prof.names.FindAllStringSubmatch(string(b), -1) {
-					names = append(names, m[1])
-				}
+				names = append(names, testsIn(p, string(b))...)
 			}
 		}
 		return nil

@@ -1475,3 +1475,46 @@ func TestTestsThatDidNotRunDidNotPass(t *testing.T) {
 		}
 	}
 }
+
+// The tests a file declares are read as its language declares them.
+func TestTestsAreReadInTheirLanguage(t *testing.T) {
+	for file, c := range map[string]struct {
+		content string
+		want    []string
+	}{
+		"a_test.go":  {"func TestA(t *testing.T) {}\nfunc helper() {}\nfunc TestB(t *testing.T) {}\n", []string{"TestA", "TestB"}},
+		"test_a.py":  {"class T(unittest.TestCase):\n    def test_a(self):\n        pass\n    async def test_b(self):\n        pass\n    def helper(self): pass\n", []string{"test_a", "test_b"}},
+		"a.test.js":  {"test(\"greet names the person\", () => {});\nit('says goodbye', () => {});\ndescribe(\"x\", () => {});\n", []string{"greet names the person", "says goodbye"}},
+		"lib.rs":     {"#[test]\nfn adds() {}\n#[test]\n#[should_panic]\npub fn panics() {}\nfn helper() {}\n", []string{"adds", "panics"}},
+		"ATest.java": {"@Test\nvoid greets() {}\n@Test public void bids() {}\n", []string{"greets", "bids"}},
+		"README.md":  {"func TestNothing", nil},
+	} {
+		if got := testsIn(file, c.content); !slices.Equal(got, c.want) {
+			t.Errorf("%s: %q, want %q", file, got, c.want)
+		}
+	}
+}
+
+// The estate's own runner, where it keeps one, runs the tests; its language
+// still gives an agent its build and its check of one file.
+func TestARunnerTheEstateKeepsAndItsLanguage(t *testing.T) {
+	repo := t.TempDir()
+	for f, s := range map[string]string{"go.mod": "module m\n", "test.sh": "#!/bin/sh\n"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte(s), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, ok := detect(repo)
+	if !ok || p.name != "test.sh" || p.vet == nil || p.format == nil || len(p.build) == 0 {
+		t.Fatalf("a Go estate with its own runner lost its language: %+v", p)
+	}
+	if got := p.only([]string{"TestA", "greet (names)"}); !slices.Equal(got, []string{"test.sh", "TestA", `greet \(names\)`}) {
+		t.Errorf("the runner was asked %q", got)
+	}
+	if got := quickCheck([]string{"a.py", "b.py"}); !slices.Equal(got, []string{"python3", "-m", "py_compile", "a.py", "b.py"}) {
+		t.Errorf("python's check: %q", got)
+	}
+	if got := quickCheck([]string{"a.js"}); !slices.Equal(got, []string{"node", "--check", "a.js"}) {
+		t.Errorf("node's check: %q", got)
+	}
+}
