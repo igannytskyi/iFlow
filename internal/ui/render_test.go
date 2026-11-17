@@ -260,6 +260,13 @@ func TestClosingATask(t *testing.T) {
 	}
 	u := testUI(t, nil, dir)
 	p := u.cur
+	// Opening a project reads its estate and checks its changes in the
+	// background, and both write the estate's index under the project; the
+	// test ends after them.
+	t.Cleanup(func() {
+		waitFor(t, "the estate", func() bool { return p.estate.Load() != nil })
+		waitFor(t, "the gate", func() bool { u.intake(); return int(p.checked.Load()) == len(p.ws.Changes) })
+	})
 	c := p.order[len(p.order)-1]
 	before, _ := os.ReadDir(c.Change.Dir)
 	if err := u.close(p, c, "a later task does it"); err != nil {

@@ -37,7 +37,7 @@ func (app *App) Plan(_ context.Context, args []string) int {
 	}
 	r := app.Estate.(*estate.Local).Repo(c.Root)
 	var paths []string
-	for _, p := range c.Doc(artifact.Specification).Column("Included") {
+	for _, p := range c.Meta.Specification.Scope.Included {
 		if _, err := os.Stat(filepath.Join(c.Root, p)); err == nil {
 			paths = append(paths, p)
 		}
@@ -45,8 +45,8 @@ func (app *App) Plan(_ context.Context, args []string) int {
 	slices.Sort(paths)
 	type crit struct{ id, text, plan string }
 	var crits []crit
-	for _, row := range c.Doc(artifact.Specification).Rows("Criterion", "Id") {
-		crits = append(crits, crit{row.Cell("Id"), row.Cell("Criterion"), row.Cell("Plan")})
+	for _, cr := range c.Meta.Specification.Criteria {
+		crits = append(crits, crit{cr.ID, cr.Criterion, string(cr.Plan)})
 	}
 	reach, err := r.Affects(paths)
 	if err != nil {

@@ -16,18 +16,18 @@ Read [`docs/method/glossary.md`](docs/method/glossary.md) to learn what the word
 
 ## How a change is carried
 
-One change lives in `changes/<slug>/` as seven files written in order, plus an append-only `record.md`. Copy the matching file from `docs/templates/` and fill it. Never invent a column.
+One change lives in `changes/<slug>/` as seven documents written in order, plus an append-only record. Each document is JSON in the shape of its type in [`internal/meta`](internal/meta/meta.go), described in [`docs/method/data-model.md`](docs/method/data-model.md) and checked when it is written; its Markdown beside it is rendered for people and never read back. Write documents with `artifact.Save` and the record with `artifact.AppendRecord`, never by hand; the templates in `docs/templates/` show the rendered shape. Never invent a field: add it to the type, its description and the schema.
 
 | Step | Writes | What it does |
 |---|---|---|
-| intent | `00-intent.md` | What is to be achieved, and who may decide it against a competing intent |
-| plan | `01-specification.md`, `02-plan.md` | Fixes criteria, termination, scope and arbiter; derives work units with their classes and areas of effect |
-| admit | `03-admission.md` | Settles conflict, allowance and permission together, records the specification digest, fixes any evidence plan, issues grants |
-| run | `04-execution.md` | Records what executed, its version, its terminal state and the candidate it produced |
-| verify | `05-assurance.md` | Gathers evidence and renders a verdict per criterion |
-| land | `06-landing.md` | Enters accepted candidates while their evidence still holds |
+| intent | `00-intent.json` | What is to be achieved, and who may decide it against a competing intent |
+| plan | `01-specification.json`, `02-plan.json` | Fixes criteria, termination, scope and arbiter; derives work units with their classes and areas of effect |
+| admit | `03-admission.json` | Settles conflict, allowance and permission together, records the specification digest, fixes any evidence plan, issues grants |
+| run | `04-execution.json` | Records what executed, its version, its terminal state and the candidate it produced |
+| verify | `05-assurance.json` | Gathers evidence and renders a verdict per criterion |
+| land | `06-landing.json` | Enters accepted candidates while their evidence still holds |
 
-Every step appends its crossing to `record.md`. A step present without its line fails the check.
+Every step appends its crossing to `record.jsonl`. A step present without its line fails the check. A change written before the data model is carried into it with `iflow migrate`.
 
 A task can also be carried by the program itself: `iflow run <estate> "<task>"`, or typed into `iflow desk`. A model states the intent and criteria, a person accepts them, and the plan, the admission, the execution by an agent in a copy of the estate, the evidence and the landing follow on their own, each written as the artefact above and checked by the gate at its boundary. What each piece of work cost is kept beside the change in `costs.jsonl`, and what each agent did, step by step, beside its candidate.
 

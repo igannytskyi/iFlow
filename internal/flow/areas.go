@@ -1191,16 +1191,19 @@ func (r *Run) inFlight() []flight {
 	var out []flight
 	for _, spec := range dirs {
 		dir := filepath.Dir(spec)
-		if dir == r.dir || fileExists(filepath.Join(dir, string(artifact.Landing)+".md")) || closedChange(dir) {
+		if dir == r.dir {
 			continue
 		}
 		c, err := artifact.Load(dir)
-		if err != nil || c.Doc(artifact.Specification) == nil {
+		if err != nil || c.Meta.Specification == nil || c.Has(artifact.Landing) {
+			continue
+		}
+		if _, closed := gate.Closed(c); closed {
 			continue
 		}
 		var shared []string
-		for _, row := range c.Doc(artifact.Specification).Rows("Included") {
-			if p := strings.TrimSpace(row.Cell("Included")); p != "" && inScope(p, r.spec.Scope) {
+		for _, p := range c.Meta.Specification.Scope.Included {
+			if p = strings.TrimSpace(p); p != "" && inScope(p, r.spec.Scope) {
 				shared = append(shared, p)
 			}
 		}
@@ -1209,11 +1212,6 @@ func (r *Run) inFlight() []flight {
 		}
 	}
 	return out
-}
-
-func closedChange(dir string) bool {
-	b, err := os.ReadFile(filepath.Join(dir, "record.md"))
-	return err == nil && strings.Contains(string(b), "| closed |")
 }
 
 // judgeTests accepts a vet of tests written before their code when every

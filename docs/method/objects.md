@@ -3,19 +3,19 @@
 What each area hands on is two things, and they are kept apart:
 
 - **the object itself** — the document, the code, the output — which a person reads and an agent builds from;
-- **its record** — the method's metadata about it, in the stage files' tables, which the gate checks.
+- **its record** — the method's metadata about it, in the stage documents of the [data model](data-model.md), which the gate checks.
 
 Mixing them made both worse: a description squeezed into a table cell, a table no one could read as a description. Each object below has its own file, its own structure, and is shown in the workbench above its record.
 
 | Area | The object | Kept in | Its record |
 |---|---|---|---|
-| 1 | The specification — the change described | `change.md` | `01-specification.md` |
-| 2 | The plan, and one ticket per unit | `plan.md`, `units/WU-…md` | `02-plan.md` |
-| 3 | The prior state of every file the change may touch | `baseline/` | `03-admission.md` |
-| 4 | Each unit's candidate, what its agent was handed, and what it did | `candidates/CA-…/files/`, `pack.md`, `trace.jsonl`, `summary.txt` | `04-execution.md` |
-| 5 | The output every verdict rests on | `evidence/EV-…txt`, `candidates/CA-…/failing-before.txt` | `05-assurance.md` |
-| 6 | What entered the project | the candidates' files, in the estate | `06-landing.md` |
-| 8 | Every crossing, and what each agent was handed | `record.md`, `handed/` | — |
+| 1 | The specification — the change described | `change.md` | `01-specification.json` |
+| 2 | The plan, and one ticket per unit | `plan.md`, `units/WU-…md` | `02-plan.json` |
+| 3 | The prior state of every file the change may touch | `baseline/` | `03-admission.json` |
+| 4 | Each unit's candidate, what its agent was handed, and what it did | `candidates/CA-…/files/`, `pack.md`, `trace.jsonl`, `summary.txt` | `04-execution.json` |
+| 5 | The output every verdict rests on | `evidence/EV-…txt`, `candidates/CA-…/failing-before.txt` | `05-assurance.json` |
+| 6 | What entered the project | the candidates' files, in the estate | `06-landing.json` |
+| 8 | Every crossing, and what each agent was handed | `record.jsonl`, `handed/` | — |
 | 9 | What each piece of work consumed | `costs.jsonl` | — |
 | 10 | What the person decided, for every later author | `changes/decisions.md` | — |
 

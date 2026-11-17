@@ -1,0 +1,327 @@
+{
+  "$id": "https://github.com/igannytskyi/iflow/docs/method/schema/05-assurance.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "escalations_closed": {
+      "description": "the escalations of earlier changes this change closed",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "escalation": {
+            "description": "\u003cslug\u003e#\u003cn\u003e",
+            "type": "string"
+          },
+          "note": {
+            "description": "a note",
+            "type": "string"
+          },
+          "resolved_by": {
+            "description": "what resolved it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "escalation",
+          "resolved_by"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "escalations_raised": {
+      "description": "the escalations this change raised",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "ground": {
+            "description": "why",
+            "type": "string"
+          },
+          "n": {
+            "description": "its ordinal",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "raised_against": {
+            "description": "the area or framework it is raised against",
+            "type": "string"
+          },
+          "standing": {
+            "description": "open or closed",
+            "type": "string"
+          },
+          "to": {
+            "description": "who must settle it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "n",
+          "standing",
+          "ground",
+          "raised_against",
+          "to"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "evidence": {
+      "description": "the evidence",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "how_established": {
+            "description": "how its independence was established",
+            "type": "string"
+          },
+          "id": {
+            "description": "EV-\u003cnnn\u003e-\u003cnn\u003e-\u003cnn\u003e",
+            "pattern": "^EV-\\d{3}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "independence": {
+            "description": "how far it stands apart from what made the candidate",
+            "enum": [
+              "independent-by-executor",
+              "independent-by-precommitment",
+              "not-independent"
+            ],
+            "type": "string"
+          },
+          "kind": {
+            "description": "what kind of evidence it is",
+            "enum": [
+              "test-run",
+              "static-analysis",
+              "runtime-observation",
+              "human-affirmation",
+              "transformation-proof"
+            ],
+            "type": "string"
+          },
+          "obtained_at": {
+            "description": "when it was obtained",
+            "type": "string"
+          },
+          "producer": {
+            "description": "what produced it, a command in backticks where it can be run again",
+            "type": "string"
+          },
+          "repeatable": {
+            "description": "whether the run behind it can be made again; left out by evidence written before the method asked",
+            "enum": [
+              "yes",
+              "no",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "subject": {
+            "description": "what the evidence is about",
+            "enum": [
+              "candidate",
+              "transformation"
+            ],
+            "type": "string"
+          },
+          "valid_until": {
+            "description": "what voids it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "kind",
+          "producer",
+          "independence",
+          "how_established",
+          "obtained_at"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "name": {
+      "description": "the change's folder name, its slug",
+      "type": "string"
+    },
+    "refusals": {
+      "description": "objects returned across a boundary",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "description": "when, as a date",
+            "type": "string"
+          },
+          "boundary": {
+            "description": "the boundary it was returned across",
+            "type": "string"
+          },
+          "ground": {
+            "description": "why",
+            "type": "string"
+          },
+          "id": {
+            "description": "RF-\u003cnnn\u003e-\u003cnn\u003e",
+            "pattern": "^RF-\\d{3}-\\d{2}$",
+            "type": "string"
+          },
+          "object": {
+            "description": "the object",
+            "type": "string"
+          },
+          "refused_by": {
+            "description": "who returned it",
+            "enum": [
+              "person",
+              "area"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "boundary",
+          "refused_by",
+          "ground",
+          "at"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "description": "the version of the data model this was written in",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sections": {
+      "description": "headed parts the model has no field for, kept as they were written",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "tables": {
+            "description": "its tables",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "headers": {
+                  "description": "the column headings",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "rows": {
+                  "description": "the rows, each cell under its heading",
+                  "items": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "headers",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "text": {
+            "description": "its prose",
+            "type": "string"
+          },
+          "title": {
+            "description": "the heading",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "verdicts": {
+      "description": "the verdicts, one for each unit on each criterion",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline": {
+            "description": "for a deferred verdict, what it will be compared against",
+            "type": "string"
+          },
+          "criterion": {
+            "description": "a criterion, CR-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          },
+          "evidence": {
+            "description": "the evidence",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "VE-\u003cnnn\u003e-\u003cnn\u003e",
+            "pattern": "^VE-\\d{3}-\\d{2}$",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "the outcome",
+            "enum": [
+              "met",
+              "failed",
+              "undecided"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "description": "settled, or deferred to a window and a baseline",
+            "enum": [
+              "settled",
+              "deferred"
+            ],
+            "type": "string"
+          },
+          "unit": {
+            "description": "a work unit, WU-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          },
+          "window": {
+            "description": "for a deferred verdict, when it will be settled",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "unit",
+          "criterion",
+          "outcome",
+          "evidence",
+          "state"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "name",
+    "evidence",
+    "verdicts"
+  ],
+  "title": "Assurance",
+  "type": "object"
+}

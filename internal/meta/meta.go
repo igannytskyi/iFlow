@@ -29,36 +29,36 @@ type Intent struct {
 	StatedBy string `json:"stated_by" doc:"who stated the intent"`
 	// Authority is who may decide this intent against a competing one.
 	Authority string `json:"deciding_authority,omitempty" doc:"who may decide this intent against a competing one"`
-	Priority  string `json:"priority,omitempty"`
-	Deadline  string `json:"deadline,omitempty"`
+	Priority  string `json:"priority,omitempty" doc:"how this intent ranks against others"`
+	Deadline  string `json:"deadline,omitempty" doc:"when it is wanted by, or none"`
 	// Statement is what is to be achieved, in the vocabulary of the domain.
 	Statement string       `json:"statement" doc:"what is to be achieved, in the vocabulary of the domain"`
-	Status    IntentStatus `json:"status"`
+	Status    IntentStatus `json:"status" doc:"where the intent stands"`
 }
 
 // Specification is 01-specification.json: how the change is judged. The
 // change described for a reader is change.md, which this does not hold.
 type Specification struct {
-	Schema int    `json:"schema"`
+	Schema int    `json:"schema" doc:"the version of the data model this was written in"`
 	ID     string `json:"id" doc:"SPEC-<nnn>"`
-	Name   string `json:"name"`
+	Name   string `json:"name" doc:"the change's folder name, its slug"`
 	Intent string `json:"intent" doc:"the intent it specifies, INT-<nnn>"`
 	// Class is the default class of the change's units.
-	Class Class `json:"default_class"`
+	Class Class `json:"default_class" doc:"the class a unit of the change has unless the plan gives it another"`
 	// Prose is what the specification says besides its tables, for a
 	// specification written before change.md held the change described.
-	Prose       string        `json:"prose,omitempty"`
-	Criteria    []Criterion   `json:"criteria"`
-	Termination []Termination `json:"termination"`
-	Scope       Scope         `json:"scope"`
+	Prose       string        `json:"prose,omitempty" doc:"what the document says besides its fields, for one written before the model held it"`
+	Criteria    []Criterion   `json:"criteria" doc:"the acceptance criteria"`
+	Termination []Termination `json:"termination" doc:"the conditions on which work stops without acceptance"`
+	Scope       Scope         `json:"scope" doc:"what the change may touch, as paths"`
 	// Arbiters are the paths that hold what judges the change.
-	Arbiters []Arbiter `json:"arbiters"`
+	Arbiters []Arbiter `json:"arbiters" doc:"the paths holding what judges the change"`
 	// Inputs are what the arbiters read, and whether each is in the scope:
 	// an input in the scope has its prior state captured at admission (R7b).
-	Inputs []ArbiterInput `json:"arbiter_inputs,omitempty"`
+	Inputs []ArbiterInput `json:"arbiter_inputs,omitempty" doc:"what the arbiters read, and whether each is in the scope"`
 	// Sections are the further sections a study's specification keeps —
 	// its population, hypothesis, measures — as headed prose and tables.
-	Sections []Section `json:"sections,omitempty"`
+	Sections []Section `json:"sections,omitempty" doc:"headed parts the model has no field for, kept as they were written"`
 }
 
 // Criterion is one acceptance criterion: when these conditions hold, then
@@ -69,299 +69,299 @@ type Criterion struct {
 	When      string       `json:"when,omitempty" doc:"the conditions under which it is judged"`
 	Then      string       `json:"then,omitempty" doc:"what must be true"`
 	Plan      PlanNeed     `json:"plan,omitempty" doc:"whether settling it needs an evidence plan"`
-	Procedure Procedure    `json:"procedure"`
-	Evidence  EvidenceKind `json:"required_evidence"`
-	Threshold string       `json:"threshold,omitempty"`
+	Procedure Procedure    `json:"procedure" doc:"how the criterion is decided"`
+	Evidence  EvidenceKind `json:"required_evidence" doc:"what kind of evidence settles the criterion"`
+	Threshold string       `json:"threshold,omitempty" doc:"the bound a result must meet"`
 }
 
 // Termination is a condition on which work stops without acceptance.
 type Termination struct {
-	Condition string `json:"condition"`
-	Action    string `json:"action"`
+	Condition string `json:"condition" doc:"the condition"`
+	Action    string `json:"action" doc:"stop, or escalate"`
 }
 
 // Scope is what the change may and may not touch.
 type Scope struct {
-	Included []string `json:"included"`
-	Excluded []string `json:"excluded,omitempty"`
+	Included []string `json:"included" doc:"paths the change may touch"`
+	Excluded []string `json:"excluded,omitempty" doc:"paths it may not touch, though near"`
 }
 
 // Arbiter is one path holding what judges the change.
 type Arbiter struct {
-	Path       string `json:"path"`
+	Path       string `json:"path" doc:"a path, relative to the estate"`
 	Arbitrates string `json:"arbitrates" doc:"the criteria it judges"`
 }
 
 // ArbiterInput is something an arbiter reads.
 type ArbiterInput struct {
-	Input   string `json:"input"`
+	Input   string `json:"input" doc:"a path an arbiter reads"`
 	InScope string `json:"in_scope" doc:"yes or no, and why"`
 }
 
 // Section is a headed part of a document that has no type of its own: its
 // prose, and its tables as they were written.
 type Section struct {
-	Title  string      `json:"title"`
-	Text   string      `json:"text,omitempty"`
-	Tables []TableData `json:"tables,omitempty"`
+	Title  string      `json:"title" doc:"the heading"`
+	Text   string      `json:"text,omitempty" doc:"its prose"`
+	Tables []TableData `json:"tables,omitempty" doc:"its tables"`
 }
 
 // TableData is a table kept as it was written.
 type TableData struct {
-	Headers []string   `json:"headers"`
-	Rows    [][]string `json:"rows"`
+	Headers []string   `json:"headers" doc:"the column headings"`
+	Rows    [][]string `json:"rows" doc:"the rows, each cell under its heading"`
 }
 
 // Plan is 02-plan.json: the change divided into units of work.
 type Plan struct {
-	Schema        int    `json:"schema"`
-	Name          string `json:"name"`
+	Schema        int    `json:"schema" doc:"the version of the data model this was written in"`
+	Name          string `json:"name" doc:"the change's folder name, its slug"`
 	Specification string `json:"specification" doc:"SPEC-<nnn>"`
-	Phases        int    `json:"phases"`
+	Phases        int    `json:"phases" doc:"how many phases the change lands in; 1 if everything can land at once"`
 	// IntermediateValid says whether every phase boundary leaves a
 	// shippable system.
-	IntermediateValid string     `json:"intermediate_states_valid"`
-	Residue           string     `json:"residue_on_abandonment,omitempty"`
-	Units             []WorkUnit `json:"units"`
+	IntermediateValid string     `json:"intermediate_states_valid" doc:"whether every phase boundary leaves a shippable system, and why"`
+	Residue           string     `json:"residue_on_abandonment,omitempty" doc:"what is left if the change is abandoned: a rollback, or the intent that disposes of it"`
+	Units             []WorkUnit `json:"units" doc:"the units of work"`
 	// Coverage is the plan's answers to what the method asks of every plan,
 	// or, in a plan written before those questions were asked, its prose.
-	Coverage     []Answer `json:"coverage,omitempty"`
-	CoverageText string   `json:"coverage_text,omitempty"`
+	Coverage     []Answer `json:"coverage,omitempty" doc:"the plan's answers to what the method asks of every plan"`
+	CoverageText string   `json:"coverage_text,omitempty" doc:"how the units cover the specification, in prose"`
 	// Planner is who divided the work.
-	Planner string `json:"planner,omitempty"`
+	Planner string `json:"planner,omitempty" doc:"who divided the work"`
 	// Notes are what the plan says in prose beside its tables.
-	Notes []Section `json:"notes,omitempty"`
+	Notes []Section `json:"notes,omitempty" doc:"what the document says in prose beside its tables, by heading"`
 }
 
 // WorkUnit is one unit of work.
 type WorkUnit struct {
 	ID             string   `json:"id" doc:"WU-<nnn>-<nn>"`
-	Phase          int      `json:"phase"`
-	Class          Class    `json:"class"`
-	Scope          []string `json:"scope"`
+	Phase          int      `json:"phase" doc:"the phase it lands in"`
+	Class          Class    `json:"class" doc:"the unit's change class"`
+	Scope          []string `json:"scope" doc:"what the change may touch, as paths"`
 	AreaOfEffect   string   `json:"area_of_effect,omitempty" doc:"how it was computed, and at what confidence"`
-	Criteria       []string `json:"criteria"`
-	DependsOn      []string `json:"depends_on,omitempty"`
+	Criteria       []string `json:"criteria" doc:"the acceptance criteria"`
+	DependsOn      []string `json:"depends_on,omitempty" doc:"the units it relies on"`
 	PreparatoryFor []string `json:"preparatory_for,omitempty" doc:"the criteria whose arbiter this unit writes, before their code"`
 }
 
 // Answer is a question the method asks, and the answer given.
 type Answer struct {
-	Question string `json:"question"`
-	Answer   string `json:"answer"`
+	Question string `json:"question" doc:"the question"`
+	Answer   string `json:"answer" doc:"the answer"`
 }
 
 // Admission is 03-admission.json: what was admitted, on what, and what was
 // fixed before execution.
 type Admission struct {
-	Schema int    `json:"schema"`
-	Name   string `json:"name"`
+	Schema int    `json:"schema" doc:"the version of the data model this was written in"`
+	Name   string `json:"name" doc:"the change's folder name, its slug"`
 	// Digest is the specification's digest at admission; R1 compares
 	// against it ever after.
-	Digest string `json:"specification_digest"`
+	Digest string `json:"specification_digest" doc:"the specification's digest at admission; R1 compares against it ever after"`
 	// Reviews are who read the criteria before admission.
-	Reviews   []Review       `json:"criteria_review,omitempty"`
-	Decisions []Decision     `json:"decisions"`
-	Conflicts []Conflict     `json:"conflicts,omitempty"`
-	Plans     []EvidencePlan `json:"evidence_plan,omitempty"`
-	Prior     []Capture      `json:"prior_state"`
-	Grants    []Grant        `json:"grants,omitempty"`
+	Reviews   []Review       `json:"criteria_review,omitempty" doc:"whether a person read the criteria before admission, and who"`
+	Decisions []Decision     `json:"decisions" doc:"what admission decided of each unit"`
+	Conflicts []Conflict     `json:"conflicts,omitempty" doc:"where units' areas of effect meet, and how it is resolved"`
+	Plans     []EvidencePlan `json:"evidence_plan,omitempty" doc:"what will be observed to settle each criterion that needs a plan"`
+	Prior     []Capture      `json:"prior_state" doc:"the prior state of what the arbiters read, captured before execution"`
+	Grants    []Grant        `json:"grants,omitempty" doc:"what each unit was permitted to do"`
 	// Notes are what the admission says in prose beside its tables.
-	Notes []Section `json:"notes,omitempty"`
+	Notes []Section `json:"notes,omitempty" doc:"what the document says in prose beside its tables, by heading"`
 }
 
 // Review is a person's reading of the criteria before admission.
 type Review struct {
-	Reviewed Reviewed `json:"reviewed_before_admission"`
-	By       string   `json:"by"`
-	At       string   `json:"at"`
-	Note     string   `json:"note,omitempty"`
+	Reviewed Reviewed `json:"reviewed_before_admission" doc:"yes or no"`
+	By       string   `json:"by" doc:"who"`
+	At       string   `json:"at" doc:"when, as a date"`
+	Note     string   `json:"note,omitempty" doc:"a note"`
 }
 
 // Decision is what admission decided of one unit.
 type Decision struct {
-	Unit       string           `json:"unit"`
-	Outcome    AdmissionOutcome `json:"outcome"`
+	Unit       string           `json:"unit" doc:"a work unit, WU-<nnn>-<nn>"`
+	Outcome    AdmissionOutcome `json:"outcome" doc:"the outcome"`
 	Condition  string           `json:"deciding_condition" doc:"conflict, allowance or permission, and what of it"`
 	Confidence string           `json:"confidence_of_edges" doc:"the confidence of the edges of the estate relied on"`
-	Escalates  string           `json:"escalates_at,omitempty"`
+	Escalates  string           `json:"escalates_at,omitempty" doc:"when a held unit is escalated to a person"`
 }
 
 // Conflict is two units' areas of effect meeting.
 type Conflict struct {
-	Units       string `json:"units"`
-	Region      string `json:"intersecting_region"`
-	Invalidates string `json:"evidence_it_would_invalidate"`
-	Resolution  string `json:"resolution"`
+	Units       string `json:"units" doc:"the units of work"`
+	Region      string `json:"intersecting_region" doc:"where the areas of effect meet"`
+	Invalidates string `json:"evidence_it_would_invalidate" doc:"what evidence one landing would void for the other"`
+	Resolution  string `json:"resolution" doc:"how the conflict is resolved"`
 }
 
 // EvidencePlan is what will be observed to settle one criterion, and how;
 // fixed at admission, derived from the area of effect, never the candidate.
 type EvidencePlan struct {
-	Criterion   string `json:"criterion"`
+	Criterion   string `json:"criterion" doc:"a criterion, CR-<nnn>-<nn>"`
 	Observed    string `json:"observed" doc:"which component, which interfaces"`
 	Method      string `json:"method" doc:"environment, load, repetitions, tolerated variance"`
 	Unchanged   string `json:"unchanged_means,omitempty" doc:"what counts as unchanged, against which captured prior state"`
 	DerivedFrom string `json:"derived_from" doc:"the area of effect, and its confidence"`
-	FixedAt     string `json:"fixed_at,omitempty"`
+	FixedAt     string `json:"fixed_at,omitempty" doc:"when the plan stopped being editable"`
 }
 
 // Capture is the prior state of something an arbiter reads, kept before
 // execution.
 type Capture struct {
-	Criterion  string `json:"criterion"`
-	Artefact   string `json:"artefact"`
+	Criterion  string `json:"criterion" doc:"a criterion, CR-<nnn>-<nn>"`
+	Artefact   string `json:"artefact" doc:"what was captured"`
 	CapturedTo string `json:"captured_to" doc:"baseline/<name>"`
 }
 
 // Grant is what a unit was permitted to do.
 type Grant struct {
 	ID         string `json:"id" doc:"GR-<nnn>-<nn>"`
-	Unit       string `json:"unit"`
-	Operations string `json:"permitted_operations"`
-	Targets    string `json:"targets"`
-	Expires    string `json:"expires"`
+	Unit       string `json:"unit" doc:"a work unit, WU-<nnn>-<nn>"`
+	Operations string `json:"permitted_operations" doc:"what the unit may do"`
+	Targets    string `json:"targets" doc:"where it may do it"`
+	Expires    string `json:"expires" doc:"when the permission ends"`
 }
 
 // Execution is 04-execution.json: each unit carried out, and what it left.
 type Execution struct {
-	Schema     int         `json:"schema"`
-	Name       string      `json:"name"`
-	Runs       []Run       `json:"runs"`
-	Candidates []Candidate `json:"candidates"`
+	Schema     int         `json:"schema" doc:"the version of the data model this was written in"`
+	Name       string      `json:"name" doc:"the change's folder name, its slug"`
+	Runs       []Run       `json:"runs" doc:"each unit's run by its executor"`
+	Candidates []Candidate `json:"candidates" doc:"what each unit proposes, kept apart from the estate"`
 	// Reproductions are, for a repair, how each criterion stood before it.
-	Reproductions []Reproduction `json:"reproductions,omitempty"`
-	Prose         string         `json:"prose,omitempty"`
+	Reproductions []Reproduction `json:"reproductions,omitempty" doc:"for a repair, how each criterion stood before it"`
+	Prose         string         `json:"prose,omitempty" doc:"what the document says besides its fields, for one written before the model held it"`
 }
 
 // Run is one unit's run by its executor.
 type Run struct {
-	Unit      string   `json:"unit"`
-	Executor  string   `json:"executor"`
-	Version   string   `json:"version"`
-	Terminal  Terminal `json:"terminal_state"`
-	Candidate string   `json:"candidate,omitempty"`
-	Trace     string   `json:"trace,omitempty"`
+	Unit      string   `json:"unit" doc:"a work unit, WU-<nnn>-<nn>"`
+	Executor  string   `json:"executor" doc:"what carried the unit out"`
+	Version   string   `json:"version" doc:"the executor's version"`
+	Terminal  Terminal `json:"terminal_state" doc:"how the unit's run ended"`
+	Candidate string   `json:"candidate,omitempty" doc:"the candidate it left, CA-<nnn>-<nn>"`
+	Trace     string   `json:"trace,omitempty" doc:"where the run's steps are kept"`
 }
 
 // Candidate is what a unit proposes, kept apart and never applied here.
 type Candidate struct {
 	ID         string `json:"id" doc:"CA-<nnn>-<nn>"`
-	Unit       string `json:"unit"`
-	StoredAt   string `json:"stored_at"`
-	Artefacts  string `json:"artefacts"`
-	ProducedAt string `json:"produced_at"`
+	Unit       string `json:"unit" doc:"a work unit, WU-<nnn>-<nn>"`
+	StoredAt   string `json:"stored_at" doc:"the candidate's folder, inside the change"`
+	Artefacts  string `json:"artefacts" doc:"what the candidate proposes, never applied here"`
+	ProducedAt string `json:"produced_at" doc:"when it was produced"`
 }
 
 // Reproduction is how a criterion stood before a repair.
 type Reproduction struct {
-	Unit         string `json:"unit"`
-	Criterion    string `json:"criterion"`
-	BeforeRepair string `json:"before_repair"`
+	Unit         string `json:"unit" doc:"a work unit, WU-<nnn>-<nn>"`
+	Criterion    string `json:"criterion" doc:"a criterion, CR-<nnn>-<nn>"`
+	BeforeRepair string `json:"before_repair" doc:"how the criterion stood before the repair"`
 }
 
 // Assurance is 05-assurance.json: the evidence, the verdicts on it, and what
 // the change raised and settled.
 type Assurance struct {
-	Schema   int        `json:"schema"`
-	Name     string     `json:"name"`
-	Evidence []Evidence `json:"evidence"`
-	Verdicts []Verdict  `json:"verdicts"`
+	Schema   int        `json:"schema" doc:"the version of the data model this was written in"`
+	Name     string     `json:"name" doc:"the change's folder name, its slug"`
+	Evidence []Evidence `json:"evidence" doc:"the evidence"`
+	Verdicts []Verdict  `json:"verdicts" doc:"the verdicts, one for each unit on each criterion"`
 	// Raised are the escalations this change raised: the method asking a
 	// person, or itself, for what no change here can settle.
-	Raised []Escalation `json:"escalations_raised,omitempty"`
+	Raised []Escalation `json:"escalations_raised,omitempty" doc:"the escalations this change raised"`
 	// Settled are the escalations of earlier changes this one closed.
-	Settled  []Settlement `json:"escalations_closed,omitempty"`
-	Refusals []Refusal    `json:"refusals,omitempty"`
-	Sections []Section    `json:"sections,omitempty"`
+	Settled  []Settlement `json:"escalations_closed,omitempty" doc:"the escalations of earlier changes this change closed"`
+	Refusals []Refusal    `json:"refusals,omitempty" doc:"objects returned across a boundary"`
+	Sections []Section    `json:"sections,omitempty" doc:"headed parts the model has no field for, kept as they were written"`
 }
 
 // Evidence is one output a verdict may rest on.
 type Evidence struct {
 	ID           string       `json:"id" doc:"EV-<nnn>-<nn>-<nn>"`
-	Subject      Subject      `json:"subject"`
-	Kind         EvidenceKind `json:"kind"`
+	Subject      Subject      `json:"subject" doc:"what the evidence is about"`
+	Kind         EvidenceKind `json:"kind" doc:"what kind of evidence it is"`
 	Producer     string       `json:"producer" doc:"what produced it, a command in backticks where it can be run again"`
-	Independence Independence `json:"independence"`
-	How          string       `json:"how_established"`
-	Repeatable   Repeatable   `json:"repeatable,omitempty"`
-	ObtainedAt   string       `json:"obtained_at"`
-	ValidUntil   string       `json:"valid_until,omitempty"`
+	Independence Independence `json:"independence" doc:"how far it stands apart from what made the candidate"`
+	How          string       `json:"how_established" doc:"how its independence was established"`
+	Repeatable   Repeatable   `json:"repeatable,omitempty" doc:"whether the run behind it can be made again; left out by evidence written before the method asked"`
+	ObtainedAt   string       `json:"obtained_at" doc:"when it was obtained"`
+	ValidUntil   string       `json:"valid_until,omitempty" doc:"what voids it"`
 }
 
 // Verdict is one unit judged on one criterion.
 type Verdict struct {
 	ID        string         `json:"id" doc:"VE-<nnn>-<nn>"`
-	Unit      string         `json:"unit"`
-	Criterion string         `json:"criterion"`
-	Outcome   VerdictOutcome `json:"outcome"`
-	Evidence  []string       `json:"evidence"`
-	State     VerdictState   `json:"state"`
-	Window    string         `json:"window,omitempty"`
-	Baseline  string         `json:"baseline,omitempty"`
+	Unit      string         `json:"unit" doc:"a work unit, WU-<nnn>-<nn>"`
+	Criterion string         `json:"criterion" doc:"a criterion, CR-<nnn>-<nn>"`
+	Outcome   VerdictOutcome `json:"outcome" doc:"the outcome"`
+	Evidence  []string       `json:"evidence" doc:"the evidence"`
+	State     VerdictState   `json:"state" doc:"settled, or deferred to a window and a baseline"`
+	Window    string         `json:"window,omitempty" doc:"for a deferred verdict, when it will be settled"`
+	Baseline  string         `json:"baseline,omitempty" doc:"for a deferred verdict, what it will be compared against"`
 }
 
 // Escalation is one escalation a change raised, addressed <slug>#<n>.
 type Escalation struct {
-	N        int    `json:"n"`
+	N        int    `json:"n" doc:"its ordinal"`
 	Standing string `json:"standing" doc:"open or closed"`
-	Ground   string `json:"ground"`
-	Against  string `json:"raised_against"`
-	To       string `json:"to"`
+	Ground   string `json:"ground" doc:"why"`
+	Against  string `json:"raised_against" doc:"the area or framework it is raised against"`
+	To       string `json:"to" doc:"who must settle it"`
 }
 
 // Settlement is an earlier change's escalation this change closed.
 type Settlement struct {
 	Escalation string `json:"escalation" doc:"<slug>#<n>"`
-	ResolvedBy string `json:"resolved_by"`
-	Note       string `json:"note,omitempty"`
+	ResolvedBy string `json:"resolved_by" doc:"what resolved it"`
+	Note       string `json:"note,omitempty" doc:"a note"`
 }
 
 // Refusal is an object returned across a boundary.
 type Refusal struct {
 	ID       string    `json:"id" doc:"RF-<nnn>-<nn>"`
-	Object   string    `json:"object"`
-	Boundary string    `json:"boundary"`
-	By       RefusedBy `json:"refused_by"`
-	Ground   string    `json:"ground"`
-	At       string    `json:"at"`
+	Object   string    `json:"object" doc:"the object"`
+	Boundary string    `json:"boundary" doc:"the boundary it was returned across"`
+	By       RefusedBy `json:"refused_by" doc:"who returned it"`
+	Ground   string    `json:"ground" doc:"why"`
+	At       string    `json:"at" doc:"when, as a date"`
 }
 
 // Landing is 06-landing.json: what entered the estate, in what order.
 type Landing struct {
-	Schema    int         `json:"schema"`
-	Name      string      `json:"name"`
-	Entries   []Entry     `json:"entries"`
-	Unplanned []Unplanned `json:"unplanned_state,omitempty"`
+	Schema    int         `json:"schema" doc:"the version of the data model this was written in"`
+	Name      string      `json:"name" doc:"the change's folder name, its slug"`
+	Entries   []Entry     `json:"entries" doc:"each unit entering the estate, in order"`
+	Unplanned []Unplanned `json:"unplanned_state,omitempty" doc:"states no plan foresaw, and how each was resolved"`
 	// Notes are what the landing says in prose beside its tables.
-	Notes []Section `json:"notes,omitempty"`
+	Notes []Section `json:"notes,omitempty" doc:"what the document says in prose beside its tables, by heading"`
 }
 
 // Entry is one unit entering the estate.
 type Entry struct {
-	Order         int    `json:"order"`
-	Unit          string `json:"unit"`
-	VerdictState  string `json:"verdict_state"`
-	StillValid    string `json:"evidence_still_valid"`
-	EnteredAt     string `json:"entered_at"`
-	Invalidated   string `json:"invalidated_by_this_entry"`
-	Reestablished string `json:"reestablished_before_next,omitempty"`
+	Order         int    `json:"order" doc:"its place in the order of entry"`
+	Unit          string `json:"unit" doc:"a work unit, WU-<nnn>-<nn>"`
+	VerdictState  string `json:"verdict_state" doc:"the state of the verdicts it entered on"`
+	StillValid    string `json:"evidence_still_valid" doc:"yes or no: whether its evidence still held when it entered"`
+	EnteredAt     string `json:"entered_at" doc:"when it entered"`
+	Invalidated   string `json:"invalidated_by_this_entry" doc:"what this entry voided of other units' evidence"`
+	Reestablished string `json:"reestablished_before_next,omitempty" doc:"how what it voided was established again before the next entry"`
 }
 
 // Unplanned is a state no plan foresaw, and how it was resolved.
 type Unplanned struct {
-	Occurred   string `json:"occurred"`
-	Halted     string `json:"area_of_effect_halted"`
-	ResolvedBy string `json:"resolved_by"`
+	Occurred   string `json:"occurred" doc:"what occurred"`
+	Halted     string `json:"area_of_effect_halted" doc:"what was halted"`
+	ResolvedBy string `json:"resolved_by" doc:"what resolved it"`
 }
 
 // Crossing is one line of the record: a stage boundary crossed. The record
 // is record.jsonl, one crossing a line, appended to and never rewritten.
 type Crossing struct {
 	N      int    `json:"n" doc:"the ordinal: 1, 2, 3 … in order, none missing"`
-	At     string `json:"at"`
-	Stage  string `json:"stage"`
-	Object string `json:"object"`
-	Digest string `json:"digest,omitempty"`
-	Note   string `json:"note,omitempty"`
+	At     string `json:"at" doc:"when, as a date"`
+	Stage  string `json:"stage" doc:"the stage, or closed, or migrated"`
+	Object string `json:"object" doc:"the object"`
+	Digest string `json:"digest,omitempty" doc:"a digest the crossing fixes"`
+	Note   string `json:"note,omitempty" doc:"a note"`
 }

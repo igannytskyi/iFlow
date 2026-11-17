@@ -110,10 +110,6 @@ type Change struct {
 	// Root is the estate the change is carried against: the repository it
 	// lives in, which is not the folder it lives in.
 	Root string
-	// Docs holds each stage present.
-	Docs map[Stage]*Doc
-	// Record is record.md, or nil when there is none.
-	Record *Doc
 	// SpecDigest is the digest of the specification as it is now: of its
 	// JSON, where it has been written in the data model.
 	SpecDigest string
@@ -151,7 +147,7 @@ func Load(dir string) (*Change, error) {
 	if !st.IsDir() {
 		return nil, &fs.PathError{Op: "load", Path: dir, Err: errors.New("not a directory")}
 	}
-	c := &Change{Dir: filepath.Clean(dir), Docs: map[Stage]*Doc{}}
+	c := &Change{Dir: filepath.Clean(dir)}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -169,11 +165,8 @@ func Load(dir string) (*Change, error) {
 			}
 		case err != nil:
 			return nil, err
-		default:
-			c.Docs[s] = ParseDoc(string(b))
-			if s == Specification {
-				c.SpecDigest = Digest(b)
-			}
+		case s == Specification:
+			c.SpecDigest = Digest(b) // of the Markdown, until the change is in the model
 		}
 		if err := c.loadMeta(s, b); err != nil {
 			return nil, err
@@ -184,9 +177,6 @@ func Load(dir string) (*Change, error) {
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, LegacyDir, string(Specification)+".md")); err == nil {
 		c.LegacySpecDigest = Digest(b)
-	}
-	if b, err := os.ReadFile(filepath.Join(dir, "record.md")); err == nil {
-		c.Record = ParseDoc(string(b))
 	}
 	if _, err := os.Stat(filepath.Join(dir, RecordFile)); err == nil {
 		rec, err := ReadRecord(dir)
@@ -274,9 +264,6 @@ func (c *Change) Has(s Stage) bool {
 	}
 	return false
 }
-
-// Doc returns a stage, or nil; every Doc method is safe on nil.
-func (c *Change) Doc(s Stage) *Doc { return c.Docs[s] }
 
 // Present lists the stages present, in order.
 func (c *Change) Present() []Stage {

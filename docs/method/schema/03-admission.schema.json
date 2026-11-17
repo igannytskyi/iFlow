@@ -1,0 +1,295 @@
+{
+  "$id": "https://github.com/igannytskyi/iflow/docs/method/schema/03-admission.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "conflicts": {
+      "description": "where units' areas of effect meet, and how it is resolved",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_it_would_invalidate": {
+            "description": "what evidence one landing would void for the other",
+            "type": "string"
+          },
+          "intersecting_region": {
+            "description": "where the areas of effect meet",
+            "type": "string"
+          },
+          "resolution": {
+            "description": "how the conflict is resolved",
+            "type": "string"
+          },
+          "units": {
+            "description": "the units of work",
+            "type": "string"
+          }
+        },
+        "required": [
+          "units",
+          "intersecting_region",
+          "evidence_it_would_invalidate",
+          "resolution"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "criteria_review": {
+      "description": "whether a person read the criteria before admission, and who",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "description": "when, as a date",
+            "type": "string"
+          },
+          "by": {
+            "description": "who",
+            "type": "string"
+          },
+          "note": {
+            "description": "a note",
+            "type": "string"
+          },
+          "reviewed_before_admission": {
+            "description": "yes or no",
+            "enum": [
+              "yes",
+              "no"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "reviewed_before_admission",
+          "by",
+          "at"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "decisions": {
+      "description": "what admission decided of each unit",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence_of_edges": {
+            "description": "the confidence of the edges of the estate relied on",
+            "type": "string"
+          },
+          "deciding_condition": {
+            "description": "conflict, allowance or permission, and what of it",
+            "type": "string"
+          },
+          "escalates_at": {
+            "description": "when a held unit is escalated to a person",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "the outcome",
+            "enum": [
+              "admitted",
+              "held",
+              "refused",
+              "awaiting-authority"
+            ],
+            "type": "string"
+          },
+          "unit": {
+            "description": "a work unit, WU-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit",
+          "outcome",
+          "deciding_condition",
+          "confidence_of_edges"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "evidence_plan": {
+      "description": "what will be observed to settle each criterion that needs a plan",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "criterion": {
+            "description": "a criterion, CR-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          },
+          "derived_from": {
+            "description": "the area of effect, and its confidence",
+            "type": "string"
+          },
+          "fixed_at": {
+            "description": "when the plan stopped being editable",
+            "type": "string"
+          },
+          "method": {
+            "description": "environment, load, repetitions, tolerated variance",
+            "type": "string"
+          },
+          "observed": {
+            "description": "which component, which interfaces",
+            "type": "string"
+          },
+          "unchanged_means": {
+            "description": "what counts as unchanged, against which captured prior state",
+            "type": "string"
+          }
+        },
+        "required": [
+          "criterion",
+          "observed",
+          "method",
+          "derived_from"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "grants": {
+      "description": "what each unit was permitted to do",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "expires": {
+            "description": "when the permission ends",
+            "type": "string"
+          },
+          "id": {
+            "description": "GR-\u003cnnn\u003e-\u003cnn\u003e",
+            "pattern": "^GR-\\d{3}-\\d{2}$",
+            "type": "string"
+          },
+          "permitted_operations": {
+            "description": "what the unit may do",
+            "type": "string"
+          },
+          "targets": {
+            "description": "where it may do it",
+            "type": "string"
+          },
+          "unit": {
+            "description": "a work unit, WU-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "unit",
+          "permitted_operations",
+          "targets",
+          "expires"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "name": {
+      "description": "the change's folder name, its slug",
+      "type": "string"
+    },
+    "notes": {
+      "description": "what the document says in prose beside its tables, by heading",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "tables": {
+            "description": "its tables",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "headers": {
+                  "description": "the column headings",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "rows": {
+                  "description": "the rows, each cell under its heading",
+                  "items": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "headers",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "text": {
+            "description": "its prose",
+            "type": "string"
+          },
+          "title": {
+            "description": "the heading",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "prior_state": {
+      "description": "the prior state of what the arbiters read, captured before execution",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "artefact": {
+            "description": "what was captured",
+            "type": "string"
+          },
+          "captured_to": {
+            "description": "baseline/\u003cname\u003e",
+            "type": "string"
+          },
+          "criterion": {
+            "description": "a criterion, CR-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          }
+        },
+        "required": [
+          "criterion",
+          "artefact",
+          "captured_to"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "description": "the version of the data model this was written in",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "specification_digest": {
+      "description": "the specification's digest at admission; R1 compares against it ever after",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "name",
+    "specification_digest",
+    "decisions",
+    "prior_state"
+  ],
+  "title": "Admission",
+  "type": "object"
+}

@@ -149,64 +149,75 @@ func DecodeIntent(name, text string) (meta.Intent, []string) {
 		Priority: f["Priority"], Deadline: f["Deadline"], Statement: f["Statement"], Status: meta.IntentStatus(f["Status"])}, nil
 }
 
-// DecodeSpecification reads a Markdown 01-specification.
+// DecodeSpecification reads a Markdown 01-specification. A table is known by
+// its columns wherever it stands; a section none of whose tables the model
+// has a field for is kept whole.
 func DecodeSpecification(name, text string) (meta.Specification, []string) {
 	d := &decoder{stage: Specification}
 	secs := sectionsOf(text)
-	f := fieldsOf(secs[0].tables)
+	f := map[string]string{}
+	for _, s := range secs {
+		for k, v := range fieldsOf(s.tables) {
+			f[k] = v
+		}
+	}
 	out := meta.Specification{Schema: meta.SchemaVersion, Name: name, ID: f["Id"], Intent: f["Intent"], Class: meta.Class(f["Default class"]),
 		Prose: strings.Join(secs[0].prose, "\n\n")}
-	for _, s := range secs[1:] {
-		switch {
-		case s.title == "Acceptance criteria":
-			rows, _ := rowsOf(s.tables, "Id", "Criterion")
-			for _, r := range rows {
-				out.Criteria = append(out.Criteria, meta.Criterion{ID: r.Cell("Id"), Criterion: r.Cell("Criterion"), When: r.Cell("When"), Then: r.Cell("Then"),
-					Plan: meta.PlanNeed(r.Cell("Plan")), Procedure: meta.Procedure(r.Cell("Procedure")), Evidence: meta.EvidenceKind(r.Cell("Required evidence")), Threshold: r.Cell("Threshold")})
-			}
-		case s.title == "Termination":
-			rows, _ := rowsOf(s.tables, "Condition", "Action")
-			for _, r := range rows {
-				out.Termination = append(out.Termination, meta.Termination{Condition: r.Cell("Condition"), Action: r.Cell("Action")})
-			}
-		case s.title == "Scope":
-			rows, _ := rowsOf(s.tables, "Included")
-			for _, r := range rows {
-				if v := r.Cell("Included"); v != "" {
-					out.Scope.Included = append(out.Scope.Included, v)
+	for i, s := range secs {
+		var other []Table
+		for _, t := range s.tables {
+			rows := placed(t)
+			switch {
+			case t.Has("Field", "Value"):
+			case t.Has("Id", "Criterion"):
+				for _, r := range rows {
+					out.Criteria = append(out.Criteria, meta.Criterion{ID: r.Cell("Id"), Criterion: r.Cell("Criterion"), When: r.Cell("When"), Then: r.Cell("Then"),
+						Plan: meta.PlanNeed(r.Cell("Plan")), Procedure: meta.Procedure(r.Cell("Procedure")), Evidence: meta.EvidenceKind(r.Cell("Required evidence")), Threshold: r.Cell("Threshold")})
 				}
-				if v := r.Cell("Excluded"); v != "" {
-					out.Scope.Excluded = append(out.Scope.Excluded, v)
+			case t.Has("Condition", "Action"):
+				for _, r := range rows {
+					out.Termination = append(out.Termination, meta.Termination{Condition: r.Cell("Condition"), Action: r.Cell("Action")})
 				}
+			case t.Has("Included"):
+				for _, r := range rows {
+					if v := r.Cell("Included"); v != "" {
+						out.Scope.Included = append(out.Scope.Included, v)
+					}
+					if v := r.Cell("Excluded"); v != "" {
+						out.Scope.Excluded = append(out.Scope.Excluded, v)
+					}
+				}
+			case t.Has("Path", "What it arbitrates"):
+				for _, r := range rows {
+					out.Arbiters = append(out.Arbiters, meta.Arbiter{Path: r.Cell("Path"), Arbitrates: r.Cell("What it arbitrates")})
+				}
+			case t.Has("Input", "In scope?"):
+				for _, r := range rows {
+					out.Inputs = append(out.Inputs, meta.ArbiterInput{Input: r.Cell("Input"), InScope: r.Cell("In scope?")})
+				}
+			default:
+				other = append(other, t)
 			}
-		case s.title == "Arbiter":
-			rows, _ := rowsOf(s.tables, "Path", "What it arbitrates")
-			for _, r := range rows {
-				out.Arbiters = append(out.Arbiters, meta.Arbiter{Path: r.Cell("Path"), Arbitrates: r.Cell("What it arbitrates")})
-			}
-		case slicesHas(s.tables, "Input", "In scope?"):
-			rows, _ := rowsOf(s.tables, "Input", "In scope?")
-			for _, r := range rows {
-				out.Inputs = append(out.Inputs, meta.ArbiterInput{Input: r.Cell("Input"), InScope: r.Cell("In scope?")})
-			}
-		default:
-			out.Sections = append(out.Sections, asSection(s))
-			continue
 		}
-		if len(s.prose) > 0 {
-			out.Sections = append(out.Sections, meta.Section{Title: s.title, Text: strings.Join(s.prose, "\n\n")})
+		if i == 0 {
+			continue // its prose is the specification's Prose
+		}
+		if len(other) > 0 || len(s.prose) > 0 {
+			out.Sections = append(out.Sections, asSection(section{title: s.title, prose: s.prose, tables: other}))
 		}
 	}
 	return out, d.problems
 }
 
-func slicesHas(ts []Table, headers ...string) bool {
-	for _, t := range ts {
-		if t.Has(headers...) {
-			return true
+// placed is a table's rows, placeholders left out.
+func placed(t Table) []Row {
+	var out []Row
+	for _, r := range t.Rows {
+		if !r.Placeholder() {
+			out = append(out, r)
 		}
 	}
-	return false
+	return out
 }
 
 var plannedBy = regexp.MustCompile(`^Planned by (.+)\.$`)
@@ -215,95 +226,99 @@ var plannedBy = regexp.MustCompile(`^Planned by (.+)\.$`)
 func DecodePlan(name, text string) (meta.Plan, []string) {
 	d := &decoder{stage: Plan}
 	secs := sectionsOf(text)
-	f := fieldsOf(secs[0].tables)
-	out := meta.Plan{Schema: meta.SchemaVersion, Name: name, Specification: f["Specification"], Phases: d.int("Phases", f["Phases"]),
-		IntermediateValid: f["Intermediate states valid"], Residue: f["Residue on abandonment"]}
-	for _, p := range secs[0].prose {
-		if m := plannedBy.FindStringSubmatch(p); m != nil {
-			out.Planner = m[1]
+	out := meta.Plan{Schema: meta.SchemaVersion, Name: name}
+	for _, s := range secs {
+		for _, t := range s.tables {
+			rows := placed(t)
+			switch {
+			case t.Has("Field", "Value"):
+				f := fieldsOf([]Table{t})
+				out.Specification, out.Phases = f["Specification"], d.int("Phases", f["Phases"])
+				out.IntermediateValid, out.Residue = f["Intermediate states valid"], f["Residue on abandonment"]
+			case t.Has("Id", "Scope"):
+				for _, r := range rows {
+					out.Units = append(out.Units, meta.WorkUnit{ID: r.Cell("Id"), Phase: d.int("Phase of "+r.Cell("Id"), r.Cell("Phase")), Class: meta.Class(r.Cell("Class")),
+						Scope: ids(r.Cell("Scope")), AreaOfEffect: r.Cell("Area of effect"), Criteria: ids(r.Cell("Criteria")),
+						DependsOn: ids(r.Cell("Depends on")), PreparatoryFor: ids(r.Cell("Preparatory for"))})
+				}
+			case t.Has("Question", "Answer"):
+				for _, r := range rows {
+					out.Coverage = append(out.Coverage, meta.Answer{Question: r.Cell("Question"), Answer: r.Cell("Answer")})
+				}
+			default:
+				d.fail("a table %v the plan has no place for", t.Headers)
+			}
 		}
-	}
-	for _, s := range secs[1:] {
-		switch s.title {
-		case "Work units":
-			rows, _ := rowsOf(s.tables, "Id", "Scope")
-			for _, r := range rows {
-				out.Units = append(out.Units, meta.WorkUnit{ID: r.Cell("Id"), Phase: d.int("Phase of "+r.Cell("Id"), r.Cell("Phase")), Class: meta.Class(r.Cell("Class")),
-					Scope: ids(r.Cell("Scope")), AreaOfEffect: r.Cell("Area of effect"), Criteria: ids(r.Cell("Criteria")),
-					DependsOn: ids(r.Cell("Depends on")), PreparatoryFor: ids(r.Cell("Preparatory for"))})
+		var prose []string
+		for _, p := range s.prose {
+			if m := plannedBy.FindStringSubmatch(p); m != nil && s.title == "" {
+				out.Planner = m[1]
+				continue
 			}
-		case "Coverage":
-			rows, _ := rowsOf(s.tables, "Question", "Answer")
-			for _, r := range rows {
-				out.Coverage = append(out.Coverage, meta.Answer{Question: r.Cell("Question"), Answer: r.Cell("Answer")})
-			}
-			out.CoverageText = strings.Join(s.prose, "\n\n")
-			continue
+			prose = append(prose, p)
+		}
+		switch {
+		case len(prose) == 0:
+		case s.title == "Coverage":
+			out.CoverageText = strings.Join(prose, "\n\n")
 		default:
-			d.fail("a section %q the plan has no place for", s.title)
+			out.Notes = append(out.Notes, meta.Section{Title: or(s.title, "Notes"), Text: strings.Join(prose, "\n\n")})
 		}
-		if len(s.prose) > 0 {
-			out.Notes = append(out.Notes, meta.Section{Title: s.title, Text: strings.Join(s.prose, "\n\n")})
-		}
-	}
-	for _, p := range secs[0].prose {
-		if plannedBy.MatchString(p) {
-			continue
-		}
-		out.Notes = append(out.Notes, meta.Section{Title: "Notes", Text: p})
 	}
 	return out, d.problems
+}
+
+func or(v, otherwise string) string {
+	if v == "" {
+		return otherwise
+	}
+	return v
 }
 
 // DecodeAdmission reads a Markdown 03-admission.
 func DecodeAdmission(name, text string) (meta.Admission, []string) {
 	d := &decoder{stage: Admission}
-	secs := sectionsOf(text)
-	out := meta.Admission{Schema: meta.SchemaVersion, Name: name, Digest: fieldsOf(secs[0].tables)["Specification digest"]}
-	for _, s := range secs[1:] {
-		switch s.title {
-		case "Criteria review", "Criteria read by a person":
-			rows, _ := rowsOf(s.tables, "Reviewed before admission")
-			for _, r := range rows {
-				out.Reviews = append(out.Reviews, meta.Review{Reviewed: meta.Reviewed(r.Cell("Reviewed before admission")), By: r.Cell("By"), At: r.Cell("At"), Note: r.Cell("Note")})
+	out := meta.Admission{Schema: meta.SchemaVersion, Name: name}
+	for _, s := range sectionsOf(text) {
+		for _, t := range s.tables {
+			rows := placed(t)
+			switch {
+			case t.Has("Field", "Value"):
+				out.Digest = fieldsOf([]Table{t})["Specification digest"]
+			case t.Has("Reviewed before admission"):
+				for _, r := range rows {
+					out.Reviews = append(out.Reviews, meta.Review{Reviewed: meta.Reviewed(r.Cell("Reviewed before admission")), By: r.Cell("By"), At: r.Cell("At"), Note: r.Cell("Note")})
+				}
+			case t.Has("Unit", "Outcome"):
+				for _, r := range rows {
+					out.Decisions = append(out.Decisions, meta.Decision{Unit: r.Cell("Unit"), Outcome: meta.AdmissionOutcome(r.Cell("Outcome")),
+						Condition: r.Cell("Deciding condition"), Confidence: r.Cell("Confidence of the edges relied on"), Escalates: r.Cell("Escalates at")})
+				}
+			case t.Has("Units", "Intersecting region"):
+				for _, r := range rows {
+					out.Conflicts = append(out.Conflicts, meta.Conflict{Units: r.Cell("Units"), Region: r.Cell("Intersecting region"),
+						Invalidates: r.Cell("Evidence it would invalidate"), Resolution: r.Cell("Resolution")})
+				}
+			case t.Has("Criterion", "Observed"):
+				for _, r := range rows {
+					out.Plans = append(out.Plans, meta.EvidencePlan{Criterion: r.Cell("Criterion"), Observed: r.Cell("Observed"), Method: r.Cell("Method"),
+						Unchanged: r.Cell("Unchanged means"), DerivedFrom: r.Cell("Derived from"), FixedAt: r.Cell("Fixed at")})
+				}
+			case t.Has("Artefact", "Captured to"):
+				for _, r := range rows {
+					out.Prior = append(out.Prior, meta.Capture{Criterion: r.Cell("Criterion"), Artefact: r.Cell("Artefact"), CapturedTo: r.Cell("Captured to")})
+				}
+			case t.Has("Id", "Permitted operations"):
+				for _, r := range rows {
+					out.Grants = append(out.Grants, meta.Grant{ID: r.Cell("Id"), Unit: r.Cell("Unit"), Operations: r.Cell("Permitted operations"), Targets: r.Cell("Targets"), Expires: r.Cell("Expires")})
+				}
+			default:
+				d.fail("a table %v admission has no place for", t.Headers)
 			}
-		case "Decisions":
-			rows, _ := rowsOf(s.tables, "Unit", "Outcome")
-			for _, r := range rows {
-				out.Decisions = append(out.Decisions, meta.Decision{Unit: r.Cell("Unit"), Outcome: meta.AdmissionOutcome(r.Cell("Outcome")),
-					Condition: r.Cell("Deciding condition"), Confidence: r.Cell("Confidence of the edges relied on"), Escalates: r.Cell("Escalates at")})
-			}
-		case "Conflicts":
-			rows, _ := rowsOf(s.tables, "Units")
-			for _, r := range rows {
-				out.Conflicts = append(out.Conflicts, meta.Conflict{Units: r.Cell("Units"), Region: r.Cell("Intersecting region"),
-					Invalidates: r.Cell("Evidence it would invalidate"), Resolution: r.Cell("Resolution")})
-			}
-		case "Evidence plan":
-			rows, _ := rowsOf(s.tables, "Criterion", "Observed")
-			for _, r := range rows {
-				out.Plans = append(out.Plans, meta.EvidencePlan{Criterion: r.Cell("Criterion"), Observed: r.Cell("Observed"), Method: r.Cell("Method"),
-					Unchanged: r.Cell("Unchanged means"), DerivedFrom: r.Cell("Derived from"), FixedAt: r.Cell("Fixed at")})
-			}
-		case "Prior state captured":
-			rows, _ := rowsOf(s.tables, "Artefact", "Captured to")
-			for _, r := range rows {
-				out.Prior = append(out.Prior, meta.Capture{Criterion: r.Cell("Criterion"), Artefact: r.Cell("Artefact"), CapturedTo: r.Cell("Captured to")})
-			}
-		case "Grants":
-			rows, _ := rowsOf(s.tables, "Id", "Unit")
-			for _, r := range rows {
-				out.Grants = append(out.Grants, meta.Grant{ID: r.Cell("Id"), Unit: r.Cell("Unit"), Operations: r.Cell("Permitted operations"), Targets: r.Cell("Targets"), Expires: r.Cell("Expires")})
-			}
-		default:
-			d.fail("a section %q admission has no place for", s.title)
 		}
 		if len(s.prose) > 0 {
-			out.Notes = append(out.Notes, meta.Section{Title: s.title, Text: strings.Join(s.prose, "\n\n")})
+			out.Notes = append(out.Notes, meta.Section{Title: or(s.title, "Notes"), Text: strings.Join(s.prose, "\n\n")})
 		}
-	}
-	if len(secs[0].prose) > 0 {
-		out.Notes = append(out.Notes, meta.Section{Title: "Notes", Text: strings.Join(secs[0].prose, "\n\n")})
 	}
 	return out, d.problems
 }

@@ -34,12 +34,8 @@ func Describe(ctx context.Context, cfg Config, repo, dir string) error {
 		return err
 	}
 	statement := ""
-	if d := c.Doc(artifact.Intent); d != nil {
-		for _, r := range d.Rows("Field", "Value") {
-			if r.Cell("Field") == "Statement" {
-				statement = r.Cell("Value")
-			}
-		}
+	if c.Meta.Intent != nil {
+		statement = c.Meta.Intent.Statement
 	}
 	// Everything the change kept, as it kept it: its documents, its record,
 	// and the files its candidates held — the change as it was, which the
@@ -88,9 +84,9 @@ func Describe(ctx context.Context, cfg Config, repo, dir string) error {
 		return err
 	}
 	var crit []string
-	if d := c.Doc(artifact.Specification); d != nil {
-		for _, r := range d.Rows("Criterion", "When") {
-			crit = append(crit, fmt.Sprintf("%s %s — when %s, then %s", r.Cell("Id"), r.Cell("Criterion"), r.Cell("When"), r.Cell("Then")))
+	if c.Meta.Specification != nil {
+		for _, cr := range c.Meta.Specification.Criteria {
+			crit = append(crit, fmt.Sprintf("%s %s — when %s, then %s", cr.ID, cr.Criterion, cr.When, cr.Then))
 		}
 	}
 	parts := append(answer.Document.parts(), artifact.Part{Title: "Acceptance criteria", Points: crit})
@@ -100,7 +96,7 @@ func Describe(ctx context.Context, cfg Config, repo, dir string) error {
 	}
 	rec := artifact.Record{Name: c.Name(), Dir: dir}
 	var lines []artifact.Crossing
-	if !fileExists(filepath.Join(dir, "record.md")) && fileExists(filepath.Join(dir, string(artifact.Intent)+".md")) {
+	if len(c.Meta.Record) == 0 && c.Has(artifact.Intent) {
 		// A change that kept no record had its intent all the same; the
 		// record begins with it, said to be written after the fact.
 		lines = append(lines, artifact.Crossing{At: today(), Stage: "intent", Object: string(artifact.Intent) + ".md", Note: "recorded after the fact: the change kept no record of its own"})

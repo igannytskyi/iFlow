@@ -1,0 +1,41 @@
+{
+  "$id": "https://github.com/igannytskyi/iflow/docs/method/schema/record.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One line of record.jsonl: a stage boundary crossed. The record is appended to and never rewritten; ordinals run 1, 2, 3 … in order.",
+  "properties": {
+    "at": {
+      "description": "when, as a date",
+      "type": "string"
+    },
+    "digest": {
+      "description": "a digest the crossing fixes",
+      "type": "string"
+    },
+    "n": {
+      "description": "the ordinal: 1, 2, 3 … in order, none missing",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "note": {
+      "description": "a note",
+      "type": "string"
+    },
+    "object": {
+      "description": "the object",
+      "type": "string"
+    },
+    "stage": {
+      "description": "the stage, or closed, or migrated",
+      "type": "string"
+    }
+  },
+  "required": [
+    "n",
+    "at",
+    "stage",
+    "object"
+  ],
+  "title": "Crossing",
+  "type": "object"
+}
