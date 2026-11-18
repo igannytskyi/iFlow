@@ -148,6 +148,10 @@ type Plan struct {
 	CoverageText string   `json:"coverage_text,omitempty" doc:"how the units cover the specification, in prose"`
 	// Planner is who divided the work.
 	Planner string `json:"planner,omitempty" doc:"who divided the work"`
+	// UpgradedFrom is the version of the model a plan was written in where
+	// it was carried forward from an older one: such a plan was made before
+	// the invariants a plan is now held to (R24).
+	UpgradedFrom int `json:"upgraded_from,omitempty" doc:"the version of the data model it was written in, where it was carried forward from an older one"`
 	// Notes are what the plan says in prose beside its tables.
 	Notes []Section `json:"notes,omitempty" doc:"what the document says in prose beside its tables, by heading"`
 }

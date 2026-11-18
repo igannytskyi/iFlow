@@ -235,4 +235,5 @@ var registry = []check{
 	{"landing taught", 7, []string{"R21"}, landingTaught},
 	{"verified before entry", 6, []string{"R22"}, verifiedBeforeEntry},
 	{"what was handed is kept", 9, []string{"R23"}, handedKept},
+	{"plan invariants", 2, []string{"R24"}, planInvariants},
 }

@@ -59,7 +59,7 @@ type workUnitV1 struct {
 
 func (p planV1) upgrade() meta.Plan {
 	out := p.Plan
-	out.Schema = meta.PlanVersion
+	out.Schema, out.UpgradedFrom = meta.PlanVersion, 1
 	out.Units = nil
 	for _, u := range p.Units {
 		kind := meta.CodeUnit

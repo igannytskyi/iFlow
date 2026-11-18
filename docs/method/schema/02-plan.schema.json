@@ -253,6 +253,11 @@
         "type": "object"
       },
       "type": "array"
+    },
+    "upgraded_from": {
+      "description": "the version of the data model it was written in, where it was carried forward from an older one",
+      "minimum": 0,
+      "type": "integer"
     }
   },
   "required": [

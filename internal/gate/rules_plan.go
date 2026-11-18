@@ -155,3 +155,27 @@ func planCoversReach(r *run, needs []string, planned map[string]meta.EvidencePla
 		r.fail("R16", "the change reaches %s firmly, nothing there is named by a test, and no plan observes it — a plan that covers none of an unwatched area leaves it judged by nothing", reg)
 	}
 }
+
+// planInvariants — R24: a plan holds to the invariants that it and its
+// specification decide alone (docs/method/execution.md), however it was
+// written: by the planner, by hand, or changed after. Every breach is named
+// by its invariant. A plan whose contract was described in prose, carried
+// before provisions were typed, is held to the rest, and that is noted.
+func planInvariants(r *run) {
+	p, s := r.c.Meta.Plan, r.c.Meta.Specification
+	if p == nil || s == nil {
+		return
+	}
+	if p.UpgradedFrom > 0 {
+		r.note("R24", "this plan was written in version %d of the model and carried forward; it predates the invariants rather than breaking them", p.UpgradedFrom)
+		return
+	}
+	for _, b := range meta.PlanBreaches(*p, *s) {
+		r.fail("R24", "%s", b)
+	}
+	if slices.ContainsFunc(p.Units, func(u meta.WorkUnit) bool {
+		return slices.ContainsFunc(u.Provides, func(pr meta.Provision) bool { return pr.Kind == meta.Described })
+	}) {
+		r.note("R24", "the contract of this plan is described in prose — it was carried before provisions were typed — so what it provides is not held to P6, P8 and P9")
+	}
+}

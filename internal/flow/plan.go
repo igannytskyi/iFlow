@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,22 +96,6 @@ type ticket struct {
 	DoneWhen     []string         `json:"done_when"`
 }
 
-// provisionProblem says what is wrong with what a code unit provides: a
-// name with no file, kind or signature, a file the unit may not write.
-func provisionProblem(u unit) string {
-	for _, p := range u.provides {
-		switch {
-		case p.Name == "" || p.File == "" || p.Signature == "":
-			return fmt.Sprintf("it provides %q without its name, file and signature", p.Signature+p.Name)
-		case !meta.Allowed("DeclKind", string(p.Kind)) || p.Kind == meta.Described:
-			return fmt.Sprintf("%s is of kind %q, which is not one of function, method, type, field, variable, constant", p.Name, p.Kind)
-		case !slices.Contains(u.scope, p.File):
-			return fmt.Sprintf("%s is declared in %s, which is not in its scope", p.Name, p.File)
-		}
-	}
-	return ""
-}
-
 // providedAlready says where a unit provides a name its file declares
 // already: provides is what a unit adds; what it changes of what exists is
 // its tasks', and a contract that declared it again would break its users.
@@ -192,7 +177,7 @@ func (r *Run) plan(ctx context.Context) error {
 		feedback = r.reopened
 	}
 	for round := 1; ; round++ {
-		units, approach, planner = r.planned(ctx, all, byTests, feedback)
+		units, approach, planner = r.planned(ctx, byTests, feedback)
 		if units == nil || round > r.cfg.reviewRounds() {
 			break
 		}
@@ -254,13 +239,8 @@ func (r *Run) plan(ctx context.Context) error {
 		doc.Briefs = append(doc.Briefs, artifact.Part{Title: u.id + " — " + u.title, Text: u.brief})
 		r.say(2, u.id, "%s: %s — %s", u.id, u.title, strings.Join(u.scope, ", "))
 	}
-	record := meta.Plan{Schema: meta.PlanVersion, Name: r.slug, Specification: r.id("SPEC"), Phases: 1,
-		IntermediateValid: doc.Intermediate, Residue: doc.Residue, CoverageText: doc.Coverage, Planner: planner}
-	for _, u := range units {
-		record.Units = append(record.Units, meta.WorkUnit{ID: u.id, Phase: 1, Class: meta.Class(u.class), Scope: u.scope,
-			AreaOfEffect: u.aoe, Criteria: u.criteria, DependsOn: splitIDs(u.dependsOn), PreparatoryFor: splitIDs(u.preparatoryFor),
-			Kind: u.kind, Title: u.title, Brief: u.brief, Provides: u.provides, Uses: u.uses, Reads: u.reads})
-	}
+	record := r.planRecord(units)
+	record.IntermediateValid, record.Residue, record.CoverageText, record.Planner = doc.Intermediate, doc.Residue, doc.Coverage, planner
 	if err := artifact.Save(r.dir, artifact.Plan, record); err != nil {
 		return r.fail(2, "the plan could not be written: %v", err)
 	}
@@ -281,9 +261,41 @@ func (r *Run) plan(ctx context.Context) error {
 	return nil
 }
 
+// planRecord is units as the plan's record in the data model keeps them.
+func (r *Run) planRecord(units []unit) meta.Plan {
+	p := meta.Plan{Schema: meta.PlanVersion, Name: r.slug, Specification: r.id("SPEC"), Phases: 1}
+	for _, u := range units {
+		p.Units = append(p.Units, meta.WorkUnit{ID: u.id, Phase: 1, Class: meta.Class(u.class), Scope: u.scope,
+			AreaOfEffect: u.aoe, Criteria: u.criteria, DependsOn: splitIDs(u.dependsOn), PreparatoryFor: splitIDs(u.preparatoryFor),
+			Kind: u.kind, Title: u.title, Brief: u.brief, Provides: u.provides, Uses: u.uses, Reads: u.reads})
+	}
+	return p
+}
+
+// breaches is every invariant the units, with their contract, break against
+// the specification as it was accepted (meta.PlanBreaches), said for the
+// planner; or nothing.
+func (r *Run) breaches(units []unit) string {
+	var spec meta.Specification
+	if ok, err := artifact.LoadJSON(r.dir, artifact.Specification, &spec); !ok || err != nil {
+		return fmt.Sprintf("the specification could not be read (%v)", err)
+	}
+	units = r.withContract(units)
+	var out []string
+	for _, b := range meta.PlanBreaches(r.planRecord(units), spec) {
+		// The planner knows its units by their titles, not by the ids they
+		// are given after it answers.
+		if i := slices.IndexFunc(units, func(u unit) bool { return u.id == b.Unit }); i >= 0 {
+			b.Unit = strconv.Quote(units[i].title)
+		}
+		out = append(out, b.String())
+	}
+	return strings.Join(out, "; ")
+}
+
 // planned asks the planner, up to three times, for units the method can
 // accept; it returns nil units, and why, when none came.
-func (r *Run) planned(ctx context.Context, all, byTests []string, feedback string) ([]unit, []artifact.Part, string) {
+func (r *Run) planned(ctx context.Context, byTests []string, feedback string) ([]unit, []artifact.Part, string) {
 	spec := r.specText()
 	if spec == "" {
 		return nil, nil, "the specification could not be read"
@@ -317,7 +329,10 @@ func (r *Run) planned(ctx context.Context, all, byTests []string, feedback strin
 		if err != nil {
 			return nil, nil, "the planner could not be asked: " + err.Error()
 		}
-		units, problem := r.unitsOf(p, all, byTests)
+		units, problem := r.unitsOf(p)
+		if problem == "" {
+			problem = r.breaches(units)
+		}
 		if problem != "" {
 			r.say(2, "", "the plan is sent back: %s", problem)
 			why = "\n\nYour last plan cannot be used: " + problem + ". Answer again."
@@ -330,96 +345,44 @@ func (r *Run) planned(ctx context.Context, all, byTests []string, feedback strin
 	return nil, nil, "the planner's answers could not be used (" + strings.TrimSpace(strings.TrimPrefix(why, "\n\nYour last plan cannot be used: ")) + ")"
 }
 
-// unitsOf holds a planner's answer to the method and numbers its units:
-// tests first, each scope within what it may touch, every criterion carried.
-func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
+// unitsOf reads a planner's answer into units, numbered, tests first, and
+// holds it to what only the estate as it stands can decide: a file read
+// exists or another unit writes it (P11), a name provided is not declared
+// already (P7), a name used exists or an earlier unit provides it (P10),
+// and a unit fits one agent (P13). What the plan and the specification
+// decide alone is meta.PlanBreaches', at breaches.
+func (r *Run) unitsOf(p planDraft) ([]unit, string) {
 	var tests, code []unit
 	for _, pu := range p.Units {
-		u := unit{title: pu.Title, class: r.spec.Class, scope: pu.Scope, brief: pu.brief(), kind: meta.UnitKind(pu.Kind), uses: pu.Uses, reads: pu.Reads}
+		u := unit{title: pu.Title, class: r.spec.Class, scope: pu.Scope, brief: pu.brief(), kind: meta.UnitKind(pu.Kind),
+			uses: pu.Uses, reads: pu.Reads, criteria: pu.Criteria}
+		if strings.TrimSpace(pu.Objective) == "" || len(pu.Tasks) == 0 {
+			return nil, fmt.Sprintf("unit %q has no objective or no tasks", pu.Title)
+		}
 		for _, f := range u.reads {
-			// A file it reads exists now, or another unit of the plan writes
-			// it, and it is handed what that unit wrote.
 			written := slices.ContainsFunc(p.Units, func(o ticket) bool { return o.Title != pu.Title && slices.Contains(o.Scope, f) })
 			if !written && !fileExists(filepath.Join(r.repo, filepath.FromSlash(f))) {
 				return nil, fmt.Sprintf("unit %q reads %s, which neither exists nor is written by another unit of the plan", pu.Title, f)
 			}
 		}
-		if len(u.scope) == 0 || strings.TrimSpace(pu.Objective) == "" || len(pu.Tasks) == 0 {
-			return nil, fmt.Sprintf("unit %q has no scope, no objective or no tasks", pu.Title)
-		}
 		if why := r.oversized(u); why != "" {
 			return nil, fmt.Sprintf("unit %q %s", pu.Title, why)
 		}
-		allowed := r.spec.Scope
 		switch u.kind {
 		case meta.TestsUnit:
-			allowed = r.spec.NewTests
+			tests = append(tests, u)
 		case meta.CodeUnit:
 			u.provides = pu.Provides
-			if why := provisionProblem(u); why != "" {
-				return nil, fmt.Sprintf("unit %q: %s", pu.Title, why)
-			}
 			if why := r.providedAlready(u); why != "" {
 				return nil, fmt.Sprintf("unit %q: %s", pu.Title, why)
 			}
+			code = append(code, u)
 		default:
 			return nil, fmt.Sprintf("unit %q is of kind %q, which is neither tests nor code", pu.Title, pu.Kind)
 		}
-		for _, s := range u.scope {
-			if !slices.Contains(allowed, s) {
-				return nil, fmt.Sprintf("unit %q would touch %s, which a %s unit may not", pu.Title, s, pu.Kind)
-			}
-		}
-		for _, c := range pu.Criteria {
-			if !slices.Contains(all, c) {
-				return nil, fmt.Sprintf("unit %q names %s, which is not a criterion", pu.Title, c)
-			}
-		}
-		u.criteria = pu.Criteria
-		if u.isTests() {
-			tests = append(tests, u)
-		} else {
-			code = append(code, u)
-		}
-	}
-	// Every unit serves a criterion, for its verdict comes from one (A6).
-	for _, u := range slices.Concat(tests, code) {
-		if len(u.criteria) == 0 {
-			return nil, fmt.Sprintf("unit %q serves no criterion; name the criteria it makes true", u.title)
-		}
-	}
-	// A tests unit judges only what the new tests judge.
-	for _, u := range tests {
-		for _, c := range u.criteria {
-			if !slices.Contains(byTests, c) {
-				return nil, fmt.Sprintf("tests unit %q names %s, which the new tests do not judge; a tests unit names only %s",
-					u.title, c, strings.Join(byTests, ", "))
-			}
-		}
-	}
-	if len(code) == 0 {
-		return nil, "it has no code unit"
 	}
 	if problem := r.orderOf(code); problem != "" {
 		return nil, problem
-	}
-	if len(r.spec.NewTests) > 0 {
-		var written []string
-		for _, u := range tests {
-			written = append(written, u.scope...)
-		}
-		for _, t := range r.spec.NewTests {
-			if !slices.Contains(written, t) {
-				return nil, "no tests unit writes " + t
-			}
-		}
-	}
-	// Every criterion is made true by some code unit: one no unit serves
-	// would be judged on code no agent was asked to write.
-	for _, c := range all {
-		if !slices.ContainsFunc(code, func(u unit) bool { return slices.Contains(u.criteria, c) }) {
-			return nil, fmt.Sprintf("no code unit serves %s; give it to the unit that makes it true — the last one, if it is that nothing else moves", c)
-		}
 	}
 	return r.number(append(tests, code...)), ""
 }

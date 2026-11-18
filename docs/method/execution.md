@@ -37,23 +37,23 @@ contract ──► tests ──► code (chain A) ─┐
 
 Code units that change a file in common form a chain and are carried in order. Separate chains are carried at the same time; that is the only source of parallel work, and it is computed from the plan, not chosen. The last code unit completes the change: it must pass the change's tests and then the whole suite.
 
-A plan that breaks any of the rules below goes back to its planner, told which rule and why. The planner gets at most three tries. If no plan holds, area 2 stops and says why; nothing is made up in the planner's place.
+A plan that breaks any of the rules below goes back to its planner, told which rule and why. P1–P12 are one function of the plan and the specification, `meta.PlanBreaches`, and the gate holds every plan to it as rule R24; P7, P10's estate half, P11's estate half and P13 depend on the estate as it stood and are held at planning. The planner gets at most three tries. If no plan holds, area 2 stops and says why; nothing is made up in the planner's place.
 
 | | Rule | Checked |
 |---|---|---|
-| P1 | Contract first, then tests units, then at least one code unit | by construction |
-| P2 | Every unit has a kind, a scope, an objective and tasks | `unitsOf` |
-| P3 | A unit writes only what the specification lets its kind write | `unitsOf` |
-| P4 | Every new test file is written by exactly one tests unit | at least one: `unitsOf`; exactly one: **open** |
-| P5 | Every criterion is served by a code unit; every unit serves one; a tests unit only what the new tests judge | `unitsOf` |
-| P6 | Every name provided has a file in scope, a kind and a signature | `provisionProblem` |
-| P7 | No unit provides a name its file already declares | `providedAlready` |
-| P8 | No name is provided twice in one package | **open** |
-| P9 | A contract exists whenever tests and code are written apart | `withContract`; one code unit: **open** |
-| P10 | A unit uses only names the estate defines or an earlier unit provides | `orderOf` |
-| P11 | A unit reads only files that exist or another unit writes | `unitsOf`; tests' half: **open** |
-| P12 | No unit's scope holds what judges the change | at area 1 only |
-| P13 | A unit fits one agent: its brief, the specification's decisions and its files whole, within the budget | `oversized`; a unit of one file too long for it is let be, and is read by parts |
+| P1 | Contract first, then tests units, then at least one code unit | R24 |
+| P2 | Every unit has a kind, a scope, an objective and tasks | R24 |
+| P3 | A unit writes only what the specification lets its kind write | R24 |
+| P4 | Every new test file is written by exactly one tests unit | R24 |
+| P5 | Every criterion is served by a code unit; every unit serves one; a tests unit only what the new tests judge | R24 |
+| P6 | Every name provided has a file in scope, a kind and a signature | R24 |
+| P7 | No unit provides a name its file already declares | `providedAlready`, at planning |
+| P8 | No name is provided twice in one package | R24 |
+| P9 | A contract exists whenever tests and code are written apart | R24 |
+| P10 | A unit uses only names the estate defines or an earlier unit provides | R24; against the estate: `orderOf` |
+| P11 | A unit reads only files that exist or another unit writes | R24; that the file exists: `unitsOf` |
+| P12 | No unit's scope holds what judges the change | R24 |
+| P13 | A unit fits one agent: its brief, the specification's decisions and its files whole, within the budget | `oversized`, at planning; a unit of one file too long for it is let be, and is read by parts |
 
 ## Carrying a unit
 
@@ -103,9 +103,10 @@ The tokens each agent was handed are recorded with its costs.
 
 ## Open
 
-1. P1–P13 as one function of the plan and the estate, held by the gate as rule R24; P4, P8, P11 and P12 checked.
-2. P9 for one code unit.
-3. Outcomes for blaming the contract or an earlier code unit, each with its bound.
-4. A test that drives the scheduler through random outcomes and shows that it always ends.
-5. Tools' machine-readable reports in place of patterns over their output.
-6. A bench task on an estate large enough for the budget to matter. Today's bench hands 2–5k tokens a unit, so it cannot show the budget's effect.
+1. Outcomes for blaming the contract or an earlier code unit, each with its bound.
+2. A test that drives the scheduler through random outcomes and shows that it always ends.
+3. Tools' machine-readable reports in place of patterns over their output.
+4. The contract written by the framework from the typed provisions, not by a model (backlog 65).
+5. The specification's interfaces typed, and every existing one checked against the estate (66).
+6. A bound reached in area 4 returning the change to the step at fault, with why, instead of stopping (67).
+7. A bench task on an estate large enough for the budget to matter. Today's bench hands 2–5k tokens a unit, so it cannot show the budget's effect.
