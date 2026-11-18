@@ -13,43 +13,21 @@ import (
 	"time"
 )
 
-// profile is how an estate's tests are run: the whole suite, and the named
-// tests alone. It is read off the estate, not configured — a test.sh the
-// estate keeps wins, then what its language's own runner is.
+// profile is the estate's language as an estate runs it: its tests run by
+// the estate's own test.sh where it keeps one — which then names it — and
+// by the language's own runner where not; everything else the language's.
 type profile struct {
-	name string
-	// suite is the command running every test, as a record names it.
-	suite []string
-	// only is the command running the named tests.
-	only func(names []string) []string
-	// build passes when the code builds, running nothing; empty where the
-	// estate's language has no such step.
-	build []string
-	// vet checks the packages of the files named without running them;
-	// nil where the estate's language has no such step.
-	vet func(files []string) []string
-	// quick builds the code of the files named, running nothing: what an
-	// agent is told after each edit. nil where the language has no build.
+	language
+	// quick checks the files named after an edit, each in its own
+	// language: an estate may hold more than one.
 	quick func(files []string) []string
-	// focus runs the tests matching a pattern under a folder, each said to
-	// pass or fail.
-	focus func(pattern, path string) []string
-	// format writes the files named in the estate's one form, where its
-	// language has one; nil where it has none.
-	format func(files []string) []string
 }
 
 // detect reads off the estate how its tests are run and what its language
-// gives an agent. The runner is a test.sh the estate keeps, where it keeps
-// one, and its language's own otherwise; the language — its build, its
-// check of one file, its form — is the language's, whatever runs the tests.
-// The second value says whether the estate's tests can be run at all.
+// gives an agent. The second value says whether its tests can be run.
 func detect(repo string) (profile, bool) {
-	var p profile
-	if l, ok := languageOfEstate(repo); ok {
-		p = profile{name: l.name, suite: l.suite, only: l.only, build: l.build, vet: l.vet, focus: l.focus, format: l.format}
-	}
-	p.quick = quickCheck
+	l, _ := languageOfEstate(repo)
+	p := profile{language: l, quick: quickCheck}
 	if fileExists(filepath.Join(repo, "test.sh")) {
 		// The estate's own runner: with no arguments it runs every test,
 		// with names it runs the tests of those names, one a name — each a
