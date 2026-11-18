@@ -1389,12 +1389,20 @@ func TestChainsAreCarriedAtOnce(t *testing.T) {
 	}
 }
 
-// A test named by its runner's identifier is taken as the file it is in.
-func TestTestsAreNamedByTheirFiles(t *testing.T) {
-	d := draft{Scope: []string{"greeting.py"}, NewTests: []string{"test_greeting.py::FarewellTest.test_a", "test_greeting.py::FarewellTest.test_b", "greeting_test.go:TestX", "web/a.spec.ts#says hello", "plain_test.go"}}
-	d.files()
-	if want := []string{"test_greeting.py", "greeting_test.go", "web/a.spec.ts", "plain_test.go"}; !slices.Equal(d.NewTests, want) {
-		t.Errorf("new tests %v, want %v", d.NewTests, want)
+// A specification's scope and tests are paths of files; an entry that
+// names a test in its file, or says something of it, sends the draft back.
+func TestScopeAndTestsArePaths(t *testing.T) {
+	ok := draft{Slug: "s", Statement: "s", Criteria: []draftCriterion{{}}, Class: "C3", Scope: []string{"greeting.py", "web/a.spec.ts"}, NewTests: []string{"test_greeting.py"}}
+	ok.Document.Summary, ok.Document.Flows, ok.Document.Requirements, ok.Document.Interfaces, ok.Document.Components = "s", []string{"f"}, []string{"r"}, []string{"i"}, []string{"c"}
+	if why := ok.problem(); why != "" {
+		t.Fatalf("a draft of paths was sent back: %s", why)
+	}
+	for _, bad := range []string{"test_greeting.py::FarewellTest.test_a", "greeting_test.go:TestX", "test_greeting.py — added class GreetInTest"} {
+		d := ok
+		d.NewTests = []string{bad}
+		if why := d.problem(); !strings.Contains(why, "is not the path of a file") {
+			t.Errorf("%q passed: %q", bad, why)
+		}
 	}
 }
 

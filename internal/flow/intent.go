@@ -88,6 +88,7 @@ Rules you must follow:
 - "class" is one of C1P (behaviour-preserving, proved), C1T (behaviour-preserving, tested), C2 (defect repair), C3 (a stated contract), C4 (observed effect), C5 (judgement).
 - "scope" lists the files the change may create or edit, by path. It never includes tests, nor the scripts that run them. Keep it to what the task needs.
 - "new_tests" lists test files that will be written first to judge the change — new files, never in scope, placed where the language expects tests for the scope (in Go, beside the code in the same package directory). Criteria they judge have "judged_by_new_tests": true.
+- Every entry of "scope", "new_tests" and "existing_tests" is the path of a file and nothing else — "test_greeting.py", never "test_greeting.py::GreetTest" or a path with words after it.
 - Keep the change to what a few agents, each with one unit, can carry out. If the task is larger, specify its first coherent part — one that is worth landing alone — and list in "later" the rest, each written as a task of its own, in the order they should come.
 - "existing_tests" lists the estate's existing test files that judge that nothing else moves.
 - "slug" is a few lowercase words joined by hyphens.
@@ -312,7 +313,6 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 		if err != nil {
 			return d, r.fail(1, "the model could not be asked: %v", err)
 		}
-		d.files()
 		if why := d.problem(); why != "" {
 			note = "\n\nYour last answer cannot be used: " + why + ". Answer again."
 			r.say(1, "", "the draft is sent back: %s", why)
@@ -371,33 +371,9 @@ func (r *Run) place(given string) (slug, dir string) {
 	}
 }
 
-// files makes every test and scope entry a file: an author names a test by
-// its runner's identifier as often as by its file — "test_greeting.py::
-// FarewellTest.test_x", "greeting_test.go:TestX" — and the scope of a unit
-// is files, never tests.
-func (d *draft) files() {
-	norm := func(paths []string) []string {
-		var out []string
-		for _, p := range paths {
-			p = strings.TrimSpace(p)
-			if i := strings.Index(p, "::"); i >= 0 {
-				p = p[:i]
-			}
-			if m := fileThenName.FindStringSubmatch(p); m != nil {
-				p = m[1]
-			}
-			if p != "" && !slices.Contains(out, p) {
-				out = append(out, p)
-			}
-		}
-		return out
-	}
-	d.Scope, d.NewTests, d.SuiteTests = norm(d.Scope), norm(d.NewTests), norm(d.SuiteTests)
-}
-
-// fileThenName is a file followed by a test in it, "greeting_test.go:TestX"
-// or "spec.ts#name".
-var fileThenName = regexp.MustCompile(`^(\S+\.\w+)[:#]\D.*$`)
+// filePath is what a path of the estate looks like: no spaces, no test
+// named after it, no words said of it.
+var filePath = regexp.MustCompile(`^[\w./@+-]+$`)
 
 func (d draft) problem() string {
 	switch {
@@ -411,6 +387,16 @@ func (d draft) problem() string {
 		return "it does not specify the change: summary, flows, requirements, interfaces or components are empty"
 	case !meta.Allowed("Class", d.Class):
 		return "class " + d.Class + " is not one of C1P, C1T, C2, C3, C4, C5"
+	}
+	for _, group := range []struct {
+		name  string
+		paths []string
+	}{{"scope", d.Scope}, {"new_tests", d.NewTests}, {"existing_tests", d.SuiteTests}} {
+		for _, p := range group.paths {
+			if !filePath.MatchString(p) {
+				return fmt.Sprintf("%s holds %q, which is not the path of a file: each entry is a path alone — no test named in it, nothing said of it", group.name, p)
+			}
+		}
 	}
 	for _, t := range d.NewTests {
 		if slices.Contains(d.Scope, t) {
