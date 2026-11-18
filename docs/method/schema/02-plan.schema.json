@@ -216,6 +216,13 @@
             },
             "type": "array"
           },
+          "reads": {
+            "description": "files of the estate outside its scope that it builds on, handed to its agent whole",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "scope": {
             "description": "what the change may touch, as paths",
             "items": {

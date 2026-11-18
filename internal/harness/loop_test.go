@@ -417,7 +417,12 @@ func TestAUnitIsNotDoneWithoutWhatItProvides(t *testing.T) {
 		calling("edit_file", map[string]string{"path": "a.go", "old": "type Options struct{}", "new": "type Options struct{ Notify func() }"}),
 		{Content: "Notify added"},
 	}}
-	res, err := Loop{Model: m}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: []string{"true"}, Provides: []string{"Notify"}}, func(Event) {})
+	res, err := Loop{Model: m}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: []string{"true"}, Unprovided: func(ws string) []string {
+		if b, _ := os.ReadFile(filepath.Join(ws, "a.go")); !strings.Contains(string(b), "Notify func()") {
+			return []string{"Notify"}
+		}
+		return nil
+	}}, func(Event) {})
 	if err != nil || res.Terminal != Candidate || res.Summary != "Notify added" {
 		t.Fatalf("the run ended %+v %v", res, err)
 	}

@@ -171,6 +171,7 @@ type WorkUnit struct {
 	Brief    string      `json:"brief,omitempty" doc:"its ticket: objective, what it serves and relies on, tasks, constraints, edge cases, when it is done"`
 	Provides []Provision `json:"provides,omitempty" doc:"the names it gives the other units: the contract between them"`
 	Uses     []string    `json:"uses,omitempty" doc:"the names other units of the plan provide that it uses"`
+	Reads    []string    `json:"reads,omitempty" doc:"files of the estate outside its scope that it builds on, handed to its agent whole"`
 }
 
 // Provision is one name a unit gives the others: where it is declared, as

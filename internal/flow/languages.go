@@ -1,11 +1,17 @@
 package flow
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/igannytskyi/iflow/internal/meta"
+	"github.com/igannytskyi/iflow/internal/reader"
 )
 
 // language is everything the framework knows of one language, in one
@@ -37,6 +43,10 @@ type language struct {
 	// faults is how a run of its tests names the line of a test file;
 	// failed, how it names a test that failed — its last group the name.
 	faults, failed *regexp.Regexp
+	// declares, where the language has a parser of its own here, is every
+	// name a file of it declares, fields among them; where it has none,
+	// the estate's reader says what is declared, and a field it cannot see.
+	declares func(src []byte) (map[string]bool, error)
 }
 
 // languages is every language the framework knows, in the order an
@@ -51,7 +61,7 @@ var languages = []language{
 		focus: func(pattern, path string) []string {
 			return []string{"go", "test", "-count=1", "-v", "-run", pattern, "./" + strings.TrimPrefix(filepath.ToSlash(filepath.Clean(path)), "./") + "/..."}
 		},
-		build: []string{"go", "build", "./..."}, vet: goVet, check: goBuild, format: gofmt,
+		build: []string{"go", "build", "./..."}, vet: goVet, check: goBuild, format: gofmt, declares: goDeclares,
 		tests:  regexp.MustCompile(`(?m)^func (Test\w+)\(`),
 		faults: regexp.MustCompile(`[\w./-]*_test\.go:\d+`),
 		failed: regexp.MustCompile(`(?m)^\s*--- FAIL: (\w+)`),
@@ -199,4 +209,64 @@ func failedTests(out string) []string {
 		}
 	}
 	return names
+}
+
+// goDeclares is every name a Go file declares: its functions and methods,
+// its types, the fields and methods of its structs and interfaces, its
+// variables and constants.
+func goDeclares(src []byte) (map[string]bool, error) {
+	f, err := parser.ParseFile(token.NewFileSet(), "", src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch d := n.(type) {
+		case *ast.FuncDecl:
+			names[d.Name.Name] = true
+		case *ast.TypeSpec:
+			names[d.Name.Name] = true
+		case *ast.ValueSpec:
+			for _, id := range d.Names {
+				names[id.Name] = true
+			}
+		case *ast.Field: // of a struct, or a method of an interface
+			for _, id := range d.Names {
+				names[id.Name] = true
+			}
+		}
+		return true
+	})
+	return names, nil
+}
+
+// undeclared is what the provisions say is declared that the files in dir
+// do not declare: read by the language's own parser where it has one, by
+// the estate's reader where not. A field a reader cannot see is not said
+// missing — it cannot be told either way.
+func undeclared(dir string, provides []meta.Provision) []string {
+	var out []string
+	for _, p := range provides {
+		if p.Kind == meta.Described {
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(p.File)))
+		if err != nil {
+			out = append(out, p.Name)
+			continue
+		}
+		if l, ok := languageOfFile(p.File); ok && l.declares != nil {
+			if names, err := l.declares(src); err != nil || !names[p.Name] {
+				out = append(out, p.Name)
+			}
+			continue
+		}
+		if p.Kind == meta.Field {
+			continue
+		}
+		if !slices.ContainsFunc(reader.Read(p.File, src).Symbols, func(s reader.Symbol) bool { return s.Name == p.Name }) {
+			out = append(out, p.Name)
+		}
+	}
+	return out
 }

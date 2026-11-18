@@ -240,7 +240,7 @@ func unitsOf(p *meta.Plan) ([]unit, bool) {
 			return nil, false
 		}
 		out = append(out, unit{id: u.ID, class: string(u.Class), aoe: u.AreaOfEffect, title: u.Title, brief: u.Brief,
-			kind: u.Kind, provides: u.Provides, uses: u.Uses, scope: u.Scope, criteria: u.Criteria,
+			kind: u.Kind, provides: u.Provides, uses: u.Uses, reads: u.Reads, scope: u.Scope, criteria: u.Criteria,
 			preparatoryFor: strings.Join(u.PreparatoryFor, ", "), dependsOn: strings.Join(u.DependsOn, ", ")})
 	}
 	return out, true

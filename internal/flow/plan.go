@@ -22,8 +22,10 @@ type unit struct {
 	kind           meta.UnitKind
 	// provides is the names it gives the others; uses, the names of
 	// theirs it builds on. Together they are the contract.
-	provides        []meta.Provision
-	uses            []string
+	provides []meta.Provision
+	uses     []string
+	// reads is the files of the estate outside its scope it builds on.
+	reads           []string
 	scope, criteria []string
 	preparatoryFor  string
 	dependsOn       string
@@ -53,13 +55,14 @@ Rules you must follow:
 - Then units of kind "code", in the order they are carried out, whose scope is only among the files the change may touch. Each later unit can read what the earlier ones wrote, and nothing a later one will write — so order them by what they provide: the types and interfaces first, then what uses them, then what wires them into the entry point. A unit never defines what another unit provides. Keep a unit to one coherent piece; wiring something into what exists is a unit of its own when it touches another file.
 - "provides" of a code unit is the contract: every name it declares that another unit or the tests use, each as {"file": where it is declared, "name": the name it is called by, "kind": one of "function", "method", "type", "field", "variable", "constant", "signature": its full declaration in the estate's language} — for Go, {"file": "server.go", "name": "NewServer", "kind": "function", "signature": "func NewServer(c *Catalog, clock Clock) *Server"}. A field added to a type is a "field" whose signature is the field as the type declares it. Every agent is handed every unit's provides, and the tests call exactly these.
 - "uses" of a unit is the names, from other units' provides, that it builds on — exactly as they are named there. A unit uses only what an earlier unit provides.
+- "reads" of a unit is the files of the estate, outside its scope, that it builds on — a helper it calls, a test whose setup it follows — each a path that exists. Its agent is handed each whole.
 - Every criterion is assigned to at least one code unit; the last code unit carries the criterion that nothing else moves. A tests unit carries the criteria its tests judge. A criterion the person decides needs no test: assign it to the code unit that makes it true.
 - A unit relies only on what exists — as the estate you are shown says — or on what an earlier unit provides. Never on a helper, method or ability you assume is there: if it is not in what you are shown, a unit provides it first, or the unit does without it.
 - Each unit is written as a ticket complete for someone who has read nothing else: its objective; the requirements (FR-n) and criteria it serves; what it relies on that exists or that earlier units provide; its tasks in order; the names and signatures it provides, exactly — the same in the tests units and the code units; its constraints (what not to touch or change); its edge cases; and when it is done.
 
 The JSON object has exactly these keys:
 - "approach": {"summary": one paragraph, "steps": points in order, "risks": points}
-- "units": a list of {"title", "kind": "tests" or "code", "scope": [paths], "criteria": [criterion ids], "requirements": [FR ids], "objective": one paragraph, "relies_on": [points], "tasks": [points, in order], "provides": [{"file", "name", "kind", "signature"}], "uses": [names], "constraints": [points], "edge_cases": [points], "done_when": [points]}`
+- "units": a list of {"title", "kind": "tests" or "code", "scope": [paths], "criteria": [criterion ids], "requirements": [FR ids], "objective": one paragraph, "relies_on": [points], "tasks": [points, in order], "provides": [{"file", "name", "kind", "signature"}], "uses": [names], "reads": [paths], "constraints": [points], "edge_cases": [points], "done_when": [points]}`
 
 // planDraft is what the planner answers.
 type planDraft struct {
@@ -84,6 +87,7 @@ type ticket struct {
 	Tasks        []string         `json:"tasks"`
 	Provides     []meta.Provision `json:"provides"`
 	Uses         []string         `json:"uses"`
+	Reads        []string         `json:"reads"`
 	Constraints  []string         `json:"constraints"`
 	EdgeCases    []string         `json:"edge_cases"`
 	DoneWhen     []string         `json:"done_when"`
@@ -235,7 +239,7 @@ func (r *Run) plan(ctx context.Context) error {
 	for _, u := range units {
 		record.Units = append(record.Units, meta.WorkUnit{ID: u.id, Phase: 1, Class: meta.Class(u.class), Scope: u.scope,
 			AreaOfEffect: u.aoe, Criteria: u.criteria, DependsOn: splitIDs(u.dependsOn), PreparatoryFor: splitIDs(u.preparatoryFor),
-			Kind: u.kind, Title: u.title, Brief: u.brief, Provides: u.provides, Uses: u.uses})
+			Kind: u.kind, Title: u.title, Brief: u.brief, Provides: u.provides, Uses: u.uses, Reads: u.reads})
 	}
 	if err := artifact.Save(r.dir, artifact.Plan, record); err != nil {
 		return r.fail(2, "the plan could not be written: %v", err)
@@ -309,7 +313,12 @@ func (r *Run) planned(ctx context.Context, all, byTests []string, feedback strin
 func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 	var tests, code []unit
 	for _, pu := range p.Units {
-		u := unit{title: pu.Title, class: r.spec.Class, scope: pu.Scope, brief: pu.brief(), kind: meta.UnitKind(pu.Kind), uses: pu.Uses}
+		u := unit{title: pu.Title, class: r.spec.Class, scope: pu.Scope, brief: pu.brief(), kind: meta.UnitKind(pu.Kind), uses: pu.Uses, reads: pu.Reads}
+		for _, f := range u.reads {
+			if !fileExists(filepath.Join(r.repo, filepath.FromSlash(f))) {
+				return nil, fmt.Sprintf("unit %q reads %s, which is not a file of the estate", pu.Title, f)
+			}
+		}
 		if len(u.scope) == 0 || strings.TrimSpace(pu.Objective) == "" || len(pu.Tasks) == 0 {
 			return nil, fmt.Sprintf("unit %q has no scope, no objective or no tasks", pu.Title)
 		}

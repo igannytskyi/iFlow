@@ -1111,23 +1111,42 @@ func TestAConfigWithoutEstateOrGateWorks(t *testing.T) {
 	}
 }
 
-// A file a unit's ticket names, by path or by name in a folder of its
-// scope, is in what the unit's agent is handed.
-func TestAFileTheTicketNamesIsHanded(t *testing.T) {
-	repo := t.TempDir()
-	for p, s := range map[string]string{"ui/render_test.go": "package ui\n\nfunc testUI() {}\n", "lib/x.go": "package lib\n"} {
-		if err := os.MkdirAll(filepath.Join(repo, filepath.Dir(p)), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(repo, p), []byte(s), 0o644); err != nil {
+// What a unit reads, as its plan says, is handed whole to its agent.
+func TestWhatAUnitReadsIsHanded(t *testing.T) {
+	repo := estateFixture(t)
+	r := &Run{repo: repo, cfg: Config{Estate: estate.NewLocal()}}
+	p := r.pack(unit{kind: meta.CodeUnit, scope: []string{"shout.go"}, reads: []string{"greet.go"}})
+	if !strings.Contains(p.String(), "Read: greet.go") || !strings.Contains(p.String(), "func Greet") {
+		t.Errorf("what the unit reads was not handed:\n%s", p.String())
+	}
+}
+
+// What a contract says is declared is read from the code: Go's own parser
+// sees fields and methods, the estate's reader what it reads; a comment
+// that names a name declares nothing.
+func TestWhatIsDeclaredIsReadFromTheCode(t *testing.T) {
+	dir := t.TempDir()
+	for f, src := range map[string]string{
+		"app.go":  "package ui\n\n// Notify and quiet are to come.\ntype Options struct{ Port int }\n\nfunc (u *UI) frame() {}\n",
+		"util.py": "def greet(name):\n    return name\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte(src), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	r := &Run{repo: repo}
-	u := unit{scope: []string{"ui/notify_test.go"}, brief: "Relies on:\n- testUI, as render_test.go builds it, and lib/x.go; not missing.go"}
-	got := r.named(u)
-	if !slices.Equal(got, []string{"ui/render_test.go", "lib/x.go"}) {
-		t.Errorf("named %v", got)
+	got := undeclared(dir, []meta.Provision{
+		{File: "app.go", Name: "Options", Kind: meta.TypeDecl, Signature: "type Options struct"},
+		{File: "app.go", Name: "Port", Kind: meta.Field, Signature: "Port int"},
+		{File: "app.go", Name: "frame", Kind: meta.Method, Signature: "func (u *UI) frame()"},
+		{File: "app.go", Name: "Notify", Kind: meta.Field, Signature: "Notify notify.Sender"},
+		{File: "app.go", Name: "quiet", Kind: meta.Method, Signature: "func (u *UI) quiet() bool"},
+		{File: "util.py", Name: "greet", Kind: meta.Function, Signature: "def greet(name)"},
+		{File: "util.py", Name: "farewell", Kind: meta.Function, Signature: "def farewell(name)"},
+		{File: "util.py", Name: "language", Kind: meta.Field, Signature: "self.language"},
+		{Kind: meta.Described, Signature: "nothing named"},
+	})
+	if want := []string{"Notify", "quiet", "farewell"}; !slices.Equal(got, want) {
+		t.Errorf("undeclared %v, want %v", got, want)
 	}
 }
 

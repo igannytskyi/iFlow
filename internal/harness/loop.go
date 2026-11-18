@@ -147,7 +147,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			res.Steps++
 			emit(Event{At: time.Now(), Kind: Called, Tool: "Check", Detail: strings.Join(t.Check, " ")})
 			emit(Event{At: time.Now(), Kind: Got, Detail: tail(out, 6)})
-			if missing := Unprovided(t); ok && len(missing) > 0 {
+			if missing := unprovided(t); ok && len(missing) > 0 {
 				if refusedDone++; refusedDone >= 3 {
 					return end(Exhausted, "said it was done three times without what it was to provide: "+strings.Join(missing, ", "))
 				}

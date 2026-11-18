@@ -12,8 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -47,10 +45,10 @@ type Task struct {
 	// Role is what the unit writes — "contract", "tests" or "code" — for an
 	// executor that does its work differently by it.
 	Role string
-	// Provides is the names the unit's contract says it gives the others:
-	// the unit is not done, whatever the check says, until each is in its
-	// files.
-	Provides []string
+	// Unprovided, where given, is what the unit's contract says it gives
+	// the others that the workspace's code does not declare: the unit is
+	// not done, whatever the check says, until it is nothing.
+	Unprovided func(workspace string) []string
 	// Graph, where given, answers from the estate's model of its code where
 	// a name is defined and who calls it — what an agent would otherwise
 	// search the text for, and miss.
@@ -166,25 +164,6 @@ func ReadTrace(path string) ([]Event, error) {
 	return out, nil
 }
 
-// Unprovided is the names of t.Provides that no file of t's scope, as the
-// workspace holds it, names: what the unit said it would give and did not.
-func Unprovided(t Task) []string {
-	var text strings.Builder
-	for _, p := range t.Scope {
-		if b, err := os.ReadFile(filepath.Join(t.Workspace, filepath.FromSlash(p))); err == nil {
-			text.Write(b)
-			text.WriteByte('\n')
-		}
-	}
-	var out []string
-	for _, name := range t.Provides {
-		if !regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`).MatchString(text.String()) {
-			out = append(out, name)
-		}
-	}
-	return out
-}
-
 // unprovidedSaid is what an agent is told of the names it was to give and
 // did not.
 func unprovidedSaid(missing []string) string {
@@ -197,4 +176,13 @@ func unprovidedSaid(missing []string) string {
 type Graph interface {
 	Defined(name string) (string, error)
 	Callers(name string) (string, error)
+}
+
+// unprovided is what the task's contract says the unit gives and its code
+// does not declare.
+func unprovided(t Task) []string {
+	if t.Unprovided == nil {
+		return nil
+	}
+	return t.Unprovided(t.Workspace)
 }
