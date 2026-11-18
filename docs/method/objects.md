@@ -51,7 +51,7 @@ Sources for the structure: [Design docs at Google](https://www.industrialempathy
 
 ## The plan — `plan.md` and `units/`
 
-Written by the planner, read by a reviewer.
+Written by the planner, read by a reviewer. What must hold of every plan, how its units are carried and what each agent is handed: [execution.md](execution.md).
 
 `plan.md`: **Approach** — how the change is built as a whole, the steps in order, what could go wrong — then every unit.
 
