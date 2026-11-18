@@ -316,7 +316,7 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 		u := unit{title: pu.Title, class: r.spec.Class, scope: pu.Scope, brief: pu.brief(), kind: meta.UnitKind(pu.Kind), uses: pu.Uses, reads: pu.Reads}
 		for _, f := range u.reads {
 			if !fileExists(filepath.Join(r.repo, filepath.FromSlash(f))) {
-				return nil, fmt.Sprintf("unit %q reads %s, which is not a file of the estate", pu.Title, f)
+				return nil, fmt.Sprintf("unit %q reads %s, which is not a file of the estate: reads names only files that exist now — what another unit of the plan writes is handed to it already, and a name it provides is in uses", pu.Title, f)
 			}
 		}
 		if len(u.scope) == 0 || strings.TrimSpace(pu.Objective) == "" || len(pu.Tasks) == 0 {
