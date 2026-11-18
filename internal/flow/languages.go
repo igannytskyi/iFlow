@@ -241,23 +241,39 @@ func goDeclares(src []byte) (map[string]bool, error) {
 		return nil, err
 	}
 	names := map[string]bool{}
-	ast.Inspect(f, func(n ast.Node) bool {
-		switch d := n.(type) {
-		case *ast.FuncDecl:
-			names[d.Name.Name] = true
-		case *ast.TypeSpec:
-			names[d.Name.Name] = true
-		case *ast.ValueSpec:
-			for _, id := range d.Names {
-				names[id.Name] = true
-			}
-		case *ast.Field: // of a struct, or a method of an interface
-			for _, id := range d.Names {
+	fieldsOf := func(fl *ast.FieldList) {
+		for _, fd := range fl.List {
+			for _, id := range fd.Names {
 				names[id.Name] = true
 			}
 		}
-		return true
-	})
+	}
+	// What the file declares is what its package does: its top-level
+	// declarations, and the fields and methods of the types among them —
+	// never a parameter, never a function's own variable.
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			names[d.Name.Name] = true
+		case *ast.GenDecl:
+			for _, spec := range d.Specs {
+				switch spec := spec.(type) {
+				case *ast.TypeSpec:
+					names[spec.Name.Name] = true
+					switch t := spec.Type.(type) {
+					case *ast.StructType:
+						fieldsOf(t.Fields)
+					case *ast.InterfaceType:
+						fieldsOf(t.Methods)
+					}
+				case *ast.ValueSpec:
+					for _, id := range spec.Names {
+						names[id.Name] = true
+					}
+				}
+			}
+		}
+	}
 	return names, nil
 }
 

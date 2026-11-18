@@ -1665,3 +1665,22 @@ func TestANameProvidedIsANewName(t *testing.T) {
 		t.Errorf("new names were sent back: %q", why)
 	}
 }
+
+// What a Go file declares is its package's: a parameter, a result, a
+// function's own variable declare nothing.
+func TestAGoFileDeclaresWhatItsPackageDoes(t *testing.T) {
+	names, err := goDeclares([]byte("package ui\n\nvar quiet bool\n\ntype UI struct{ notify func() }\n\ntype Sender interface{ Send(m string) }\n\nfunc newUI(s *settings) (u *UI) {\n\tvar local int\n\t_ = local\n\treturn nil\n}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"quiet", "UI", "notify", "Sender", "Send", "newUI"} {
+		if !names[want] {
+			t.Errorf("%s is not read as declared", want)
+		}
+	}
+	for _, not := range []string{"s", "u", "m", "local"} {
+		if names[not] {
+			t.Errorf("%s is read as declared", not)
+		}
+	}
+}

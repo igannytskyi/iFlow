@@ -55,7 +55,7 @@ Rules you must follow:
 - Then units of kind "code", in the order they are carried out, whose scope is only among the files the change may touch. Each later unit can read what the earlier ones wrote, and nothing a later one will write — so order them by what they provide: the types and interfaces first, then what uses them, then what wires them into the entry point. A unit never defines what another unit provides. Keep a unit to one coherent piece; wiring something into what exists is a unit of its own when it touches another file.
 - "provides" of a code unit is the contract: every name it declares that another unit or the tests use, each as {"file": where it is declared, "name": the name it is called by, "kind": one of "function", "method", "type", "field", "variable", "constant", "signature": its full declaration in the estate's language} — for Go, {"file": "server.go", "name": "NewServer", "kind": "function", "signature": "func NewServer(c *Catalog, clock Clock) *Server"}. A field added to a type is a "field" whose signature is the field as the type declares it. Provides lists only names the unit adds: a name that exists already, whose body or type the unit changes, is not provided — what it changes belongs in its tasks. Every agent is handed every unit's provides, and the tests call exactly these.
 - "uses" of a unit is the names, from other units' provides, that it builds on — exactly as they are named there. A unit uses only what an earlier unit provides.
-- "reads" of a unit is the files of the estate, outside its scope, that it builds on — a helper it calls, a test whose setup it follows — each a path that exists. Its agent is handed each whole.
+- "reads" of a unit is the files outside its scope that it builds on — a helper it calls, a test whose setup it follows — each a file that exists, or one another unit of the plan writes. Its agent is handed each whole: what exists as it is, what another unit writes as that unit left it.
 - Every criterion is assigned to at least one code unit; the last code unit carries the criterion that nothing else moves. A tests unit carries the criteria its tests judge. A criterion the person decides needs no test: assign it to the code unit that makes it true.
 - A unit relies only on what exists — as the estate you are shown says — or on what an earlier unit provides. Never on a helper, method or ability you assume is there: if it is not in what you are shown, a unit provides it first, or the unit does without it.
 - Each unit is written as a ticket complete for someone who has read nothing else: its objective; the requirements (FR-n) and criteria it serves; what it relies on that exists or that earlier units provide; its tasks in order; the names and signatures it provides, exactly — the same in the tests units and the code units; its constraints (what not to touch or change); its edge cases; and when it is done.
@@ -331,8 +331,11 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 	for _, pu := range p.Units {
 		u := unit{title: pu.Title, class: r.spec.Class, scope: pu.Scope, brief: pu.brief(), kind: meta.UnitKind(pu.Kind), uses: pu.Uses, reads: pu.Reads}
 		for _, f := range u.reads {
-			if !fileExists(filepath.Join(r.repo, filepath.FromSlash(f))) {
-				return nil, fmt.Sprintf("unit %q reads %s, which is not a file of the estate: reads names only files that exist now — what another unit of the plan writes is handed to it already, and a name it provides is in uses", pu.Title, f)
+			// A file it reads exists now, or another unit of the plan writes
+			// it, and it is handed what that unit wrote.
+			written := slices.ContainsFunc(p.Units, func(o ticket) bool { return o.Title != pu.Title && slices.Contains(o.Scope, f) })
+			if !written && !fileExists(filepath.Join(r.repo, filepath.FromSlash(f))) {
+				return nil, fmt.Sprintf("unit %q reads %s, which neither exists nor is written by another unit of the plan", pu.Title, f)
 			}
 		}
 		if len(u.scope) == 0 || strings.TrimSpace(pu.Objective) == "" || len(pu.Tasks) == 0 {
