@@ -1520,7 +1520,7 @@ func TestAContractThatBehavesIsDeclaredAgain(t *testing.T) {
 func TestEachLanguageIsOneEntry(t *testing.T) {
 	seen := map[string]bool{}
 	for _, l := range languages {
-		if l.name == "" || len(l.marks) == 0 || len(l.exts) == 0 || l.tests == nil || l.faults == nil {
+		if l.name == "" || len(l.marks) == 0 || len(l.exts) == 0 || l.tests == nil || l.faults == nil || l.failed == nil {
 			t.Errorf("%q leaves out what every language says: %+v", l.name, l)
 		}
 		for _, e := range l.exts {
@@ -1537,5 +1537,15 @@ func TestEachLanguageIsOneEntry(t *testing.T) {
 	}
 	if got := testFaults("ok\n    greeting_test.go:12: want x\n  File \"test_a.py\", line 4, in t\n    at a.test.js:3:5\nplain line\n"); strings.Count(got, "\n") != 2 {
 		t.Errorf("faults read %q", got)
+	}
+}
+
+// A run's failed tests are named, in every language's own words.
+func TestFailedTestsAreNamedInEachLanguage(t *testing.T) {
+	out := "--- FAIL: TestShout (0.00s)\nFAILED tests/test_a.py::GreetTest::test_greet - assert\nFAIL: test_bye (test_greeting.GreetTest.test_bye)\n✖ greet names the person (1.2ms)\nnot ok 3 - says goodbye\ntest tests::adds ... FAILED\nGreetTest > greets() FAILED\n"
+	got := failedTests(out)
+	want := []string{"TestShout", "test_greet", "test_bye", "greet names the person", "says goodbye", "adds", "greets"}
+	if !slices.Equal(got, want) {
+		t.Errorf("failed %q, want %q", got, want)
 	}
 }

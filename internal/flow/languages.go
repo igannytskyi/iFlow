@@ -34,8 +34,9 @@ type language struct {
 	format func(files []string) []string
 	// tests is how a test is declared: its last group is the test's name.
 	tests *regexp.Regexp
-	// faults is how a run of its tests names the line of a test file.
-	faults *regexp.Regexp
+	// faults is how a run of its tests names the line of a test file;
+	// failed, how it names a test that failed — its last group the name.
+	faults, failed *regexp.Regexp
 }
 
 // languages is every language the framework knows, in the order an
@@ -53,6 +54,7 @@ var languages = []language{
 		build: []string{"go", "build", "./..."}, vet: goVet, check: goBuild, format: gofmt,
 		tests:  regexp.MustCompile(`(?m)^func (Test\w+)\(`),
 		faults: regexp.MustCompile(`[\w./-]*_test\.go:\d+`),
+		failed: regexp.MustCompile(`(?m)^\s*--- FAIL: (\w+)`),
 	},
 	{
 		name: "pytest", marks: []string{"pyproject.toml", "pytest.ini", "setup.py"}, exts: []string{".py"},
@@ -68,6 +70,7 @@ var languages = []language{
 		},
 		tests:  regexp.MustCompile(`(?m)^\s*(?:async\s+)?def (test_\w+)\(`),
 		faults: regexp.MustCompile(`[\w./-]*(?:test_\w+|\w+_test)\.py:\d+|File "[^"]*(?:test_\w+|\w+_test)\.py", line \d+`),
+		failed: regexp.MustCompile(`(?m)^(?:FAILED [^\s:]+::(?:\w+::)?(\w+)|(?:FAIL|ERROR): (\w+) \()`),
 	},
 	{
 		name: "node --test", marks: []string{"package.json"}, exts: []string{".js", ".cjs", ".mjs", ".ts", ".tsx", ".jsx"},
@@ -90,17 +93,20 @@ var languages = []language{
 		},
 		tests:  regexp.MustCompile("(?m)\\b(?:test|it)\\s*\\(\\s*([\"'`])(.+?)[\"'`]"),
 		faults: regexp.MustCompile(`[\w./-]*\.(?:test|spec)\.[cm]?[jt]sx?:\d+`),
+		failed: regexp.MustCompile(`(?m)^\s*(?:✖|not ok \d+ -) (.+?)(?: \([\d.]+ms\))?$`),
 	},
 	{
 		name: "cargo test", marks: []string{"Cargo.toml"}, exts: []string{".rs"},
 		suite:  []string{"cargo", "test"},
 		tests:  regexp.MustCompile(`(?m)#\[test\]\s*(?:#\[[^\]]*\]\s*)*(?:pub\s+)?(?:async\s+)?fn (\w+)`),
 		faults: regexp.MustCompile(`[\w./-]*\.rs:\d+`),
+		failed: regexp.MustCompile(`(?m)^test (?:\S+::)?(\w+) \.\.\. FAILED`),
 	},
 	{
 		name: "gradle test", marks: []string{"build.gradle", "build.gradle.kts", "pom.xml"}, exts: []string{".java", ".kt", ".kts"},
 		tests:  regexp.MustCompile(`(?m)@Test\b[^{;]*?\b(?:void\s+|fun\s+)(\w+)\s*\(`),
 		faults: regexp.MustCompile(`[\w./-]*Test\.(?:java|kt):\d+`),
+		failed: regexp.MustCompile(`(?m)^\S+ > (\w+)\(\) FAILED`),
 	},
 }
 
@@ -173,4 +179,24 @@ func testFaults(out string) string {
 		}
 	}
 	return strings.Join(at, "\n")
+}
+
+// failedTests is the names of the tests a run says failed, in any language
+// the framework knows.
+func failedTests(out string) []string {
+	var names []string
+	for _, l := range languages {
+		if l.failed == nil {
+			continue
+		}
+		for _, m := range l.failed.FindAllStringSubmatch(out, -1) {
+			for i := len(m) - 1; i > 0; i-- {
+				if m[i] != "" {
+					names = append(names, m[i])
+					break
+				}
+			}
+		}
+	}
+	return names
 }
