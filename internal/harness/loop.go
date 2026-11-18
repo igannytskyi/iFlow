@@ -185,14 +185,14 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			}
 			ws.last.ran = false
 			ws.calls++
-			answer, kind, blocked := l.call(ws, call)
+			answer, kind, changed, blocked := l.call(ws, call)
 			if blocked != nil {
 				emit(Event{At: time.Now(), Kind: Said, Detail: blocked.Error()})
 				res.Cannot, res.Blames = blocked.Why, blocked.Files
 				return end(FailedTask, blocked.Why) // the agent says it cannot be done as asked
 			}
 			switch {
-			case strings.HasPrefix(answer, "written") || strings.HasPrefix(answer, "edited"):
+			case changed:
 				last = "" // the workspace changed: the same call now asks something new
 				idle, nudged = 0, false
 				asked = map[string]bool{}
@@ -262,15 +262,15 @@ func compact(msgs []model.Message) []model.Message {
 
 // call carries out one tool call, and says what it answered, what kind of
 // step that was, and whether the agent said its unit cannot be done.
-func (l Loop) call(ws *workspace, call model.ToolCall) (string, Kind, *Blocked) {
+func (l Loop) call(ws *workspace, call model.ToolCall) (answer string, kind Kind, changed bool, blocked *Blocked) {
 	t, ok := lookup(call.Function.Name)
 	if !ok {
-		return "there is no tool called " + call.Function.Name, Refused, nil
+		return "there is no tool called " + call.Function.Name, Refused, false, nil
 	}
 	args := map[string]string{}
 	var raw map[string]any
 	if call.Function.Arguments != "" && json.Unmarshal([]byte(repairArgs(call.Function.Arguments)), &raw) != nil {
-		return "the arguments are not JSON", Refused, nil
+		return "the arguments are not JSON", Refused, false, nil
 	}
 	for k, v := range raw {
 		args[k] = argument(v)
@@ -279,13 +279,13 @@ func (l Loop) call(ws *workspace, call model.ToolCall) (string, Kind, *Blocked) 
 	var b Blocked
 	switch {
 	case errors.As(err, &b):
-		return "", Got, &b
+		return "", Got, false, &b
 	case err == nil:
-		return out, Got, nil
+		return out, Got, t.writes, nil
 	case errors.As(err, new(errRefused)):
-		return "refused: " + err.Error(), Refused, nil
+		return "refused: " + err.Error(), Refused, false, nil
 	default:
-		return "error: " + err.Error(), Got, nil
+		return "error: " + err.Error(), Got, false, nil
 	}
 }
 

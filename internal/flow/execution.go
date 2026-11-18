@@ -6,7 +6,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -485,21 +484,6 @@ func (r *Run) chains(from, to int) [][]int {
 	}
 	return out
 }
-
-// nothingRan says a run of the tests named shows that none of them ran:
-// none is named in what it said, and it says nothing was run — Go's "no
-// tests to run", unittest's "Ran 0 tests", pytest's "no tests ran", node's
-// "tests 0".
-func nothingRan(out string, names []string) bool {
-	for _, n := range names {
-		if strings.Contains(out, n) {
-			return false
-		}
-	}
-	return notRun.MatchString(out)
-}
-
-var notRun = regexp.MustCompile(`(?m)\[no tests to run\]|\[no test files\]|^Ran 0 tests|no tests ran|^\S*\s*tests 0\s*$`)
 
 // newTestNames is every test the tests units of the change wrote.
 func (r *Run) newTestNames(prof profile) []string {

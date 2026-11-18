@@ -1547,7 +1547,7 @@ func TestAContractThatBehavesIsDeclaredAgain(t *testing.T) {
 func TestEachLanguageIsOneEntry(t *testing.T) {
 	seen := map[string]bool{}
 	for _, l := range languages {
-		if l.name == "" || len(l.marks) == 0 || len(l.exts) == 0 || l.tests == nil || l.faults == nil || l.failed == nil {
+		if l.name == "" || len(l.marks) == 0 || len(l.exts) == 0 || l.tests == nil || l.faults == nil || l.failed == nil || l.noneRan == nil {
 			t.Errorf("%q leaves out what every language says: %+v", l.name, l)
 		}
 		for _, e := range l.exts {

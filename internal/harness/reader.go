@@ -29,6 +29,6 @@ func (r Reader) Call(call model.ToolCall) string {
 	if !slices.Contains(readOnly, call.Function.Name) {
 		return "refused: only reading is allowed here"
 	}
-	answer, _, _ := Loop{}.call(r.ws, call)
+	answer, _, _, _ := Loop{}.call(r.ws, call)
 	return clip(answer, 12000)
 }

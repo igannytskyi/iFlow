@@ -44,8 +44,9 @@ type language struct {
 	// tests is how a test is declared: its last group is the test's name.
 	tests *regexp.Regexp
 	// faults is how a run of its tests names the line of a test file;
-	// failed, how it names a test that failed — its last group the name.
-	faults, failed *regexp.Regexp
+	// failed, how it names a test that failed — its last group the name;
+	// noneRan, how it says it ran no test at all.
+	faults, failed, noneRan *regexp.Regexp
 	// fault is how its build and its runner name the line of a file they
 	// blame — its first group the file; missing, whether such a line says a
 	// name is missing from one of the packages named, the ones this work
@@ -75,9 +76,10 @@ var languages = []language{
 		},
 		build: []string{"go", "build", "./..."}, vet: goVet, check: goBuild, format: gofmt, declares: goDeclares,
 		fault: regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.go):\d+:\d+:`), missing: goMissing, libraries: goLibraries,
-		tests:  regexp.MustCompile(`(?m)^func (Test\w+)\(`),
-		faults: regexp.MustCompile(`[\w./-]*_test\.go:\d+`),
-		failed: regexp.MustCompile(`(?m)^\s*--- FAIL: (\w+)`),
+		tests:   regexp.MustCompile(`(?m)^func (Test\w+)\(`),
+		faults:  regexp.MustCompile(`[\w./-]*_test\.go:\d+`),
+		failed:  regexp.MustCompile(`(?m)^\s*--- FAIL: (\w+)`),
+		noneRan: regexp.MustCompile(`\[no tests to run\]|\[no test files\]`),
 	},
 	{
 		name: "pytest", marks: []string{"pyproject.toml", "pytest.ini", "setup.py"}, exts: []string{".py"},
@@ -91,10 +93,11 @@ var languages = []language{
 		check: func(files []string) []string {
 			return append([]string{"python3", "-m", "py_compile"}, files...)
 		},
-		fault:  regexp.MustCompile(`File "([^"]+\.py)", line \d+`),
-		tests:  regexp.MustCompile(`(?m)^\s*(?:async\s+)?def (test_\w+)\(`),
-		faults: regexp.MustCompile(`[\w./-]*(?:test_\w+|\w+_test)\.py:\d+|File "[^"]*(?:test_\w+|\w+_test)\.py", line \d+`),
-		failed: regexp.MustCompile(`(?m)^(?:FAILED [^\s:]+::(?:\w+::)?(\w+)|(?:FAIL|ERROR): (\w+) \()`),
+		fault:   regexp.MustCompile(`File "([^"]+\.py)", line \d+`),
+		tests:   regexp.MustCompile(`(?m)^\s*(?:async\s+)?def (test_\w+)\(`),
+		faults:  regexp.MustCompile(`[\w./-]*(?:test_\w+|\w+_test)\.py:\d+|File "[^"]*(?:test_\w+|\w+_test)\.py", line \d+`),
+		failed:  regexp.MustCompile(`(?m)^(?:FAILED [^\s:]+::(?:\w+::)?(\w+)|(?:FAIL|ERROR): (\w+) \()`),
+		noneRan: regexp.MustCompile(`(?m)^Ran 0 tests|no tests ran`),
 	},
 	{
 		name: "node --test", marks: []string{"package.json"}, exts: []string{".js", ".cjs", ".mjs", ".ts", ".tsx", ".jsx"},
@@ -115,23 +118,26 @@ var languages = []language{
 			}
 			return []string{"node", "--check", files[0]}
 		},
-		fault:  regexp.MustCompile(`(\S+\.[cm]?[jt]sx?):\d+(?::\d+)?\b`),
-		tests:  regexp.MustCompile("(?m)\\b(?:test|it)\\s*\\(\\s*([\"'`])(.+?)[\"'`]"),
-		faults: regexp.MustCompile(`[\w./-]*\.(?:test|spec)\.[cm]?[jt]sx?:\d+`),
-		failed: regexp.MustCompile(`(?m)^\s*(?:✖|not ok \d+ -) (.+?)(?: \([\d.]+ms\))?$`),
+		fault:   regexp.MustCompile(`(\S+\.[cm]?[jt]sx?):\d+(?::\d+)?\b`),
+		tests:   regexp.MustCompile("(?m)\\b(?:test|it)\\s*\\(\\s*([\"'`])(.+?)[\"'`]"),
+		faults:  regexp.MustCompile(`[\w./-]*\.(?:test|spec)\.[cm]?[jt]sx?:\d+`),
+		failed:  regexp.MustCompile(`(?m)^\s*(?:✖|not ok \d+ -) (.+?)(?: \([\d.]+ms\))?$`),
+		noneRan: regexp.MustCompile(`(?m)^\S*\s*tests 0\s*$`),
 	},
 	{
 		name: "cargo test", marks: []string{"Cargo.toml"}, exts: []string{".rs"},
-		suite:  []string{"cargo", "test"},
-		tests:  regexp.MustCompile(`(?m)#\[test\]\s*(?:#\[[^\]]*\]\s*)*(?:pub\s+)?(?:async\s+)?fn (\w+)`),
-		faults: regexp.MustCompile(`[\w./-]*\.rs:\d+`),
-		failed: regexp.MustCompile(`(?m)^test (?:\S+::)?(\w+) \.\.\. FAILED`),
+		suite:   []string{"cargo", "test"},
+		tests:   regexp.MustCompile(`(?m)#\[test\]\s*(?:#\[[^\]]*\]\s*)*(?:pub\s+)?(?:async\s+)?fn (\w+)`),
+		faults:  regexp.MustCompile(`[\w./-]*\.rs:\d+`),
+		failed:  regexp.MustCompile(`(?m)^test (?:\S+::)?(\w+) \.\.\. FAILED`),
+		noneRan: regexp.MustCompile(`(?m)^running 0 tests`),
 	},
 	{
 		name: "gradle test", marks: []string{"build.gradle", "build.gradle.kts", "pom.xml"}, exts: []string{".java", ".kt", ".kts"},
-		tests:  regexp.MustCompile(`(?m)@Test\b[^{;]*?\b(?:void\s+|fun\s+)(\w+)\s*\(`),
-		faults: regexp.MustCompile(`[\w./-]*Test\.(?:java|kt):\d+`),
-		failed: regexp.MustCompile(`(?m)^\S+ > (\w+)\(\) FAILED`),
+		tests:   regexp.MustCompile(`(?m)@Test\b[^{;]*?\b(?:void\s+|fun\s+)(\w+)\s*\(`),
+		faults:  regexp.MustCompile(`[\w./-]*Test\.(?:java|kt):\d+`),
+		failed:  regexp.MustCompile(`(?m)^\S+ > (\w+)\(\) FAILED`),
+		noneRan: regexp.MustCompile(`No tests found`),
 	},
 }
 
@@ -351,4 +357,14 @@ func scopeLanguage(scope []string) (language, bool) {
 		}
 	}
 	return language{}, false
+}
+
+// nothingRan says a run of the tests named shows that none of them ran:
+// none is named in what it said, and it says, in a language's words, that
+// it ran nothing.
+func nothingRan(out string, names []string) bool {
+	if slices.ContainsFunc(names, func(n string) bool { return strings.Contains(out, n) }) {
+		return false
+	}
+	return slices.ContainsFunc(languages, func(l language) bool { return l.noneRan != nil && l.noneRan.MatchString(out) })
 }

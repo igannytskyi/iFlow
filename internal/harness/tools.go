@@ -26,6 +26,8 @@ type tool struct {
 	name, about string
 	params      string // JSON schema
 	run         func(ws *workspace, args map[string]string) (string, error)
+	// writes says a call of it that succeeds changes the workspace.
+	writes bool
 }
 
 // workspace is where a run may act.
@@ -134,7 +136,7 @@ var tools = []tool{
 				return "", err
 			}
 			return w.read(a["path"], string(b), atoi(a["from"]), atoi(a["to"])), nil
-		}},
+		}, false},
 	{"list_dir", "List a directory in the repository, or of a library's source by its absolute path.", `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
 			p, err := w.readable(a["path"])
@@ -154,7 +156,7 @@ var tools = []tool{
 				out = append(out, name)
 			}
 			return strings.Join(out, "\n"), nil
-		}},
+		}, false},
 	{"search", "Search the repository, or one folder of it — or of a library's source by its absolute path — for a regular expression; answers file:line: text, at most 40 lines.",
 		`{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string","description":"a folder to search under; the whole repository when left out"}},"required":["pattern"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
@@ -200,7 +202,7 @@ var tools = []tool{
 				out = append(out, "[more: narrow the pattern or the path]")
 			}
 			return strings.Join(out, "\n"), nil
-		}},
+		}, false},
 	{"write_file", "Write a whole file. Only files in the unit's scope may be written. Answers whether the code still builds.", `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
 			p, rel, err := w.within(a["path"])
@@ -217,7 +219,7 @@ var tools = []tool{
 				return "", err
 			}
 			return "written" + w.builds(rel), nil
-		}},
+		}, true},
 	{"edit_file", "Replace one exact occurrence of old with new in a file in the unit's scope. Answers with the lines around the change, and whether the code still builds.", `{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"}},"required":["path","old","new"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
 			p, rel, err := w.within(a["path"])
@@ -239,7 +241,7 @@ var tools = []tool{
 				return "", err
 			}
 			return "edited" + how + "; now:\n" + around(out, a["new"]) + w.builds(rel), nil
-		}},
+		}, true},
 	{"cannot", "Say that the unit cannot be done as it is asked, and why: something it relies on does not exist, what it must change is outside its scope, it asks for what the estate cannot do. The unit goes back to be planned again with your reason. Say it as soon as you know — not after trying everything.",
 		`{"type":"object","properties":{"why":{"type":"string"},"files":{"type":"array","items":{"type":"string"},"description":"the files that keep it from being done, where they are files: a test written before you, a file outside your scope"}},"required":["why"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
@@ -250,7 +252,7 @@ var tools = []tool{
 				}
 			}
 			return "", Blocked{Why: strings.TrimSpace(a["why"]), Files: files}
-		}},
+		}, false},
 	{"run_check", "Run the unit's check — the repository's own tests or build — and see the result.", `{"type":"object","properties":{}}`,
 		func(w *workspace, _ map[string]string) (string, error) {
 			if len(w.check) == 0 {
@@ -265,7 +267,7 @@ var tools = []tool{
 				}
 			}
 			return status + "\n" + condense(out), nil
-		}},
+		}, false},
 	{"find_definition", "Where a name — a function, type, method, constant — is defined in the repository as it stood before this change, with its first line: firmer than searching its text.",
 		`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
@@ -273,7 +275,7 @@ var tools = []tool{
 				return "", errRefused{"the estate has no model of its code here; use search"}
 			}
 			return w.graph.Defined(strings.TrimSpace(a["name"]))
-		}},
+		}, false},
 	{"find_callers", "Every place in the repository, as it stood before this change, that calls or uses a name, with the line: what changing it would touch.",
 		`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
@@ -281,7 +283,7 @@ var tools = []tool{
 				return "", errRefused{"the estate has no model of its code here; use search"}
 			}
 			return w.graph.Callers(strings.TrimSpace(a["name"]))
-		}},
+		}, false},
 	{"run_tests", "Run the tests whose names match a regular expression, under a folder of the repository, and see each pass or fail with its output — to find which test fails and why, faster than the whole check.",
 		`{"type":"object","properties":{"pattern":{"type":"string","description":"a regular expression matching test names"},"path":{"type":"string","description":"the folder whose tests to run"}},"required":["pattern","path"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
@@ -297,7 +299,7 @@ var tools = []tool{
 				status = "failed"
 			}
 			return status + "\n" + condense(out), nil
-		}},
+		}, false},
 }
 
 // suggest names the files in the workspace whose names are nearest a path
