@@ -1652,3 +1652,16 @@ func TestANodeFaultIsTheFileInItsFrame(t *testing.T) {
 		t.Errorf("faults %+v", fs)
 	}
 }
+
+// A plan whose unit provides a name its file declares already is sent
+// back: a contract that declared it again would break its users.
+func TestANameProvidedIsANewName(t *testing.T) {
+	repo := estateFixture(t)
+	r := &Run{repo: repo}
+	if why := r.providedAlready(unit{provides: []meta.Provision{{File: "greet.go", Name: "Greet", Kind: meta.Function, Signature: "func Greet(n string) string"}}}); !strings.Contains(why, "declares already") {
+		t.Errorf("a name declared already passed: %q", why)
+	}
+	if why := r.providedAlready(unit{provides: []meta.Provision{{File: "greet.go", Name: "Shout", Kind: meta.Function, Signature: "func Shout(n string) string"}, {File: "new.go", Name: "New", Kind: meta.Function, Signature: "func New()"}}}); why != "" {
+		t.Errorf("new names were sent back: %q", why)
+	}
+}

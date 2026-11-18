@@ -261,6 +261,22 @@ func goDeclares(src []byte) (map[string]bool, error) {
 	return names, nil
 }
 
+// declaredIn is every name a file declares, as its language's parser reads
+// it, or the estate's reader where it has none — and whether fields are
+// among what was read.
+func declaredIn(file string, src []byte) (names map[string]bool, fields bool) {
+	if l, ok := languageOfFile(file); ok && l.declares != nil {
+		if names, err := l.declares(src); err == nil {
+			return names, true
+		}
+	}
+	names = map[string]bool{}
+	for _, s := range reader.Read(file, src).Symbols {
+		names[s.Name] = true
+	}
+	return names, false
+}
+
 // undeclared is what the provisions say is declared that the files in dir
 // do not declare: read by the language's own parser where it has one, by
 // the estate's reader where not. A field a reader cannot see is not said
@@ -276,16 +292,11 @@ func undeclared(dir string, provides []meta.Provision) []string {
 			out = append(out, p.Name)
 			continue
 		}
-		if l, ok := languageOfFile(p.File); ok && l.declares != nil {
-			if names, err := l.declares(src); err != nil || !names[p.Name] {
-				out = append(out, p.Name)
-			}
-			continue
+		names, fields := declaredIn(p.File, src)
+		if p.Kind == meta.Field && !fields {
+			continue // a field its reader cannot see, neither said there nor missing
 		}
-		if p.Kind == meta.Field {
-			continue
-		}
-		if !slices.ContainsFunc(reader.Read(p.File, src).Symbols, func(s reader.Symbol) bool { return s.Name == p.Name }) {
+		if !names[p.Name] {
 			out = append(out, p.Name)
 		}
 	}

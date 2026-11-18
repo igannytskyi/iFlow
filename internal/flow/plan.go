@@ -53,7 +53,7 @@ const plannerSystem = `You divide a specified change into units of work. Each un
 Rules you must follow:
 - Tests come first: one or more units of kind "tests", whose scope is only among the new test files you are given. They judge the change from outside, calling the code by the names the code units will give it; they never define what the change itself provides — only fakes of what it depends on.
 - Then units of kind "code", in the order they are carried out, whose scope is only among the files the change may touch. Each later unit can read what the earlier ones wrote, and nothing a later one will write — so order them by what they provide: the types and interfaces first, then what uses them, then what wires them into the entry point. A unit never defines what another unit provides. Keep a unit to one coherent piece; wiring something into what exists is a unit of its own when it touches another file.
-- "provides" of a code unit is the contract: every name it declares that another unit or the tests use, each as {"file": where it is declared, "name": the name it is called by, "kind": one of "function", "method", "type", "field", "variable", "constant", "signature": its full declaration in the estate's language} — for Go, {"file": "server.go", "name": "NewServer", "kind": "function", "signature": "func NewServer(c *Catalog, clock Clock) *Server"}. A field added to a type is a "field" whose signature is the field as the type declares it. Every agent is handed every unit's provides, and the tests call exactly these.
+- "provides" of a code unit is the contract: every name it declares that another unit or the tests use, each as {"file": where it is declared, "name": the name it is called by, "kind": one of "function", "method", "type", "field", "variable", "constant", "signature": its full declaration in the estate's language} — for Go, {"file": "server.go", "name": "NewServer", "kind": "function", "signature": "func NewServer(c *Catalog, clock Clock) *Server"}. A field added to a type is a "field" whose signature is the field as the type declares it. Provides lists only names the unit adds: a name that exists already, whose body or type the unit changes, is not provided — what it changes belongs in its tasks. Every agent is handed every unit's provides, and the tests call exactly these.
 - "uses" of a unit is the names, from other units' provides, that it builds on — exactly as they are named there. A unit uses only what an earlier unit provides.
 - "reads" of a unit is the files of the estate, outside its scope, that it builds on — a helper it calls, a test whose setup it follows — each a path that exists. Its agent is handed each whole.
 - Every criterion is assigned to at least one code unit; the last code unit carries the criterion that nothing else moves. A tests unit carries the criteria its tests judge. A criterion the person decides needs no test: assign it to the code unit that makes it true.
@@ -104,6 +104,22 @@ func provisionProblem(u unit) string {
 			return fmt.Sprintf("%s is of kind %q, which is not one of function, method, type, field, variable, constant", p.Name, p.Kind)
 		case !slices.Contains(u.scope, p.File):
 			return fmt.Sprintf("%s is declared in %s, which is not in its scope", p.Name, p.File)
+		}
+	}
+	return ""
+}
+
+// providedAlready says where a unit provides a name its file declares
+// already: provides is what a unit adds; what it changes of what exists is
+// its tasks', and a contract that declared it again would break its users.
+func (r *Run) providedAlready(u unit) string {
+	for _, p := range u.provides {
+		src, err := os.ReadFile(filepath.Join(r.repo, filepath.FromSlash(p.File)))
+		if err != nil {
+			continue // a file the unit creates
+		}
+		if names, _ := declaredIn(p.File, src); names[p.Name] {
+			return fmt.Sprintf("it provides %s, which %s declares already — provides names only what the unit adds; what it changes of what exists belongs in its tasks", p.Name, p.File)
 		}
 	}
 	return ""
@@ -329,6 +345,9 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 		case meta.CodeUnit:
 			u.provides = pu.Provides
 			if why := provisionProblem(u); why != "" {
+				return nil, fmt.Sprintf("unit %q: %s", pu.Title, why)
+			}
+			if why := r.providedAlready(u); why != "" {
 				return nil, fmt.Sprintf("unit %q: %s", pu.Title, why)
 			}
 		default:
