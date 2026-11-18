@@ -545,7 +545,6 @@ func (r *Run) withContract(units []unit) []unit {
 	return r.number(append(append([]unit{contract}, tests...), code...))
 }
 
-
 // planText is a plan as a reviewer reads it: the approach, then every unit
 // with its scope and brief.
 func planText(units []unit, approach []artifact.Part) string {
