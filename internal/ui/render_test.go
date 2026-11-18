@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"image/png"
 	"os"
@@ -258,9 +259,22 @@ func TestRunRenders(t *testing.T) {
 	paint.paint(u, "run-execution")
 	// What the run wrote is taken in between frames; here no frame is
 	// drawn while waiting, so the wait takes it in itself.
+	reloads, last := 0, ""
 	waitFor(t, "the gate on the landed change", func() bool {
+		if p.stale.Load() {
+			reloads++
+		}
 		u.intake()
-		return len(p.ws.Changes) == 1 && int(p.checked.Load()) == len(p.ws.Changes)
+		if len(p.ws.Changes) == 1 && int(p.checked.Load()) == len(p.ws.Changes) {
+			return true
+		}
+		// What it waits on is said each time it moves, so that a wait that
+		// runs out says why.
+		if seen := fmt.Sprintf("%d change(s), %d checked, %d reload(s), running %v", len(p.ws.Changes), p.checked.Load(), reloads, p.running()); seen != last {
+			t.Logf("waiting on the gate: %s", seen)
+			last = seen
+		}
+		return false
 	})
 	if len(p.ws.Changes) != 1 {
 		t.Fatalf("the landed change is not among the project's changes: %d", len(p.ws.Changes))
