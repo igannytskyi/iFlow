@@ -523,7 +523,6 @@ const searchLines = 40
 // its outline, and is read a range at a time.
 const wholeLines = 250
 
-
 // read answers a read of a file: whole when it is short, its outline when
 // it is long and no range is asked, the range asked otherwise; and, when
 // the same lines were read a few steps ago and the file has not changed
