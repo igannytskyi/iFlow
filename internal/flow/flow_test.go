@@ -1549,3 +1549,26 @@ func TestFailedTestsAreNamedInEachLanguage(t *testing.T) {
 		t.Errorf("failed %q, want %q", got, want)
 	}
 }
+
+// Every unit waits for what it builds on: the tests for the contract, the
+// code for the contract and the tests and the unit before it in its chain,
+// the last unit for all.
+func TestEachUnitWaitsForWhatItBuildsOn(t *testing.T) {
+	r := &Run{units: []unit{
+		{kind: meta.ContractUnit},
+		{kind: meta.TestsUnit},
+		{kind: meta.CodeUnit, scope: []string{"a.go"}},
+		{kind: meta.CodeUnit, scope: []string{"b.go"}},
+		{kind: meta.CodeUnit, scope: []string{"b.go", "c.go"}},
+		{kind: meta.CodeUnit, scope: []string{"d.go"}},
+	}}
+	got := r.dependencies()
+	want := [][]int{nil, {0}, {0, 1}, {0, 1}, {0, 1, 3}, {0, 1, 2, 3, 4}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("dependencies %v, want %v", got, want)
+	}
+	r.units = []unit{{kind: meta.TestsUnit}, {kind: meta.CodeUnit, scope: []string{"a.go"}}, {kind: meta.CodeUnit, scope: []string{"b.go"}}}
+	if got := r.dependencies(); fmt.Sprint(got) != fmt.Sprint([][]int{nil, {0}, {0, 1}}) {
+		t.Errorf("one code unit before the last: %v", got)
+	}
+}

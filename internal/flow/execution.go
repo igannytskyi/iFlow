@@ -2,7 +2,6 @@ package flow
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -10,179 +9,12 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/harness"
-	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
-
-// execute is area 4: each unit carried out by the executor in a copy of the
-// estate holding the candidates before it, its changes kept as a candidate.
-func (r *Run) execute(ctx context.Context) error {
-	r.set(4, Working)
-	prof, ok := detect(r.repo)
-	doc := meta.Execution{Schema: meta.SchemaVersion, Name: r.slug}
-	// The tests units at the head of the plan rely on nothing any unit
-	// writes, so they are carried out at once, each by its own agent in its
-	// own copy of the estate; the code units after them each rely on the one
-	// before, and go one at a time.
-	results := make([]carried, len(r.units))
-	errs := make([]error, len(r.units))
-	// A contract, where the plan has one, is declared first: the tests are
-	// written against it, so they build on it and not on guesses.
-	start, base := 0, []string(nil)
-	if len(r.units) > 0 && r.units[0].isContract() {
-		results[0], errs[0] = r.carry(ctx, 0, nil, prof, ok)
-		if errs[0] != nil {
-			if why := results[0].res.Cannot; why != "" && !r.replanned {
-				r.say(4, r.units[0].id, "%s cannot be done as it was planned: %s", r.units[0].id, why)
-				return &replan{unit: r.units[0].id, why: why}
-			}
-			return r.fail(4, "%v", errs[0])
-		}
-		start, base = 1, []string{filepath.Join(results[0].store, "files")}
-	}
-	head := start
-	for head < len(r.units) && r.units[head].isTests() {
-		head++
-	}
-	carryTests := func() {
-		var wg sync.WaitGroup
-		for i := start; i < head; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				results[i], errs[i] = r.carry(ctx, i, base, prof, ok)
-			}()
-		}
-		wg.Wait()
-	}
-	carryTests()
-	// A contract that does what it was only to declare is declared again,
-	// once, with why, and the tests written again on it.
-	if i := slices.IndexFunc(errs[start:head], func(e error) bool { var b *behaves; return errors.As(e, &b) }); i >= 0 && start == 1 {
-		why := errs[start+i].Error()
-		r.say(4, r.units[0].id, "%s is carried again: %s", r.units[0].id, why)
-		if r.again == nil {
-			r.again = map[string]string{}
-		}
-		r.again[r.units[0].id] = why
-		_ = os.RemoveAll(results[0].store)
-		if results[0], errs[0] = r.carry(ctx, 0, nil, prof, ok); errs[0] != nil {
-			return r.fail(4, "%v", errs[0])
-		}
-		base = []string{filepath.Join(results[0].store, "files")}
-		for j := start; j < head; j++ {
-			_ = os.RemoveAll(results[j].store)
-		}
-		carryTests()
-	}
-	var overlays []string
-	keep := func(i int) {
-		c, u := results[i], r.units[i]
-		run := meta.Run{Unit: u.id, Executor: r.cfg.Executor.Name(), Version: r.cfg.Executor.Version(), Terminal: meta.Terminal(c.res.Terminal), Candidate: c.ca}
-		cand := meta.Candidate{ID: c.ca, Unit: u.id, StoredAt: "candidates/" + c.ca + "/", Artefacts: strings.Join(c.paths, ", "), ProducedAt: today()}
-		if j := slices.IndexFunc(doc.Runs, func(x meta.Run) bool { return x.Unit == u.id }); j >= 0 {
-			doc.Runs[j], doc.Candidates[j] = run, cand // carried again: the last carrying stands
-			return
-		}
-		doc.Runs = append(doc.Runs, run)
-		doc.Candidates = append(doc.Candidates, cand)
-		overlays = append(overlays, filepath.Join(c.store, "files"))
-	}
-	// Code units that share no file are carried at once, a chain of them
-	// each — every chain on the contract and the tests, and on its own
-	// earlier units — and taken below in the plan's order, as if carried
-	// one by one; the last unit, which completes the change, comes after
-	// them all. A chain stops at its first unit that fails, and what comes
-	// after that is carried one by one.
-	early := map[int]bool{}
-	if chains := r.chains(head, len(r.units)-1); len(chains) > 1 {
-		pre := slices.Clone(overlays)
-		for i := range head {
-			if errs[i] == nil && results[i].store != "" && !slices.Contains(pre, filepath.Join(results[i].store, "files")) {
-				pre = append(pre, filepath.Join(results[i].store, "files"))
-			}
-		}
-		var cw sync.WaitGroup
-		var mu sync.Mutex
-		for _, chain := range chains {
-			cw.Go(func() {
-				mine := slices.Clone(pre)
-				for _, i := range chain {
-					res, err := r.carry(ctx, i, mine, prof, ok)
-					mu.Lock()
-					results[i], errs[i], early[i] = res, err, true
-					mu.Unlock()
-					if err != nil {
-						return
-					}
-					mine = append(mine, filepath.Join(res.store, "files"))
-				}
-			})
-		}
-		cw.Wait()
-	}
-	carriedAgain := map[int]bool{}
-	for i := 0; i < len(r.units); i++ {
-		if i >= head {
-			if early[i] {
-				delete(early, i) // carried already, in its chain: taken as it came
-			} else {
-				results[i], errs[i] = r.carry(ctx, i, overlays, prof, ok)
-			}
-			// Code that cannot pass because the tests written first are
-			// wrong — they call what no unit can define, or check what the
-			// specification does not say — sends those tests back, once,
-			// with what it found, and is carried again on what comes back.
-			if j := r.blamed(results[i], head, results); errs[i] != nil && j >= 0 && !carriedAgain[j] {
-				carriedAgain[j] = true
-				r.say(4, r.units[j].id, "%s is carried again: %s found its tests wrong", r.units[j].id, r.units[i].id)
-				if r.again == nil {
-					r.again = map[string]string{}
-				}
-				r.again[r.units[j].id] = results[i].res.Summary
-				_ = os.RemoveAll(results[j].store)
-				results[j], errs[j] = r.carry(ctx, j, base, prof, ok)
-				if errs[j] != nil {
-					return r.fail(4, "%v", errs[j])
-				}
-				keep(j)
-				i--
-				continue
-			}
-		}
-		var h *holds
-		if errors.As(errs[i], &h) {
-			return h // what was asked holds already: there is nothing to change
-		}
-		if errs[i] != nil {
-			if why := results[i].res.Cannot; why != "" && !r.replanned {
-				// Its agent says the unit cannot be done as it was planned:
-				// the plan goes back to its planner with why, once.
-				r.say(4, r.units[i].id, "%s cannot be done as it was planned: %s", r.units[i].id, why)
-				return &replan{unit: r.units[i].id, why: why}
-			}
-			return r.fail(4, "%v", errs[i])
-		}
-		c := results[i]
-		keep(i)
-		if err := artifact.Save(r.dir, artifact.Execution, doc); err != nil {
-			return r.fail(4, "the execution could not be written: %v", err)
-		}
-		if err := r.record("execution", c.ca, c.res.Summary); err != nil {
-			return err
-		}
-	}
-	if rep, err := r.check(ctx, 4); err != nil || !rep.Passed() {
-		return r.fail(4, "the execution does not pass the gate")
-	}
-	r.set(4, Done)
-	return nil
-}
 
 // codeScope is every file the code units of the plan may change, in plan
 // order, each once.
@@ -226,7 +58,7 @@ func (e *replan) Error() string { return e.unit + " cannot be done as it was pla
 
 // blamed is the tests unit at the head of the plan whose files a code
 // unit's failure blames, or -1.
-func (r *Run) blamed(c carried, head int, results []carried) int {
+func (r *Run) blamed(c carried, results []carried) int {
 	if c.res.Terminal != harness.FailedTask {
 		return -1
 	}
@@ -236,8 +68,8 @@ func (r *Run) blamed(c carried, head int, results []carried) int {
 	for _, blamed := range c.res.Blames {
 		blamed = filepath.ToSlash(filepath.Clean(blamed))
 		byName := -1
-		for j := range head {
-			if !r.units[j].isTests() {
+		for j, u := range r.units {
+			if !u.isTests() {
 				continue
 			}
 			for _, p := range results[j].paths {
@@ -548,7 +380,7 @@ func (r *Run) goal(u unit) string {
 	if len(contract) > 0 {
 		brief += "\n\n## The contract between the units — use these names and signatures exactly; define only those marked you\n\n" + strings.Join(contract, "\n")
 	}
-	if why := r.again[u.id]; u.isTests() && why != "" {
+	if why := r.againFor(u.id); u.isTests() && why != "" {
 		brief += "\n\n## Why you are asked again\n\nTests written for this unit before were found wrong by the code that had to pass them; it could not, because:\n\n" + why +
 			"\n\nWrite them again so that they call only what exists or the contract promises, and check only what the criteria say."
 	}
@@ -557,7 +389,7 @@ func (r *Run) goal(u unit) string {
 			"\n\nMend exactly that; what they did not name stands as it was."
 	}
 	if u.isContract() {
-		if why := r.again[u.id]; why != "" {
+		if why := r.againFor(u.id); why != "" {
 			brief += "\n\n## Why you are asked again\n\nWhat you declared before did more than declare: " + why +
 				". Declare again, with no behaviour at all — every function and method returns its zero values or fails as not yet done."
 		}

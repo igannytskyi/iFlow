@@ -59,7 +59,18 @@ The units come in this order:
 
 1. **The contract**, where the tests and the code are written apart and the code provides names — added by the framework, not the planner: one unit that declares every such name, without behaviour, in the file its provision names. Everything after it builds against an interface that compiles, so no unit guesses what another will declare. It is judged by what the estate's own suite judges: declared, nothing else moves.
 2. **The tests**, written against the contract, before any behaviour exists, and failing until it does.
-3. **The code units**. Those that change no file in common are carried at once, a chain each — units that share a file are one chain, in order — and taken in the plan's order as if carried one by one. The last unit completes the change: it runs the change's own tests, then the whole suite, and may mend any code the change wrote.
+3. **The code units**. Those that change no file in common are carried at once, a chain each — units that share a file are one chain, in order. The last unit completes the change: it runs the change's own tests, then the whole suite, and may mend any code the change wrote.
+
+Area 4 is this graph, carried by one scheduler: each unit waits for the units it builds on — the tests for the contract; a code unit for the contract, the tests and the unit before it in its chain; the last unit for all — and is carried as soon as they are done, at once with every other unit that is ready. What comes of a unit is one of a few outcomes, and each has one consequence:
+
+| Outcome | What follows |
+|---|---|
+| a candidate | it is kept, and the units waiting on it may go |
+| what was asked holds | the change is closed as an answer: nothing to change |
+| the contract acts | the tests pass on the contract alone: it is declared again, once, with why, and the tests written again |
+| the tests are wrong | a code unit names the tests it cannot pass, or spends its steps on them: they are written again, once, with why, and the unit carried again |
+| it cannot be done as planned | the plan goes back to its planner, once |
+| it failed | area 4 stops, saying why |
 
 `units/WU-…md` — one ticket a unit, what its agent is told to do; beside it the agent is handed the specification's own decisions (below, under the candidate):
 
