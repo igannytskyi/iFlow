@@ -13,8 +13,6 @@ import (
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
-// replan is a unit its agent says cannot be done as it was planned, which
-// sends the change back to its planner.
 // refused is a finished change the person read and did not affirm: its
 // units are carried again with what the person said.
 type refused struct{ why string }

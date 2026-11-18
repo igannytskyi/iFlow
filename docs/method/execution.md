@@ -66,11 +66,11 @@ What comes of each carrying is one outcome, and the outcome decides what happens
 | candidate | kept; the units waiting on it may go |
 | holds — the tests pass before any code | the change is closed: nothing to do |
 | contract acts — the tests pass only with the contract | contract and tests carried again, once |
-| tests wrong — a code unit blames a test file | that tests unit and the blaming unit carried again, once |
+| tests wrong — a code unit blames a test file | that tests unit and the blaming unit carried again, once; wrong again, the specification goes back to its author with why, once, and the person accepts it again |
 | cannot — the unit cannot be done as planned | the plan goes back to its planner, once |
 | failed | area 4 stops and says why; the change can be resumed |
 
-Every reason to carry a unit again has a bound, so area 4 always ends.
+Every reason to carry a unit again has a bound, so area 4 always ends. Where a bound is reached because what a unit was built from is at fault, the change goes back to the step that decided it — the specification or the plan — handed what it decided and why a later step could not build on it, once a run for each; it is not mended where it failed.
 
 ## What each agent is handed
 
@@ -108,5 +108,4 @@ The tokens each agent was handed are recorded with its costs.
 3. Tools' machine-readable reports in place of patterns over their output.
 4. The contract written by the framework from the typed provisions, not by a model (backlog 65).
 5. The specification's interfaces typed, and every existing one checked against the estate (66).
-6. A bound reached in area 4 returning the change to the step at fault, with why, instead of stopping (67).
-7. A bench task on an estate large enough for the budget to matter. Today's bench hands 2–5k tokens a unit, so it cannot show the budget's effect.
+6. A bench task on an estate large enough for the budget to matter. Today's bench hands 2–5k tokens a unit, so it cannot show the budget's effect.

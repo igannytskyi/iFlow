@@ -151,9 +151,11 @@ type Run struct {
 	from     int
 	reopened string
 	// resumed says the specification already written is put to the person
-	// as it is, not written again; replanned that the plan was made again
-	// once because a unit could not be done as planned.
-	resumed, replanned bool
+	// as it is, not written again.
+	resumed bool
+	// back is the areas a later step has sent the change back to in this
+	// run: each, once.
+	back map[int]bool
 	// refusals is how many times the person did not affirm the finished
 	// change, and mend what they said the last time.
 	refusals int
@@ -394,13 +396,13 @@ func (r *Run) Start(ctx context.Context) error {
 			continue
 		}
 		err := areas[i](ctx)
-		var rp *replan
-		if errors.As(err, &rp) && !r.replanned {
-			// A unit cannot be done as planned: the plan is made again, once,
-			// with why, and what the areas from the plan on wrote is kept
-			// under superseded/.
-			if err = r.replanFrom(rp); err == nil {
-				i = 0 // the plan, next
+		var sb *sentBack
+		if errors.As(err, &sb) && !r.back[sb.area] {
+			// A later step cannot build on what an earlier one decided: the
+			// change goes back to that step, once, with why, and what the
+			// areas from it on wrote is kept under superseded/.
+			if err = r.sendBack(sb); err == nil {
+				i = sb.area - 2 // that area, next
 				continue
 			}
 		}
@@ -471,18 +473,37 @@ func (r *Run) mendFrom(rf *refused) error {
 	return nil
 }
 
-// replanFrom sends the change back to its planner with why a unit could
-// not be done.
-func (r *Run) replanFrom(rp *replan) error {
-	r.replanned = true
-	if err := supersedeFrom(r.dir, 2); err != nil {
+// sendBack carries the change again from the area sb names, which is
+// handed what it decided before and why a later step could not build on it.
+func (r *Run) sendBack(sb *sentBack) error {
+	if r.back == nil {
+		r.back = map[int]bool{}
+	}
+	r.back[sb.area] = true
+	var stage, reopened string
+	switch sb.area {
+	case 1:
+		stage = "specification"
+		reopened = "\n\n# Your previous specification\n\n" + r.specText() +
+			"\n# What could not be built from it\n\n" + sb.why +
+			"\n\nWrite the specification again, whole. Decide again exactly what this shows cannot be built as written — " +
+			"an existing name, as the estate declares it; a behaviour, as the estate can give it — and leave the rest as it was."
+	case 2:
+		stage = "plan"
+		reopened = "\n\n# The plan before could not be carried out\n\n" + sb.unit + ": " + sb.why +
+			"\n\nPlan again, whole, so that no unit is asked for what cannot be done: what a unit relies on must exist or be provided by an earlier unit, and what it must change must be in its scope."
+	default:
+		return fmt.Errorf("a change is sent back to its specification (1) or its plan (2), not area %d", sb.area)
+	}
+	if err := supersedeFrom(r.dir, sb.area); err != nil {
 		return err
 	}
-	_ = r.record("plan", r.id("SPEC"), "sent back to the planner: "+rp.Error())
-	r.from, r.units, r.cands = 2, nil, map[string]string{}
-	r.reopened = "\n\n# The plan before could not be carried out\n\nThe agent of " + rp.unit + " said it cannot be done as it was planned:\n\n" + rp.why +
-		"\n\nPlan again, whole, so that no unit is asked for what cannot be done: what a unit relies on must exist or be provided by an earlier unit, and what it must change must be in its scope."
-	for n := 3; n <= 6; n++ {
+	_ = r.record(stage, r.id("SPEC"), "sent back: "+sb.Error())
+	r.say(sb.area, sb.unit, "sent back to area %d: %s", sb.area, sb.why)
+	// A specification sent back is written again, even in a run that was
+	// resumed with the one written before.
+	r.from, r.reopened, r.units, r.cands, r.again, r.resumed = sb.area, reopened, nil, map[string]string{}, nil, false
+	for n := sb.area; n <= 6; n++ {
 		r.set(n, Idle)
 	}
 	return nil

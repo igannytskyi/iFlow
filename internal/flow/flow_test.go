@@ -441,11 +441,13 @@ func TestNumbersAreTakenOnce(t *testing.T) {
 	}
 }
 
-// secondTry is an executor whose tests are wrong the first time: the code
-// cannot pass them, says so, and passes the tests written again.
+// secondTry is an executor whose tests are wrong the first wrong times they
+// are written: the code cannot pass them, says so, and passes them once
+// they are written right.
 type secondTry struct {
 	goals *[]string
 	calls map[string]int
+	wrong int
 }
 
 func (s secondTry) Name() string    { return "second try" }
@@ -461,7 +463,7 @@ func (s secondTry) Run(_ context.Context, t harness.Task, _ func(harness.Event))
 		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
 		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
 	}
-	if scope == "greet.go" && s.calls["shout_test.go"] == 1 {
+	if scope == "greet.go" && s.calls["shout_test.go"] <= s.wrong {
 		return harness.Result{Terminal: harness.FailedTask, Summary: "the check fails in shout_test.go, which this unit may not change: undefined: strings.Shouty", Blames: []string{"shout_test.go"}}, nil
 	}
 	if err := os.WriteFile(filepath.Join(t.Workspace, scope), []byte(files[scope]), 0o644); err != nil {
@@ -476,7 +478,7 @@ func TestWrongTestsAreCarriedAgain(t *testing.T) {
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	var goals []string
-	ex := secondTry{goals: &goals, calls: map[string]int{}}
+	ex := secondTry{goals: &goals, calls: map[string]int{}, wrong: 1}
 	cfg := Config{Model: stubModel{answer: spec}, Executor: ex, Estate: est, Gate: gate.New(est), Person: "a test"}
 	var run *Run
 	run = New(cfg, repo, "make it possible to shout the greeting", func() {
@@ -504,6 +506,40 @@ func TestWrongTestsAreCarriedAgain(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(repo, "greet.go")); !strings.Contains(string(b), "Shout") {
 		t.Error("the code did not land")
+	}
+}
+
+// Tests still wrong when written again were written from a specification
+// that asks for what cannot be: the specification goes back to its author
+// with why, the person accepts it again, and the change is carried on.
+func TestTestsWrongTwiceSendTheSpecificationBack(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	var goals, prompts []string
+	ex := secondTry{goals: &goals, calls: map[string]int{}, wrong: 2}
+	cfg := Config{Model: stubModel{spec, &prompts}, Executor: ex, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		for _, s := range run.View().Steps {
+			t.Logf("%d %s", s.Area, s.Text)
+		}
+		t.Fatalf("the task stopped: %v", err)
+	}
+	if !slices.ContainsFunc(prompts, func(p string) bool {
+		return strings.Contains(p, "What could not be built from it") && strings.Contains(p, "strings.Shouty")
+	}) {
+		t.Error("the author was not handed why its specification could not be built")
+	}
+	if _, err := os.Stat(filepath.Join(run.View().Dir, "superseded", "1", "01-specification.json")); err != nil {
+		t.Error("the specification sent back was not kept")
+	}
+	if ex.calls["shout_test.go"] != 3 {
+		t.Errorf("the tests were written %d times, want 3: twice, then from the specification written again", ex.calls["shout_test.go"])
 	}
 }
 

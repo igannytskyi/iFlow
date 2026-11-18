@@ -51,9 +51,17 @@ func (b *behaves) Error() string {
 	return "the contract carries behaviour: the tests " + strings.Join(b.tests, ", ") + " already pass on its declarations"
 }
 
-type replan struct{ unit, why string }
+// sentBack is a decision a later step cannot build on: the change goes back
+// to the area that made it — its specification (1) or its plan (2) — with
+// why, once a run for each.
+type sentBack struct {
+	area      int
+	unit, why string
+}
 
-func (e *replan) Error() string { return e.unit + " cannot be done as it was planned: " + e.why }
+func (e *sentBack) Error() string {
+	return fmt.Sprintf("%s: sent back to area %d — %s", e.unit, e.area, e.why)
+}
 
 // blamed is the tests unit at the head of the plan whose files a code
 // unit's failure blames, or -1.

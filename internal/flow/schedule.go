@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,7 +23,8 @@ import (
 //	candidate        it is kept, and the units waiting on it may go
 //	holds            the change asks for what holds already: area 4 ends
 //	contract acts    the contract is declared again, once, with why, and the tests written again
-//	tests wrong      the tests unit blamed is written again, once, with why, and the unit carried again
+//	tests wrong      the tests unit blamed is written again, once, with why, and the unit carried again;
+//	                 wrong again, the specification they were written from goes back to its author, once
 //	cannot           the plan goes back to its planner, once
 //	failed           area 4 stops, saying why
 //
@@ -232,6 +234,13 @@ func (s *scheduler) next(ctx context.Context, f finished) error {
 		}
 		return nil
 	case outTestsWrong:
+		if s.again[blamed] && !r.back[1] {
+			// Written again and still asking for what the code cannot give:
+			// what they were written from is at fault, not how.
+			return &sentBack{area: 1, unit: r.units[blamed].id, why: fmt.Sprintf(
+				"the tests %s wrote, written twice from the specification, still ask for what %s cannot give: %s",
+				r.units[blamed].id, r.units[i].id, f.carried.res.Summary)}
+		}
 		if s.again[blamed] {
 			return r.fail(4, "%v", f.err)
 		}
@@ -243,7 +252,7 @@ func (s *scheduler) next(ctx context.Context, f finished) error {
 		return nil
 	case outCannot:
 		r.say(4, r.units[i].id, "%s cannot be done as it was planned: %s", r.units[i].id, f.carried.res.Cannot)
-		return &replan{unit: r.units[i].id, why: f.carried.res.Cannot}
+		return &sentBack{area: 2, unit: r.units[i].id, why: "it cannot be done as it was planned: " + f.carried.res.Cannot}
 	default:
 		return r.fail(4, "%v", f.err)
 	}
@@ -265,7 +274,7 @@ func (s *scheduler) outcomeOf(i int, f finished) (outcome, int) {
 	if j := s.r.blamed(f.carried, s.results); j >= 0 {
 		return outTestsWrong, j
 	}
-	if f.carried.res.Cannot != "" && !s.r.replanned {
+	if f.carried.res.Cannot != "" && !s.r.back[2] {
 		return outCannot, -1
 	}
 	return outFailed, -1
