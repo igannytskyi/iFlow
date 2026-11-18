@@ -1248,20 +1248,6 @@ func (r *Run) failingTestFiles(out string) []string {
 
 var failedTest = regexp.MustCompile(`--- FAIL: (\w+)`)
 
-// testFaults is the lines of a test run's output that say where in a test
-// file it failed, the first few.
-func testFaults(out string) string {
-	var at []string
-	for _, l := range strings.Split(out, "\n") {
-		if testFaultLine.MatchString(l) && len(at) < 6 {
-			at = append(at, strings.TrimSpace(l))
-		}
-	}
-	return strings.Join(at, "\n")
-}
-
-var testFaultLine = regexp.MustCompile(`[\w./-]*(?:_test\.go|test_\w+\.py|\w+_test\.py|\.(?:test|spec)\.[cm]?[jt]sx?):\d+|File "[^"]*(?:test_\w+|\w+_test)\.py", line \d+`)
-
 // specDecisions is what the specification of the change in dir decides that
 // every unit builds from: its requirements, its design, its edge cases —
 // and, for the tests, its test strategy — as change.md states them.

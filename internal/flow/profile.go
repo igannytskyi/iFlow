@@ -45,40 +45,12 @@ type profile struct {
 // check of one file, its form — is the language's, whatever runs the tests.
 // The second value says whether the estate's tests can be run at all.
 func detect(repo string) (profile, bool) {
-	has := func(name string) bool { _, err := os.Stat(filepath.Join(repo, name)); return err == nil }
-	alternation := func(names []string) string { return "^(" + strings.Join(names, "|") + ")$" }
 	var p profile
-	switch {
-	case has("go.mod"):
-		p = profile{name: "go test", suite: []string{"go", "test", "-count=1", "./..."},
-			only:  func(n []string) []string { return []string{"go", "test", "-count=1", "-run", alternation(n), "./..."} },
-			build: []string{"go", "build", "./..."}, vet: goVet, format: gofmt,
-			focus: func(pattern, path string) []string {
-				return []string{"go", "test", "-count=1", "-v", "-run", pattern, "./" + strings.TrimPrefix(filepath.ToSlash(filepath.Clean(path)), "./") + "/..."}
-			}}
-	case has("pyproject.toml") || has("pytest.ini") || has("setup.py"):
-		p = profile{name: "pytest", suite: []string{"python3", "-m", "pytest", "-q"},
-			only: func(n []string) []string {
-				return []string{"python3", "-m", "pytest", "-q", "-k", strings.Join(n, " or ")}
-			},
-			focus: func(pattern, path string) []string {
-				return []string{"python3", "-m", "pytest", "-q", "-k", pattern, path}
-			}}
-	case has("package.json"):
-		p = profile{name: "node --test", suite: []string{"node", "--test"},
-			only: func(n []string) []string {
-				out := []string{"node", "--test"}
-				for _, name := range n {
-					out = append(out, "--test-name-pattern="+regexp.QuoteMeta(name))
-				}
-				return out
-			},
-			focus: func(pattern, path string) []string {
-				return []string{"node", "--test", "--test-name-pattern=" + pattern, path}
-			}}
+	if l, ok := languageOfEstate(repo); ok {
+		p = profile{name: l.name, suite: l.suite, only: l.only, build: l.build, vet: l.vet, focus: l.focus, format: l.format}
 	}
 	p.quick = quickCheck
-	if has("test.sh") {
+	if fileExists(filepath.Join(repo, "test.sh")) {
 		// The estate's own runner: with no arguments it runs every test,
 		// with names it runs the tests of those names, one a name — each a
 		// regular expression that matches the name it stands for.
@@ -93,71 +65,6 @@ func detect(repo string) (profile, bool) {
 	}
 	return p, len(p.suite) > 0
 }
-
-// quickCheck is the check of the files named that runs nothing and takes a
-// moment, in the language of the first of them that has one: Go's build of
-// their packages, Python's compile of each, Node's check of each script.
-func quickCheck(files []string) []string {
-	for _, f := range files {
-		switch strings.ToLower(filepath.Ext(f)) {
-		case ".go":
-			return goBuild(files)
-		case ".py":
-			return append([]string{"python3", "-m", "py_compile"}, ofExt(files, ".py")...)
-		case ".js", ".cjs", ".mjs":
-			if js := ofExt(files, ".js", ".cjs", ".mjs"); len(js) == 1 {
-				return []string{"node", "--check", js[0]}
-			}
-		}
-	}
-	return nil
-}
-
-func ofExt(files []string, exts ...string) []string {
-	var out []string
-	for _, f := range files {
-		for _, e := range exts {
-			if strings.EqualFold(filepath.Ext(f), e) {
-				out = append(out, f)
-			}
-		}
-	}
-	return out
-}
-
-// testsIn is the names of the tests a file declares, read as its language
-// declares them: Go's func TestX, Python's def test_x, a script's test("…")
-// or it("…"), Rust's #[test] fn x, Java's and Kotlin's @Test-marked methods.
-func testsIn(file, content string) []string {
-	var re *regexp.Regexp
-	switch strings.ToLower(filepath.Ext(file)) {
-	case ".go":
-		re = goTests
-	case ".py":
-		re = pythonTests
-	case ".js", ".cjs", ".mjs", ".ts", ".tsx", ".jsx":
-		re = scriptTests
-	case ".rs":
-		re = rustTests
-	case ".java", ".kt", ".kts":
-		re = jvmTests
-	default:
-		return nil
-	}
-	var out []string
-	for _, m := range re.FindAllStringSubmatch(content, -1) {
-		out = append(out, m[len(m)-1])
-	}
-	return out
-}
-
-var (
-	goTests     = regexp.MustCompile(`(?m)^func (Test\w+)\(`)
-	pythonTests = regexp.MustCompile(`(?m)^\s*(?:async\s+)?def (test_\w+)\(`)
-	scriptTests = regexp.MustCompile("(?m)\\b(?:test|it)\\s*\\(\\s*([\"'`])(.+?)[\"'`]")
-	rustTests   = regexp.MustCompile(`(?m)#\[test\]\s*(?:#\[[^\]]*\]\s*)*(?:pub\s+)?(?:async\s+)?fn (\w+)`)
-	jvmTests    = regexp.MustCompile(`(?m)@Test\b[^{;]*?\b(?:void\s+|fun\s+)(\w+)\s*\(`)
-)
 
 // resolve turns a command as a record names it into one that can be run in
 // dir: a file the estate keeps by its path there, anything else from PATH.

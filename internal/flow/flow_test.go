@@ -1513,3 +1513,29 @@ func TestAContractThatBehavesIsDeclaredAgain(t *testing.T) {
 		t.Errorf("the contract was declared %d times, and not told why", contracts)
 	}
 }
+
+// Every language the framework knows says, from its table alone, how its
+// estates are recognised, how its tests are declared, and how a failure
+// names a line of a test file.
+func TestEachLanguageIsOneEntry(t *testing.T) {
+	seen := map[string]bool{}
+	for _, l := range languages {
+		if l.name == "" || len(l.marks) == 0 || len(l.exts) == 0 || l.tests == nil || l.faults == nil {
+			t.Errorf("%q leaves out what every language says: %+v", l.name, l)
+		}
+		for _, e := range l.exts {
+			if seen[e] {
+				t.Errorf("%s is claimed by two languages", e)
+			}
+			seen[e] = true
+		}
+	}
+	for file, want := range map[string]string{"a_test.go": "go test", "test_a.py": "pytest", "a.test.ts": "node --test", "lib.rs": "cargo test", "ATest.kt": "gradle test"} {
+		if l, ok := languageOfFile(file); !ok || l.name != want {
+			t.Errorf("%s is read as %q, want %q", file, l.name, want)
+		}
+	}
+	if got := testFaults("ok\n    greeting_test.go:12: want x\n  File \"test_a.py\", line 4, in t\n    at a.test.js:3:5\nplain line\n"); strings.Count(got, "\n") != 2 {
+		t.Errorf("faults read %q", got)
+	}
+}
