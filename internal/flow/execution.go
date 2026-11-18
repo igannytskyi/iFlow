@@ -213,9 +213,11 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	if len(outside) > 0 {
 		return c, fmt.Errorf("%s changed %s, outside its scope; the candidate is refused", u.id, strings.Join(outside, ", "))
 	}
-	// A contract with nothing to declare — every name it lists is there
-	// already — changes nothing, and that is its answer.
-	if res.Terminal != harness.Candidate || (len(changes) == 0 && !u.isContract()) {
+	// A unit that finds its work done already — a contract whose names are
+	// there, a code unit an earlier one left nothing for — changes nothing,
+	// and that is its answer, its check passed and its names declared. Tests
+	// that change nothing are no tests.
+	if res.Terminal != harness.Candidate || (len(changes) == 0 && u.isTests()) {
 		return c, fmt.Errorf("%s ended %s with %d change(s): %s", u.id, res.Terminal, len(changes), res.Summary)
 	}
 	if prof.format != nil {

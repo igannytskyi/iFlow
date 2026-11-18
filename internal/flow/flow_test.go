@@ -1614,3 +1614,31 @@ func TestWhoseFaultAMissingNameIs(t *testing.T) {
 		t.Errorf("faults %+v", fs)
 	}
 }
+
+// A code unit that finds its work done by the unit before it changes
+// nothing, and the change lands all the same.
+func TestAUnitWithNothingLeftToDo(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	twoUnits := `{"approach":{"summary":"Shout, then check.","steps":["test","shout","check"],"risks":["none"]},
+"units":[
+ {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Shout."],"done_when":["it fails first"]},
+ {"title":"Shout","kind":"code","scope":["greet.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":[{"file":"greet.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}],"done_when":["builds"]},
+ {"title":"the suite","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Pass the suite.","tasks":["Mend what fails."],"done_when":["the suite passes"]}]}`
+	files := map[string]string{
+		"shout_test.go":     "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":          "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+		"declared greet.go": "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return \"\" }\n",
+	}
+	cfg := Config{Model: planned{stubModel{answer: spec}, twoUnits}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		c, _ := artifact.Load(run.View().Dir)
+		t.Fatalf("%v: %v", err, cfg.Gate.Check(context.Background(), c).Problems())
+	}
+}
