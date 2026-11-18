@@ -104,12 +104,14 @@ func (r *Repo) PackFor(change, read []string, budget int) Pack {
 	var p Pack
 	left := budget
 	for _, s := range whole {
-		// A file to change is shown whole up to a large bound — an agent
-		// cannot edit what it cannot see — and reduced to its outline only
-		// past that; a file only read is reduced sooner.
+		// A file to change is shown whole whenever it fits the whole budget
+		// — an agent edits best what it sees — and only one longer than an
+		// agent is handed at all is reduced to its outline, to be read by
+		// parts; a file only read is reduced as soon as it would crowd out
+		// what is left.
 		bound := left * 2 / 3
 		if strings.HasPrefix(s.Title, "May change: ") {
-			bound = max(bound, 30000)
+			bound = budget
 		}
 		if Tokens(s.Body) > bound {
 			rel := strings.TrimPrefix(strings.TrimPrefix(s.Title, "May change: "), "Read: ")

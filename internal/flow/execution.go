@@ -98,10 +98,14 @@ type carried struct {
 }
 
 // carry hands one unit to its agent in a copy of the estate holding the
-// candidates in overlays, and keeps what comes of it as a candidate.
-func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile, ok bool) (carried, error) {
+// candidates it is carried on, and keeps what comes of it as a candidate.
+func (r *Run) carry(ctx context.Context, i int, on []onto, prof profile, ok bool) (carried, error) {
 	u := r.units[i]
 	c := carried{ca: r.id("CA", i+1)}
+	overlays := make([]string, len(on))
+	for k, o := range on {
+		overlays[k] = o.files
+	}
 	ws, err := harness.Snapshot(r.repo, overlays...)
 	if err != nil {
 		return c, fmt.Errorf("a workspace could not be made: %v", err)
@@ -111,12 +115,18 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	if err != nil {
 		return c, fmt.Errorf("the workspace could not be read: %v", err)
 	}
-	pack := r.pack(u)
+	// What the agent is handed, and what it asks of the estate as it works,
+	// is the copy it works in: the estate with exactly the candidates it is
+	// carried on, and no others.
+	here := r.cfg.Estate.Repo(r.repo).Over(ws)
+	goal := r.goal(u)
+	pack := r.pack(u, here, on, r.cfg.packBudget()-estate.Tokens(goal))
+	handed := estate.Tokens(goal) + pack.Tokens()
 	c.store = filepath.Join(r.dir, "candidates", c.ca)
 	if err := os.MkdirAll(c.store, 0o755); err != nil {
 		return c, fmt.Errorf("%s: the candidate could not be kept: %v", u.id, err)
 	}
-	_ = os.WriteFile(filepath.Join(c.store, "pack.md"), []byte("# Goal\n\n"+r.goal(u)+"\n\n"+pack.String()), 0o644)
+	_ = os.WriteFile(filepath.Join(c.store, "pack.md"), []byte("# Goal\n\n"+goal+"\n\n"+pack.String()), 0o644)
 	scope := u.scope
 	if i == len(r.units)-1 && !u.isTests() {
 		// The last unit completes the change: the whole suite must pass
@@ -124,7 +134,7 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 		// change writes. It may mend all of that code — never the tests.
 		scope = r.codeScope()
 	}
-	task := harness.Task{Workspace: ws, Goal: r.goal(u), Role: string(u.kind), Scope: scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
+	task := harness.Task{Workspace: ws, Goal: goal, Role: string(u.kind), Scope: scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
 	switch {
 	case ok && u.isTests() && prof.vet != nil:
 		// Tests written first build against the contract, declared before
@@ -148,7 +158,7 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 		provides := u.provides
 		task.Unprovided = func(ws string) []string { return undeclared(ws, provides) }
 	}
-	task.Graph = estateGraph{repo: r.cfg.Estate.Repo(r.repo), root: r.repo}
+	task.Graph = estateGraph{repo: here, root: ws}
 	// The language of what the unit writes reads its check's faults; the
 	// estate's language says where its libraries can be read.
 	if l, ok := scopeLanguage(scope); ok {
@@ -168,7 +178,7 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	if ok && prof.focus != nil {
 		task.Focus = func(pattern, path string) []string { return resolve(ws, prof.focus(pattern, path)) }
 	}
-	r.say(4, u.id, "%s handed to %s with %d tokens of the estate", u.id, r.cfg.Executor.Name(), pack.Tokens())
+	r.say(4, u.id, "%s handed to %s: %d tokens, of %d an agent is handed at most", u.id, r.cfg.Executor.Name(), handed, r.cfg.packBudget())
 	res, err := r.cfg.Executor.Run(ctx, task, func(e harness.Event) {
 		r.mu.Lock()
 		r.agent[u.id] = append(r.agent[u.id], e)
@@ -178,7 +188,7 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	c.res = res
 	r.spend(res.Usage)
 	r.cost(artifact.Cost{Area: 4, Unit: u.id, What: "execution of " + u.id, Actor: r.cfg.Executor.Name() + " " + r.cfg.Executor.Version(),
-		Turns: res.Turns, Steps: res.Steps, Handed: pack.Tokens(), Kept: "candidates/" + c.ca + "/pack.md", Note: res.Terminal}, res.Usage, res.Elapsed)
+		Turns: res.Turns, Steps: res.Steps, Handed: handed, Kept: "candidates/" + c.ca + "/pack.md", Note: res.Terminal}, res.Usage, res.Elapsed)
 	r.writeTrace(c.store, u.id) // kept whether or not a candidate comes of it
 	if err != nil {
 		return c, fmt.Errorf("%s: the executor failed: %v", u.id, err)
@@ -253,7 +263,7 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 			return c, fmt.Errorf("%s: the estate's own runner (%s) ran none of the tests %s — they are where it does not look; it said: %s",
 				u.id, shown(prof.only(names)), strings.Join(names, ", "), lastLines(out, 3))
 		}
-		if passed && len(overlays) > 0 {
+		if passed && len(on) > 0 {
 			// They pass on the contract. What was asked holds already only
 			// if they pass on the estate as it stood, without it; if not,
 			// the contract does what it was only to declare.
@@ -277,52 +287,49 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 	return c, nil
 }
 
-// pack is what the estate gives one unit's agent: the files it may change,
-// the code its tests exercise or the tests it must satisfy, and around them
-// only signatures and names.
-func (r *Run) pack(u unit) estate.Pack {
-	repo := r.cfg.Estate.Repo(r.repo)
+// pack is what one unit's agent is handed of the copy it works in, within
+// budget tokens: the tests it must pass, whole; the files it may change and
+// those the plan says it reads, whole, or by their outline where whole would
+// not fit; around them only signatures and names; and, by path alone, what
+// the units before it wrote, which it can read for itself.
+func (r *Run) pack(u unit, here *estate.Repo, on []onto, budget int) estate.Pack {
 	var read []string
 	if u.isTests() {
-		read = r.spec.Scope // the code the tests will exercise, as it stands
+		read = r.spec.Scope // the code the tests will exercise, as the contract leaves it
 	}
-	// What the plan says the unit builds on is read whole: an agent with no
-	// tools would otherwise never see it.
 	for _, f := range u.reads {
 		if !slices.Contains(read, f) && !slices.Contains(u.scope, f) {
 			read = append(read, f)
 		}
 	}
-	p := repo.PackFor(u.scope, read, r.cfg.packBudget())
-	// What earlier units wrote is not in the estate yet, only in their
-	// candidates; a unit that depends on them reads them from there.
-	var earlier []estate.Section
-	r.mu.Lock()
-	for _, prev := range r.units {
-		if prev.id == u.id {
-			break
-		}
-		if u.isTests() && !prev.isContract() {
-			continue // tests units rely on nothing another unit writes but the contract
-		}
-		dir := r.cands[prev.id]
-		_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+	var mustPass []estate.Section
+	var before []string
+	for _, o := range on {
+		prev := r.units[o.unit]
+		_ = filepath.WalkDir(o.files, func(p string, d os.DirEntry, err error) error {
 			if err != nil || d.IsDir() || d.Name() == "CHANGES" {
 				return err
 			}
-			rel, _ := filepath.Rel(dir, p)
-			if b, err := os.ReadFile(p); err == nil {
-				title := "Written by " + prev.id + ", which comes before you: " + filepath.ToSlash(rel)
-				if prev.isTests() {
-					title = "Must pass, written by " + prev.id + ": " + filepath.ToSlash(rel)
+			rel, _ := filepath.Rel(o.files, p)
+			rel = filepath.ToSlash(rel)
+			switch {
+			case prev.isTests() && !u.isTests():
+				if b, err := os.ReadFile(p); err == nil {
+					mustPass = append(mustPass, estate.Section{Title: "Must pass, written by " + prev.id + ": " + rel, Body: "```\n" + string(b) + "```"})
+					budget -= estate.Tokens(string(b))
 				}
-				earlier = append(earlier, estate.Section{Title: title, Body: "```\n" + string(b) + "```"})
+			case !slices.Contains(u.scope, rel) && !slices.Contains(read, rel):
+				before = append(before, rel+"   ("+prev.id+")")
 			}
 			return nil
 		})
 	}
-	r.mu.Unlock()
-	p.Sections = append(earlier, p.Sections...)
+	p := here.PackFor(u.scope, read, budget)
+	p.Sections = append(mustPass, p.Sections...)
+	if len(before) > 0 {
+		p.Sections = append(p.Sections, estate.Section{Title: "Written by the units before you — in your copy; read what you need",
+			Body: strings.Join(before, "\n")})
+	}
 	return p
 }
 

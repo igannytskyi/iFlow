@@ -99,6 +99,20 @@ type Repo struct {
 	graphOnce sync.Once
 	edges     map[string]map[string]bool
 	firm      map[string]map[string]bool
+
+	// base is the repository this one is a copy of, with some files
+	// changed: what it derived of a file holding the same is not derived
+	// again.
+	base *Repo
+}
+
+// Over is the repository at root, a copy of this one with some files
+// changed or added — the copy one piece of work is carried in. Only what
+// differs from this one is read; nothing derived of it is kept.
+func (r *Repo) Over(root string) *Repo {
+	o := Open(root)
+	o.base = r
+	return o
 }
 
 // Open returns the repository at root. Nothing is read until it is asked.
@@ -259,17 +273,25 @@ func (r *Repo) lastTouched(rel string) (string, string) {
 // covers it. A file edited and not committed is still at its last commit, so
 // a stamp of the commit alone would serve the file as it used to be.
 func (r *Repo) Stamp(rel string) (stamp, when string) {
-	commit, when := r.lastTouched(rel)
 	b, err := os.ReadFile(r.abs(rel))
 	if err != nil {
 		return "unversioned", ""
 	}
-	sum := sha1.Sum(b)
-	digest := hex.EncodeToString(sum[:])[:12]
+	return r.stamp(rel, digestOf(b))
+}
+
+func (r *Repo) stamp(rel, digest string) (stamp, when string) {
+	commit, when := r.lastTouched(rel)
 	if commit != "unversioned" {
 		return commit + "+" + digest, when
 	}
 	return "contents:" + digest, when
+}
+
+// digestOf is a file's contents, short.
+func digestOf(b []byte) string {
+	sum := sha1.Sum(b)
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 // Head is the commit the repository is at, or "unversioned".

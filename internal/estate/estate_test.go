@@ -199,3 +199,38 @@ func TestARouterMatchesTheWayARouterDoes(t *testing.T) {
 		t.Errorf("a module path was read as a route: %q", key)
 	}
 }
+
+// A repository over another sees the copy as it is — a file changed, a file
+// added — and leaves the one it is over as it was.
+func TestOverSeesTheCopyAsItIs(t *testing.T) {
+	base := shop(t)
+	if _, err := base.Index(); err != nil {
+		t.Fatal(err)
+	}
+	copyRoot := t.TempDir()
+	for _, rel := range base.Sources() {
+		b, err := os.ReadFile(base.abs(rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		put(t, copyRoot, rel, string(b))
+	}
+	put(t, copyRoot, "shop/core.py", "def subtotal(items):\n    return sum(items)\n")
+	put(t, copyRoot, "shop/tax.py", "def vat(x):\n    return x / 5\n")
+	over := base.Over(copyRoot)
+	for name, want := range map[string]bool{"subtotal": true, "vat": true, "total": false, "pay": true} {
+		places, err := over.WhereDefined(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := len(places) > 0; got != want {
+			t.Errorf("over the copy, %s defined: %v, want %v", name, got, want)
+		}
+	}
+	if places, _ := base.WhereDefined("total"); len(places) == 0 {
+		t.Error("the repository it is over lost total")
+	}
+	if _, err := os.Stat(filepath.Join(copyRoot, ".estate")); err == nil {
+		t.Error("a repository over another kept a cache in the copy")
+	}
+}

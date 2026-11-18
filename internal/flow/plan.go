@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
+	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
@@ -56,6 +57,7 @@ Rules you must follow:
 - "provides" of a code unit is the contract: every name it declares that another unit or the tests use, each as {"file": where it is declared, "name": the name it is called by, "kind": one of "function", "method", "type", "field", "variable", "constant", "signature": its full declaration in the estate's language} — for Go, {"file": "server.go", "name": "NewServer", "kind": "function", "signature": "func NewServer(c *Catalog, clock Clock) *Server"}. A field added to a type is a "field" whose signature is the field as the type declares it. Provides lists only names the unit adds: a name that exists already, whose body or type the unit changes, is not provided — what it changes belongs in its tasks. Every agent is handed every unit's provides, and the tests call exactly these.
 - "uses" of a unit is the names, from other units' provides, that it builds on — exactly as they are named there. A unit uses only what an earlier unit provides.
 - "reads" of a unit is the files outside its scope that it builds on — a helper it calls, a test whose setup it follows — each a file that exists, or one another unit of the plan writes. Its agent is handed each whole: what exists as it is, what another unit writes as that unit left it.
+- A unit fits what one agent is handed: its brief, the specification's decisions, and the files it changes and reads, whole, within the budget you are told, with each file's weight. An agent does its best work on the least it needs: a unit whose files do not fit is two units, and a file is read only when the unit builds on it.
 - Every criterion is assigned to at least one code unit; the last code unit carries the criterion that nothing else moves. A tests unit carries the criteria its tests judge. A criterion the person decides needs no test: assign it to the code unit that makes it true.
 - A unit relies only on what exists — as the estate you are shown says — or on what an earlier unit provides. Never on a helper, method or ability you assume is there: if it is not in what you are shown, a unit provides it first, or the unit does without it.
 - Each unit is written as a ticket complete for someone who has read nothing else: its objective; the requirements (FR-n) and criteria it serves; what it relies on that exists or that earlier units provide; its tasks in order; the names and signatures it provides, exactly — the same in the tests units and the code units; its constraints (what not to touch or change); its edge cases; and when it is done.
@@ -290,7 +292,9 @@ func (r *Run) planned(ctx context.Context, all, byTests []string, feedback strin
 	var b strings.Builder
 	b.WriteString("# The specification\n\n" + spec + "\n# What the units may touch\n\n")
 	b.WriteString("New test files, for tests units: " + strings.Join(r.spec.NewTests, ", ") + "\n")
-	b.WriteString("Files the change may touch, for code units: " + strings.Join(r.spec.Scope, ", ") + "\n")
+	b.WriteString("Files the change may touch, for code units: " + strings.Join(r.weighed(r.spec.Scope), ", ") + "\n")
+	fmt.Fprintf(&b, "What one agent is handed: at most %d tokens — the specification's decisions weigh %d of them; the rest is its brief and its files.\n",
+		r.cfg.packBudget(), estate.Tokens(specDecisions(r.dir, true)))
 	b.WriteString("Criteria judged by the new tests: " + strings.Join(byTests, ", ") + "\n")
 	b.WriteString("\n# The estate, as names — no code\n\n" + repo.Map(r.cfg.packBudget()/4))
 	b.WriteString("\n# What exists where the change works — every definition by its first line, tests and their helpers among them. A unit relies on these, or on what an earlier unit provides, and on nothing else.\n\n" + r.signatures())
@@ -342,6 +346,9 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 		}
 		if len(u.scope) == 0 || strings.TrimSpace(pu.Objective) == "" || len(pu.Tasks) == 0 {
 			return nil, fmt.Sprintf("unit %q has no scope, no objective or no tasks", pu.Title)
+		}
+		if why := r.oversized(u); why != "" {
+			return nil, fmt.Sprintf("unit %q %s", pu.Title, why)
 		}
 		allowed := r.spec.Scope
 		switch u.kind {
@@ -430,6 +437,54 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 		}
 	}
 	return r.number(append(tests, code...)), ""
+}
+
+// handedWhole is the files of the estate a unit's agent is handed whole:
+// those it may change, those it reads, and, for tests, the code they
+// exercise.
+func (r *Run) handedWhole(u unit) []string {
+	files := slices.Concat(u.scope, u.reads)
+	if u.isTests() {
+		files = append(files, r.spec.Scope...)
+	}
+	slices.Sort(files)
+	return slices.Compact(files)
+}
+
+// weight is what a file of the estate weighs as an agent reads it, in
+// tokens; a file not yet written weighs nothing.
+func (r *Run) weight(rel string) int {
+	b, err := os.ReadFile(filepath.Join(r.repo, filepath.FromSlash(rel)))
+	if err != nil {
+		return 0
+	}
+	return estate.Tokens(string(b))
+}
+
+// weighed is files, each with its weight.
+func (r *Run) weighed(files []string) []string {
+	out := make([]string, len(files))
+	for i, f := range files {
+		out[i] = fmt.Sprintf("%s (%d tokens)", f, r.weight(f))
+	}
+	return out
+}
+
+// oversized says why a unit does not fit what one agent is handed — its
+// brief, the specification's decisions and its files whole — or nothing.
+// A unit of one file that alone does not fit is let be: no plan can divide
+// it, and its agent is handed its outline, to read by parts.
+func (r *Run) oversized(u unit) string {
+	files := r.handedWhole(u)
+	total := estate.Tokens(u.brief) + estate.Tokens(specDecisions(r.dir, u.isTests()))
+	for _, f := range files {
+		total += r.weight(f)
+	}
+	if total <= r.cfg.packBudget() || len(files) <= 1 {
+		return ""
+	}
+	return fmt.Sprintf("would be handed %d tokens — its brief, the specification's decisions and %s whole — more than the %d one agent is handed; divide it, or read fewer files",
+		total, strings.Join(r.weighed(files), ", "), r.cfg.packBudget())
 }
 
 // orderOf says where a code unit uses a name it cannot build on: one a

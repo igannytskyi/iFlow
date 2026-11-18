@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
+	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
@@ -121,10 +122,43 @@ func (r *Run) overview() string {
 			b.WriteString("It reads:\n\n```\n" + strings.TrimSpace(string(script)) + "\n```\n")
 		}
 	}
+	if a := aims(r.repo, r.cfg.packBudget()/4); a != "" {
+		b.WriteString("\nWhat the project is for and how its work is done, in its own words — a change serves this, not only the task:\n\n" + a + "\n")
+	}
 	if d := decisions(r.repo, r.cfg.packBudget()/8); d != "" {
 		b.WriteString("\nWhat the person has already decided — take it as settled, and do not ask it again:\n\n" + d + "\n")
 	}
 	return b.String()
+}
+
+// aimsFiles are where a project says what it is for and how work on it is
+// done, in the order they are read.
+var aimsFiles = []string{"README.md", "AGENTS.md"}
+
+// aims is what the project says of itself, within budget tokens: each of
+// aimsFiles that it has, from its beginning, by whole paragraphs.
+func aims(repo string, budget int) string {
+	var out []string
+	for _, f := range aimsFiles {
+		b, err := os.ReadFile(filepath.Join(repo, f))
+		if err != nil {
+			continue
+		}
+		var kept []string
+		for _, para := range strings.Split(strings.TrimSpace(string(b)), "\n\n") {
+			if budget -= estate.Tokens(para); budget < 0 {
+				break
+			}
+			kept = append(kept, para)
+		}
+		if len(kept) > 0 {
+			out = append(out, "## "+f+"\n\n"+strings.Join(kept, "\n\n"))
+		}
+		if budget < 0 {
+			break
+		}
+	}
+	return strings.Join(out, "\n\n")
 }
 
 // document is the prose of a specification: what the change is for, how a

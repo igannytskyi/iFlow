@@ -191,7 +191,7 @@ func TestATaskTravelsThePath(t *testing.T) {
 		if len(packs) != 3 {
 			t.Fatalf("%d packs handed", len(packs))
 		}
-		for i, want := range [][]string{{"May change: greet.go"}, {"May change: shout_test.go", "Written by WU-001-01", `return ""`}, {"Must pass, written by WU-001-02", "TestShout", "May change: greet.go"}} {
+		for i, want := range [][]string{{"May change: greet.go"}, {"May change: shout_test.go", "Read: greet.go", `return ""`}, {"Must pass, written by WU-001-02", "TestShout", "May change: greet.go"}} {
 			for _, w := range want {
 				if !strings.Contains(packs[i], w) {
 					t.Errorf("unit %d was not handed %q:\n%s", i+1, w, packs[i])
@@ -1117,10 +1117,73 @@ func TestAConfigWithoutEstateOrGateWorks(t *testing.T) {
 // What a unit reads, as its plan says, is handed whole to its agent.
 func TestWhatAUnitReadsIsHanded(t *testing.T) {
 	repo := estateFixture(t)
-	r := &Run{repo: repo, cfg: Config{Estate: estate.NewLocal()}}
-	p := r.pack(unit{kind: meta.CodeUnit, scope: []string{"shout.go"}, reads: []string{"greet.go"}})
+	est := estate.NewLocal()
+	r := &Run{repo: repo, cfg: Config{Estate: est}}
+	p := r.pack(unit{kind: meta.CodeUnit, scope: []string{"shout.go"}, reads: []string{"greet.go"}}, est.Repo(repo), nil, 16000)
 	if !strings.Contains(p.String(), "Read: greet.go") || !strings.Contains(p.String(), "func Greet") {
 		t.Errorf("what the unit reads was not handed:\n%s", p.String())
+	}
+}
+
+// A unit is handed what its copy of the estate holds — the candidates it is
+// carried on, and no others: the tests it must pass whole, what the units
+// before it wrote by path, and nothing of a unit it does not wait for.
+func TestAUnitIsHandedWhatItIsCarriedOn(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	keep := func(rel, body string) string {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	tests := keep("shout_test.go", "package greet\n\nfunc TestShout(t *testing.T) {}\n")
+	upper := keep("upper.go", "package greet\n\nfunc Upper(s string) string { return s }\n")
+	other := keep("other.go", "package greet\n\nfunc Other() {}\n")
+	r := &Run{repo: repo, cfg: Config{Estate: est}, units: []unit{
+		{id: "WU-1", kind: meta.TestsUnit, scope: []string{"shout_test.go"}},
+		{id: "WU-2", kind: meta.CodeUnit, scope: []string{"upper.go"}},
+		{id: "WU-3", kind: meta.CodeUnit, scope: []string{"other.go"}},
+		{id: "WU-4", kind: meta.CodeUnit, scope: []string{"shout.go"}},
+	}}
+	on := []onto{{0, tests}, {1, upper}}
+	ws, err := harness.Snapshot(repo, tests, upper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(ws)
+	got := r.pack(r.units[3], est.Repo(repo).Over(ws), on, 16000).String()
+	for _, want := range []string{"Must pass, written by WU-1: shout_test.go", "func TestShout", "upper.go   (WU-2)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the pack lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "other.go") {
+		t.Errorf("the pack holds a candidate the unit is not carried on:\n%s", got)
+	}
+	_ = other // kept, as WU-3's candidate is, but not under WU-4
+}
+
+// A file only read that would crowd out what is left is handed by its
+// outline, so that what an agent is handed stays within its budget.
+func TestAPackKeepsToItsBudget(t *testing.T) {
+	repo := estateFixture(t)
+	long := "package greet\n\n"
+	for i := range 400 {
+		long += fmt.Sprintf("func F%d() int { return %d }\n", i, i)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "long.go"), []byte(long), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	est := estate.NewLocal()
+	r := &Run{repo: repo, cfg: Config{Estate: est}}
+	p := r.pack(unit{kind: meta.CodeUnit, scope: []string{"greet.go"}, reads: []string{"long.go"}}, est.Repo(repo), nil, 2000)
+	if p.Tokens() > 2000 {
+		t.Errorf("handed %d tokens against a budget of 2000:\n%s", p.Tokens(), p.String())
+	}
+	if !strings.Contains(p.String(), "func Greet") {
+		t.Errorf("the file to change was not handed whole:\n%s", p.String())
 	}
 }
 
@@ -1319,7 +1382,7 @@ func TestTwoCodeUnitsBuildOnAContract(t *testing.T) {
 	if len(goals) != 4 || !strings.Contains(goals[0], "Declare exactly these names") || !strings.Contains(goals[0], "func Loud(n string) string") {
 		t.Fatalf("the contract was not carried first: %d units, the first asked\n%.400s", len(goals), goals[0])
 	}
-	if !strings.Contains(goals[1], "Write only the tests") || !strings.Contains(packs[1], "Written by WU-001-01") {
+	if !strings.Contains(goals[1], "Write only the tests") || !strings.Contains(packs[1], "func Loud(n string) string") {
 		t.Error("the tests were not handed the contract")
 	}
 	c, _ := artifact.Load(run.View().Dir)
@@ -1688,5 +1751,48 @@ func TestAGoFileDeclaresWhatItsPackageDoes(t *testing.T) {
 		if names[not] {
 			t.Errorf("%s is read as declared", not)
 		}
+	}
+}
+
+// A unit whose files do not fit what one agent is handed goes back to its
+// planner, to be divided; a unit of one file too long for it cannot be
+// divided, and its agent reads that file by parts.
+func TestAUnitTooLargeForOneAgentIsSentBack(t *testing.T) {
+	repo := estateFixture(t)
+	long := "package greet\n\n" + strings.Repeat("// a line of the long file, to give it weight\n", 200)
+	for _, f := range []string{"a.go", "b.go"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte(long), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal(), PackTokens: 3000}}
+	if why := r.oversized(unit{kind: meta.CodeUnit, scope: []string{"a.go"}, reads: []string{"b.go"}}); !strings.Contains(why, "divide it") {
+		t.Errorf("a unit of two files over the budget was let be: %q", why)
+	}
+	if why := r.oversized(unit{kind: meta.CodeUnit, scope: []string{"a.go"}}); why != "" {
+		t.Errorf("a unit of one file was sent back, though no plan can divide it: %q", why)
+	}
+	if why := r.oversized(unit{kind: meta.CodeUnit, scope: []string{"greet.go"}, reads: []string{"greet_test.go"}}); why != "" {
+		t.Errorf("a small unit was sent back: %q", why)
+	}
+}
+
+// The author of a specification is told what the project is for, in its
+// own words, within its budget, by whole paragraphs from the beginning.
+func TestTheAuthorIsToldWhatTheProjectIsFor(t *testing.T) {
+	repo := t.TempDir()
+	readme := "# Shop\n\nA shop for books.\n\n" + strings.Repeat("A long paragraph of detail. ", 400)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte(readme), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("Keep it small.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := aims(repo, 500)
+	if !strings.Contains(got, "A shop for books.") || strings.Contains(got, "long paragraph") {
+		t.Errorf("not the beginning within the budget:\n%s", got)
+	}
+	if aims(t.TempDir(), 500) != "" {
+		t.Error("a project that says nothing of itself was given words")
 	}
 }

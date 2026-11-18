@@ -34,7 +34,7 @@ security add-generic-password -s iflow.openrouter -a iflow -w
 | `IFLOW_MODEL` | every role on this model, as `provider:model` |
 | `IFLOW_EXECUTOR=agent` | units handed to Claude Code's own agent instead of one-shot agents |
 | `IFLOW_BUDGET_USD` | the most one unit of work may spend; 2 when unset |
-| `IFLOW_PACK_TOKENS` | the most of the estate one agent is handed; 16000 when unset |
+| `IFLOW_PACK_TOKENS` | the most one agent is handed — its goal, the tests it must pass, its files and what surrounds them; 16000 when unset |
 
 ## Use
 

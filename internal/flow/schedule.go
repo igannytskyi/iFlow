@@ -168,9 +168,16 @@ func (s *scheduler) ready(i int) bool {
 	return !slices.ContainsFunc(s.deps[i], func(d int) bool { return s.state[d] != done })
 }
 
+// onto is one candidate a unit is carried on: the unit that made it, and
+// where its files are kept.
+type onto struct {
+	unit  int
+	files string
+}
+
 // overlays is the candidates a unit is carried on: those of every unit it
 // waits for, near and far, in the plan's order.
-func (s *scheduler) overlays(i int) []string {
+func (s *scheduler) overlays(i int) []onto {
 	under := map[int]bool{}
 	var walk func(int)
 	walk = func(j int) {
@@ -182,10 +189,10 @@ func (s *scheduler) overlays(i int) []string {
 		}
 	}
 	walk(i)
-	var out []string
+	var out []onto
 	for j := range s.r.units {
 		if under[j] && s.results[j].store != "" {
-			out = append(out, filepath.Join(s.results[j].store, "files"))
+			out = append(out, onto{j, filepath.Join(s.results[j].store, "files")})
 		}
 	}
 	return out

@@ -67,8 +67,9 @@ type Config struct {
 	Person string
 	// BudgetUSD bounds each unit's execution.
 	BudgetUSD float64
-	// PackTokens bounds what one agent is handed of the estate; 16000 when
-	// zero.
+	// PackTokens bounds what one agent is handed — its goal, the tests it
+	// must pass, its files and what surrounds them — and so how large a
+	// unit the planner may make; 16000 when zero.
 	PackTokens int
 	// ReviewRounds, Attempts and RepeatOnce are described at reviewRounds.
 	ReviewRounds int
