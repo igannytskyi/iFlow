@@ -45,7 +45,7 @@ A plan that breaks any of the rules below goes back to its planner, told which r
 | P2 | Every unit has a kind, a scope, an objective and tasks | `unitsOf` |
 | P3 | A unit writes only what the specification lets its kind write | `unitsOf` |
 | P4 | Every new test file is written by exactly one tests unit | at least one: `unitsOf`; exactly one: **open** |
-| P5 | Every criterion is served by a code unit; every unit serves one | **mended, not sent back** — open |
+| P5 | Every criterion is served by a code unit; every unit serves one; a tests unit only what the new tests judge | `unitsOf` |
 | P6 | Every name provided has a file in scope, a kind and a signature | `provisionProblem` |
 | P7 | No unit provides a name its file already declares | `providedAlready` |
 | P8 | No name is provided twice in one package | **open** |
@@ -103,7 +103,7 @@ The tokens each agent was handed are recorded with its costs.
 
 ## Open
 
-1. P1–P12 as one function of the plan and the estate, held by the gate as a rule; P4, P8, P11 and P12 checked; P5 sent back instead of mended.
+1. P1–P13 as one function of the plan and the estate, held by the gate as rule R24; P4, P8, P11 and P12 checked.
 2. P9 for one code unit.
 3. Outcomes for blaming the contract or an earlier code unit, each with its bound.
 4. A test that drives the scheduler through random outcomes and shows that it always ends.

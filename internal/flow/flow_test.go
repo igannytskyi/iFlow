@@ -66,6 +66,10 @@ const plan = `{"approach":{"summary":"Add Shout beside Greet.","steps":["write t
  {"title":"the shout test","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"requirements":["FR-1"],"objective":"Judge shouting from outside.","tasks":["Test that Shout(\"a\") is HELLO, A."],"done_when":["it fails before Shout exists"]},
  {"title":"Shout","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"requirements":["FR-1"],"objective":"Shout greets in capitals.","tasks":["Add func Shout(n string) string returning Greet(n) in capitals."],"provides":[{"file":"greet.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}],"constraints":["leave Greet as it is"],"done_when":["the suite passes"]}]}`
 
+// humanPlan is plan with the criterion only a person sees given, as every
+// criterion is, to the code unit that makes it true.
+var humanPlan = strings.Replace(plan, `"criteria":["CR-001-01","CR-001-02"]`, `"criteria":["CR-001-01","CR-001-02","CR-001-03"]`, 1)
+
 // stubExecutor writes what each unit's scope asks for: the test first, then
 // the repair; and keeps the pack each unit was handed where asked to.
 type stubExecutor struct {
@@ -885,7 +889,7 @@ func TestAPersonAffirmsWhatOnlyAPersonCanSee(t *testing.T) {
 			repo := estateFixture(t)
 			est := estate.NewLocal()
 			var goals []string
-			cfg := Config{Model: stubModel{answer: human}, Executor: stubExecutor{files: files, goals: &goals}, Estate: est, Gate: gate.New(est), Person: "a test"}
+			cfg := Config{Model: planned{stubModel{answer: human}, humanPlan}, Executor: stubExecutor{files: files, goals: &goals}, Estate: est, Gate: gate.New(est), Person: "a test"}
 			var run *Run
 			judged := 0
 			run = New(cfg, repo, "make it possible to shout the greeting", func() {
@@ -943,7 +947,7 @@ func TestARefusedChangeResumedIsMended(t *testing.T) {
 	}
 	repo := estateFixture(t)
 	est := estate.NewLocal()
-	cfg := Config{Model: stubModel{answer: human}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	cfg := Config{Model: planned{stubModel{answer: human}, humanPlan}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
 	answer := func(run **Run, refuse *int) func() {
 		return func() {
 			v := (*run).View()
@@ -1794,5 +1798,25 @@ func TestTheAuthorIsToldWhatTheProjectIsFor(t *testing.T) {
 	}
 	if aims(t.TempDir(), 500) != "" {
 		t.Error("a project that says nothing of itself was given words")
+	}
+}
+
+// A plan that leaves a criterion to no code unit is sent back to its
+// planner, as every plan that breaks the method is; it is never mended in
+// the planner's place.
+func TestAPlanLeavingACriterionIsSentBack(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	short := strings.Replace(plan, `"criteria":["CR-001-01","CR-001-02"]`, `"criteria":["CR-001-01"]`, 1)
+	cfg := Config{Model: planned{stubModel{answer: spec}, short}, Executor: stubExecutor{}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	err := run.Start(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "no code unit serves CR-001-02") {
+		t.Fatalf("a plan leaving a criterion to no unit was not sent back: %v", err)
 	}
 }

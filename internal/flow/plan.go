@@ -382,18 +382,20 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 			code = append(code, u)
 		}
 	}
-	// A code unit the planner gave no criterion is still held to what the
-	// estate's own suite judges — that nothing else moves — and has its
-	// verdict from it; with no such criterion, the plan is sent back.
-	bySuite := slices.DeleteFunc(slices.Clone(all), func(c string) bool { return slices.Contains(byTests, c) })
-	for i := range code {
-		if len(code[i].criteria) > 0 {
-			continue
+	// Every unit serves a criterion, for its verdict comes from one (A6).
+	for _, u := range slices.Concat(tests, code) {
+		if len(u.criteria) == 0 {
+			return nil, fmt.Sprintf("unit %q serves no criterion; name the criteria it makes true", u.title)
 		}
-		if len(bySuite) == 0 {
-			return nil, fmt.Sprintf("unit %q serves no criterion", code[i].title)
+	}
+	// A tests unit judges only what the new tests judge.
+	for _, u := range tests {
+		for _, c := range u.criteria {
+			if !slices.Contains(byTests, c) {
+				return nil, fmt.Sprintf("tests unit %q names %s, which the new tests do not judge; a tests unit names only %s",
+					u.title, c, strings.Join(byTests, ", "))
+			}
 		}
-		code[i].criteria = slices.Clone(bySuite)
 	}
 	if len(code) == 0 {
 		return nil, "it has no code unit"
@@ -412,28 +414,11 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 			}
 		}
 	}
-	covered := map[string]bool{}
-	for _, u := range code {
-		for _, c := range u.criteria {
-			covered[c] = true
-		}
-	}
-	// A criterion the planner left to no code unit is the last code unit's:
-	// that unit completes the change, and the suite it must pass judges
-	// every criterion. Said, not silently fixed.
+	// Every criterion is made true by some code unit: one no unit serves
+	// would be judged on code no agent was asked to write.
 	for _, c := range all {
-		if !covered[c] {
-			last := &code[len(code)-1]
-			last.criteria = append(last.criteria, c)
-			last.brief += "\nAlso serves " + c + ", which the planner gave to no unit; this unit completes the change.\n"
-			r.say(2, "", "%s was carried by no code unit; it is given to the last one, %q", c, last.title)
-		}
-	}
-	// The tests units judge exactly the criteria the new tests judge.
-	for i := range tests {
-		tests[i].criteria = slices.DeleteFunc(tests[i].criteria, func(c string) bool { return !slices.Contains(byTests, c) })
-		if len(tests[i].criteria) == 0 {
-			tests[i].criteria = byTests
+		if !slices.ContainsFunc(code, func(u unit) bool { return slices.Contains(u.criteria, c) }) {
+			return nil, fmt.Sprintf("no code unit serves %s; give it to the unit that makes it true — the last one, if it is that nothing else moves", c)
 		}
 	}
 	return r.number(append(tests, code...)), ""
