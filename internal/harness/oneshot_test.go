@@ -222,3 +222,17 @@ func colonFaults(out string) []Fault {
 	}
 	return fs
 }
+
+// A fault a runner names by its absolute path is the file within the
+// workspace, the workspace reached through a link or not.
+func TestAFaultNamedAbsoluteIsTheFileWithin(t *testing.T) {
+	ws := t.TempDir()
+	real, _ := filepath.EvalSymlinks(ws)
+	task := Task{Workspace: ws, Faults: func(string) []Fault {
+		return []Fault{{File: filepath.Join(real, "greeting.test.js")}, {File: filepath.Join(ws, "lib", "a.js")}, {File: "/elsewhere/b.js"}}
+	}}
+	fs := faults(task, "")
+	if got := []string{fs[0].File, fs[1].File, fs[2].File}; !slices.Equal(got, []string{"greeting.test.js", "lib/a.js", "/elsewhere/b.js"}) {
+		t.Errorf("files %v", got)
+	}
+}

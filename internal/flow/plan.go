@@ -351,6 +351,19 @@ func (r *Run) unitsOf(p planDraft, all, byTests []string) ([]unit, string) {
 			code = append(code, u)
 		}
 	}
+	// A code unit the planner gave no criterion is still held to what the
+	// estate's own suite judges — that nothing else moves — and has its
+	// verdict from it; with no such criterion, the plan is sent back.
+	bySuite := slices.DeleteFunc(slices.Clone(all), func(c string) bool { return slices.Contains(byTests, c) })
+	for i := range code {
+		if len(code[i].criteria) > 0 {
+			continue
+		}
+		if len(bySuite) == 0 {
+			return nil, fmt.Sprintf("unit %q serves no criterion", code[i].title)
+		}
+		code[i].criteria = slices.Clone(bySuite)
+	}
 	if len(code) == 0 {
 		return nil, "it has no code unit"
 	}

@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -204,10 +205,28 @@ type Fault struct {
 	Missing bool
 }
 
-// faults is what a task's language reads of a check's output, or nothing.
+// faults is what a task's language reads of a check's output, or nothing:
+// each file named as the workspace holds it, a runner's absolute path to it
+// made the path within.
 func faults(t Task, out string) []Fault {
 	if t.Faults == nil {
 		return nil
 	}
-	return t.Faults(out)
+	fs := t.Faults(out)
+	roots := []string{filepath.Clean(t.Workspace)}
+	if real, err := filepath.EvalSymlinks(t.Workspace); err == nil {
+		roots = append(roots, real)
+	}
+	for i, f := range fs {
+		if !filepath.IsAbs(f.File) {
+			continue
+		}
+		for _, root := range roots {
+			if rel, err := filepath.Rel(root, f.File); err == nil && !strings.HasPrefix(rel, "..") {
+				fs[i].File = filepath.ToSlash(rel)
+				break
+			}
+		}
+	}
+	return fs
 }
