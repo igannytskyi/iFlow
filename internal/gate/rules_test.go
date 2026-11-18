@@ -61,7 +61,7 @@ func fixture(t *testing.T) (root, dir string) {
 	}))
 	must(artifact.Save(dir, artifact.Plan, meta.Plan{Schema: meta.PlanVersion, Name: "c", Specification: "SPEC-001", Phases: 1, IntermediateValid: "yes", Residue: "none",
 		CoverageText: "The unit covers both criteria.",
-		Units:        []meta.WorkUnit{{ID: "WU-001-01", Phase: 1, Class: "C3", Kind: meta.CodeUnit, Scope: []string{"src/a.go"}, AreaOfEffect: "src, derived, high", Criteria: []string{"CR-001-01", "CR-001-02"},
+		Units: []meta.WorkUnit{{ID: "WU-001-01", Phase: 1, Class: "C3", Kind: meta.CodeUnit, Scope: []string{"src/a.go"}, AreaOfEffect: "src, derived, high", Criteria: []string{"CR-001-01", "CR-001-02"},
 			Brief: "Make one of src/a.go's answers right."}},
 	}))
 	digest, err := artifact.DigestFile(artifact.JSONFile(dir, artifact.Specification))
