@@ -1642,3 +1642,13 @@ func TestAUnitWithNothingLeftToDo(t *testing.T) {
 		t.Fatalf("%v: %v", err, cfg.Gate.Check(context.Background(), c).Problems())
 	}
 }
+
+// Node names a failing file inside a stack frame's parentheses; the file is
+// what is between them.
+func TestANodeFaultIsTheFileInItsFrame(t *testing.T) {
+	l, _ := languageOfFile("a.js")
+	fs := faultsOf(l, []string{"greeting.js"})("    at TestContext.<anonymous> (/private/var/ws/shout.test.js:7:10)\n")
+	if len(fs) != 1 || fs[0].File != "/private/var/ws/shout.test.js" {
+		t.Errorf("faults %+v", fs)
+	}
+}

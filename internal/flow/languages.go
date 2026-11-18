@@ -118,7 +118,7 @@ var languages = []language{
 			}
 			return []string{"node", "--check", files[0]}
 		},
-		fault:   regexp.MustCompile(`(\S+\.[cm]?[jt]sx?):\d+(?::\d+)?\b`),
+		fault:   regexp.MustCompile(`([^\s()]+\.[cm]?[jt]sx?):\d+(?::\d+)?\b`),
 		tests:   regexp.MustCompile("(?m)\\b(?:test|it)\\s*\\(\\s*([\"'`])(.+?)[\"'`]"),
 		faults:  regexp.MustCompile(`[\w./-]*\.(?:test|spec)\.[cm]?[jt]sx?:\d+`),
 		failed:  regexp.MustCompile(`(?m)^\s*(?:✖|not ok \d+ -) (.+?)(?: \([\d.]+ms\))?$`),
