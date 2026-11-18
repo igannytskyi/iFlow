@@ -12,9 +12,9 @@ import (
 // answers but changes nothing.
 type Reader struct{ ws *workspace }
 
-// NewReader reads dir.
-func NewReader(ctx context.Context, dir string) Reader {
-	return Reader{&workspace{dir: dir, ctx: ctx}}
+// NewReader reads dir, and the libraries' source under the folders given.
+func NewReader(ctx context.Context, dir string, libraries ...string) Reader {
+	return Reader{&workspace{dir: dir, ctx: ctx, libraries: libraries}}
 }
 
 var readOnly = []string{"read_file", "list_dir", "search"}

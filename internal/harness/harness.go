@@ -45,6 +45,14 @@ type Task struct {
 	// Role is what the unit writes — "contract", "tests" or "code" — for an
 	// executor that does its work differently by it.
 	Role string
+	// Faults, where given, reads a check's output as its language writes a
+	// fault: the file blamed, the line said, and whether what it says is a
+	// name missing that this unit's work is to declare. Without it, no
+	// output is read for whom it blames.
+	Faults func(output string) []Fault
+	// Libraries are folders of libraries' source the agent may read, as a
+	// person reads a library rather than guess its interface.
+	Libraries []string
 	// Unprovided, where given, is what the unit's contract says it gives
 	// the others that the workspace's code does not declare: the unit is
 	// not done, whatever the check says, until it is nothing.
@@ -185,4 +193,21 @@ func unprovided(t Task) []string {
 		return nil
 	}
 	return t.Unprovided(t.Workspace)
+}
+
+// Fault is one place a check's output blames: the file, what it said there,
+// and whether it says a name is missing that the unit's work is to declare
+// — which is no fault of the file that uses it.
+type Fault struct {
+	File    string
+	Text    string
+	Missing bool
+}
+
+// faults is what a task's language reads of a check's output, or nothing.
+func faults(t Task, out string) []Fault {
+	if t.Faults == nil {
+		return nil
+	}
+	return t.Faults(out)
 }

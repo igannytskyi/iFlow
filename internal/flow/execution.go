@@ -150,6 +150,14 @@ func (r *Run) carry(ctx context.Context, i int, overlays []string, prof profile,
 		task.Unprovided = func(ws string) []string { return undeclared(ws, provides) }
 	}
 	task.Graph = estateGraph{repo: r.cfg.Estate.Repo(r.repo), root: r.repo}
+	// The language of what the unit writes reads its check's faults; the
+	// estate's language says where its libraries can be read.
+	if l, ok := scopeLanguage(scope); ok {
+		task.Faults = faultsOf(l, scope)
+	}
+	if l, ok := languageOfEstate(r.repo); ok && l.libraries != nil {
+		task.Libraries = l.libraries()
+	}
 	if ok && !u.isTests() && prof.quick != nil {
 		task.Quick = func(files []string) []string {
 			if cmd := prof.quick(files); cmd != nil {

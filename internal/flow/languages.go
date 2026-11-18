@@ -5,11 +5,14 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
+	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/reader"
 )
@@ -43,6 +46,15 @@ type language struct {
 	// faults is how a run of its tests names the line of a test file;
 	// failed, how it names a test that failed — its last group the name.
 	faults, failed *regexp.Regexp
+	// fault is how its build and its runner name the line of a file they
+	// blame — its first group the file; missing, whether such a line says a
+	// name is missing from one of the packages named, the ones this work
+	// writes into.
+	fault   *regexp.Regexp
+	missing func(line string, packages map[string]bool) bool
+	// libraries is the folders of the source of the libraries an estate in
+	// it uses, which an agent may read.
+	libraries func() []string
 	// declares, where the language has a parser of its own here, is every
 	// name a file of it declares, fields among them; where it has none,
 	// the estate's reader says what is declared, and a field it cannot see.
@@ -62,6 +74,7 @@ var languages = []language{
 			return []string{"go", "test", "-count=1", "-v", "-run", pattern, "./" + strings.TrimPrefix(filepath.ToSlash(filepath.Clean(path)), "./") + "/..."}
 		},
 		build: []string{"go", "build", "./..."}, vet: goVet, check: goBuild, format: gofmt, declares: goDeclares,
+		fault: regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.go):\d+:\d+:`), missing: goMissing, libraries: goLibraries,
 		tests:  regexp.MustCompile(`(?m)^func (Test\w+)\(`),
 		faults: regexp.MustCompile(`[\w./-]*_test\.go:\d+`),
 		failed: regexp.MustCompile(`(?m)^\s*--- FAIL: (\w+)`),
@@ -78,6 +91,7 @@ var languages = []language{
 		check: func(files []string) []string {
 			return append([]string{"python3", "-m", "py_compile"}, files...)
 		},
+		fault:  regexp.MustCompile(`File "([^"]+\.py)", line \d+`),
 		tests:  regexp.MustCompile(`(?m)^\s*(?:async\s+)?def (test_\w+)\(`),
 		faults: regexp.MustCompile(`[\w./-]*(?:test_\w+|\w+_test)\.py:\d+|File "[^"]*(?:test_\w+|\w+_test)\.py", line \d+`),
 		failed: regexp.MustCompile(`(?m)^(?:FAILED [^\s:]+::(?:\w+::)?(\w+)|(?:FAIL|ERROR): (\w+) \()`),
@@ -101,6 +115,7 @@ var languages = []language{
 			}
 			return []string{"node", "--check", files[0]}
 		},
+		fault:  regexp.MustCompile(`(\S+\.[cm]?[jt]sx?):\d+(?::\d+)?\b`),
 		tests:  regexp.MustCompile("(?m)\\b(?:test|it)\\s*\\(\\s*([\"'`])(.+?)[\"'`]"),
 		faults: regexp.MustCompile(`[\w./-]*\.(?:test|spec)\.[cm]?[jt]sx?:\d+`),
 		failed: regexp.MustCompile(`(?m)^\s*(?:✖|not ok \d+ -) (.+?)(?: \([\d.]+ms\))?$`),
@@ -269,4 +284,71 @@ func undeclared(dir string, provides []meta.Provision) []string {
 		}
 	}
 	return out
+}
+
+// goMissing says a Go build's line says a name is missing that this work
+// could declare: one of no package, or of a package it writes into. A name
+// missing from a library — key.NameN, a method of widget.Editor — is no
+// name any unit can declare: it is a mistake in the file that uses it.
+func goMissing(line string, packages map[string]bool) bool {
+	for _, re := range []*regexp.Regexp{goUndefined, goNoMember} {
+		if m := re.FindStringSubmatch(line); m != nil {
+			pkg := strings.Join(m[1:], "")
+			return pkg == "" || packages[pkg]
+		}
+	}
+	return strings.Contains(line, "has no field or method")
+}
+
+var (
+	goUndefined = regexp.MustCompile(`undefined: (?:(\w+)\.)?\w+`)
+	goNoMember  = regexp.MustCompile(`\(type \*?(?:(\w+)\.)?\w+ has no field or method|unknown field \w+ in struct literal of type \*?(?:(\w+)\.)?\w+`)
+)
+
+// goLibraries is where the source of the modules a Go estate uses is kept,
+// and the standard library's.
+var goLibraries = sync.OnceValue(func() []string {
+	out, err := exec.Command("go", "env", "GOMODCACHE", "GOROOT").Output()
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for _, l := range strings.Fields(string(out)) {
+		dirs = append(dirs, filepath.Clean(l))
+	}
+	return dirs
+})
+
+// faultsOf is how the language of a unit's scope reads a check's output:
+// each line that blames a file, and whether it says a name is missing that
+// the unit's packages are to declare.
+func faultsOf(l language, scope []string) func(string) []harness.Fault {
+	if l.fault == nil {
+		return nil
+	}
+	packages := map[string]bool{}
+	for _, p := range scope {
+		packages[filepath.Base(filepath.Dir(filepath.FromSlash(p)))] = true
+	}
+	return func(out string) []harness.Fault {
+		var fs []harness.Fault
+		for _, line := range strings.Split(out, "\n") {
+			m := l.fault.FindStringSubmatch(line)
+			if m == nil {
+				continue
+			}
+			fs = append(fs, harness.Fault{File: m[1], Text: strings.TrimSpace(line), Missing: l.missing != nil && l.missing(line, packages)})
+		}
+		return fs
+	}
+}
+
+// scopeLanguage is the language of the first file of a scope that is in one.
+func scopeLanguage(scope []string) (language, bool) {
+	for _, f := range scope {
+		if l, ok := languageOfFile(f); ok {
+			return l, true
+		}
+	}
+	return language{}, false
 }

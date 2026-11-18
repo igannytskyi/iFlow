@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -78,13 +76,13 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	if l.Model == nil {
 		return Result{Terminal: FailedSubstrate}, errNoModel
 	}
-	ws := &workspace{dir: t.Workspace, scope: t.Scope, check: t.Check, first: t.First, graph: t.Graph, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
-	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t) + libraryNote(t.Workspace)}}
+	ws := &workspace{dir: t.Workspace, faults: t.Faults, libraries: t.Libraries, scope: t.Scope, check: t.Check, first: t.First, graph: t.Graph, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
+	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t) + libraryNote(t.Libraries)}}
 	// What the estate says is read once: from the agent's third turn on it
 	// is sent as an index of what it held, and the agent reads what it
 	// needs again, so that every turn does not carry every file.
 	slim := msgs[1]
-	slim.Content = prompt(Task{Goal: t.Goal, Scope: t.Scope, Check: t.Check, Context: index(t.Context)}) + libraryNote(t.Workspace)
+	slim.Content = prompt(Task{Goal: t.Goal, Scope: t.Scope, Check: t.Check, Context: index(t.Context)}) + libraryNote(t.Libraries)
 	maxSteps := t.MaxSteps
 	if maxSteps <= 0 {
 		maxSteps = 30
@@ -158,7 +156,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 				return end(Candidate, strings.TrimSpace(msg.Content))
 			}
 			if judged == "" {
-				if outside := faultsOutside(out, t.Scope, ws.local()); len(outside) > 0 {
+				if outside := faultsOutside(faults(t, out), t.Scope); len(outside) > 0 {
 					res.Blames = outside
 					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+faultsIn(out, outside))
 				}
@@ -217,7 +215,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			// this unit can mend: the run says so now, so that what wrote
 			// them is carried again, rather than spend its steps.
 			if ws.last.ran && !ws.last.ok && ws.last.why == "" {
-				if outside := faultsOutside(ws.last.out, t.Scope, ws.local()); len(outside) > 0 {
+				if outside := faultsOutside(faults(t, ws.last.out), t.Scope); len(outside) > 0 {
 					res.Blames = outside
 					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+faultsIn(ws.last.out, outside))
 				}
@@ -228,7 +226,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 		if idle >= idleNudge && !nudged {
 			nudged = true
 			nudge := fmt.Sprintf("You have taken %d steps without changing anything. You have read enough: change the file that makes the check pass now, or say in one sentence why no change in your scope can.", idle)
-			if f := firstFaults(ws.last.out, 3); !ws.last.ok && f != "" { // the check as it last ran
+			if f := firstFaults(faults(t, ws.last.out), 3); !ws.last.ok && f != "" { // the check as it last ran
 				nudge += "\n\nThe check fails here — change these lines first:\n" + f
 			}
 			msgs = append(msgs, model.Message{Role: "user", Content: nudge})
@@ -237,12 +235,13 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	return end(Exhausted, fmt.Sprintf("stopped after %d steps without finishing", res.Steps))
 }
 
-// libraryNote says where a Go repository's libraries can be read.
-func libraryNote(dir string) string {
-	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil || len(libraries()) == 0 {
+// libraryNote says where the source of the libraries the estate uses can
+// be read.
+func libraryNote(dirs []string) string {
+	if len(dirs) == 0 {
 		return ""
 	}
-	return "\n# Libraries\n\nThe source of the modules go.mod names can be read at " + libraries()[0] + "/<module>@<version>/, and the standard library's at " + libraries()[len(libraries())-1] + "/src/. Read a library's source before you use a name of it you are not sure of.\n"
+	return "\n# Libraries\n\nThe source of the libraries this estate uses can be read under " + strings.Join(dirs, " and ") + ". Read a library's source before you use a name of it you are not sure of.\n"
 }
 
 // compact is the conversation as sent: the system, the unit and the latest
@@ -334,14 +333,11 @@ func sections(s string) []string {
 	return append(out, s[start:])
 }
 
-// firstFaults is the first n lines of out that name a file, line and column
-// as the place something is wrong.
-func firstFaults(out string, n int) string {
+// firstFaults is what the first n faults said.
+func firstFaults(fs []Fault, n int) string {
 	var got []string
-	for _, l := range strings.Split(out, "\n") {
-		if faultAt.MatchString(l) && len(got) < n {
-			got = append(got, strings.TrimSpace(l))
-		}
+	for _, f := range fs[:min(n, len(fs))] {
+		got = append(got, f.Text)
 	}
 	return strings.Join(got, "\n")
 }

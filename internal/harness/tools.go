@@ -8,15 +8,14 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/igannytskyi/iflow/internal/model"
+	"github.com/igannytskyi/iflow/internal/reader"
 )
 
 // The tools an agent is given, and nothing more: it reads anything in the
@@ -31,17 +30,18 @@ type tool struct {
 
 // workspace is where a run may act.
 type workspace struct {
-	dir   string
-	scope []string
-	check []string
-	judge func(passed bool, output string) (ok bool, why string)
-	first []string
-	graph Graph
-	quick func(files []string) []string
-	focus func(pattern, path string) []string
-	ctx   context.Context
+	dir       string
+	scope     []string
+	check     []string
+	judge     func(passed bool, output string) (ok bool, why string)
+	first     []string
+	faults    func(string) []Fault
+	libraries []string
+	graph     Graph
+	quick     func(files []string) []string
+	focus     func(pattern, path string) []string
+	ctx       context.Context
 
-	pkgs map[string]bool // the repository's packages, read once
 	// seen is what was read, and at which call; calls counts the calls.
 	seen  map[string]readAt
 	calls int
@@ -53,34 +53,11 @@ type workspace struct {
 	}
 }
 
-// local is the name of every package the scope writes into.
-func (w *workspace) local() map[string]bool {
-	if w.pkgs == nil {
-		w.pkgs = ScopePackages(w.scope)
-	}
-	return w.pkgs
-}
-
-// libraries is where the source of the libraries a Go repository uses is
-// kept — the module cache and the standard library — which an agent may
-// read, as a person reads a library's source rather than guess its API.
-var libraries = sync.OnceValue(func() []string {
-	out, err := exec.Command("go", "env", "GOMODCACHE", "GOROOT").Output()
-	if err != nil {
-		return nil
-	}
-	var dirs []string
-	for _, l := range strings.Fields(string(out)) {
-		dirs = append(dirs, filepath.Clean(l))
-	}
-	return dirs
-})
-
 // readable resolves a path the agent may read: one inside the workspace,
 // or a library's source.
 func (w *workspace) readable(p string) (string, error) {
 	if clean := filepath.Clean(p); filepath.IsAbs(clean) {
-		for _, lib := range libraries() {
+		for _, lib := range w.libraries {
 			if clean == lib || strings.HasPrefix(clean, lib+string(filepath.Separator)) {
 				return clean, nil
 			}
@@ -391,16 +368,18 @@ func (w *workspace) builds(rel string) string {
 	if ok {
 		return "; it builds"
 	}
-	var faults []string
-	for _, l := range strings.Split(out, "\n") {
-		if faultAt.MatchString(l) && len(faults) < 20 {
-			faults = append(faults, strings.TrimSpace(l))
+	var said []string
+	if w.faults != nil {
+		for _, f := range w.faults(out) {
+			if len(said) < 20 {
+				said = append(said, f.Text)
+			}
 		}
 	}
-	if len(faults) == 0 {
-		faults = []string{tail(out, 12)}
+	if len(said) == 0 {
+		said = []string{tail(out, 12)}
 	}
-	return "\n\nThe code does not build now — mend this before going on:\n" + strings.Join(faults, "\n")
+	return "\n\nThe code does not build now — mend this before going on:\n" + strings.Join(said, "\n")
 }
 
 // around is the lines of s around the first line of what was put in, with
@@ -544,7 +523,6 @@ const searchLines = 40
 // its outline, and is read a range at a time.
 const wholeLines = 250
 
-var declaration = regexp.MustCompile(`^(func|type|var|const|class|def|interface|export|public|private|protected|struct|enum|impl|fn|package|module)\b`)
 
 // read answers a read of a file: whole when it is short, its outline when
 // it is long and no range is asked, the range asked otherwise; and, when
@@ -555,10 +533,22 @@ func (w *workspace) read(path, text string, from, to int) string {
 	if from == 0 && to == 0 && len(lines) > wholeLines {
 		var b strings.Builder
 		fmt.Fprintf(&b, "%s has %d lines; its outline — read a range with from and to:\n", path, len(lines))
-		for i, l := range lines {
-			if declaration.MatchString(l) {
-				fmt.Fprintf(&b, "%5d  %s\n", i+1, clip(l, 140))
+		// What the file defines, as its language's reader sees it: each
+		// definition at the line it begins.
+		var starts []int
+		for _, sym := range reader.Read(path, []byte(text)).Symbols {
+			if !slices.Contains(starts, sym.Start) {
+				starts = append(starts, sym.Start)
 			}
+		}
+		slices.Sort(starts)
+		for _, n := range starts {
+			if n >= 1 && n <= len(lines) {
+				fmt.Fprintf(&b, "%5d  %s\n", n, clip(lines[n-1], 140))
+			}
+		}
+		if len(starts) == 0 {
+			b.WriteString("(no definitions this program can read in it; read it a range at a time)\n")
 		}
 		return b.String()
 	}

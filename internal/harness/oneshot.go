@@ -291,7 +291,7 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			res.Summary = "the check still failed after " + fmt.Sprint(n) + " agent(s)"
 			continue
 		}
-		if outside := faultsOutside(out, t.Scope, ScopePackages(t.Scope)); len(outside) > 0 {
+		if outside := faultsOutside(faults(t, out), t.Scope); len(outside) > 0 {
 			// What fails is in files this unit may not change — tests
 			// written before it, a unit before it — and no agent of this
 			// unit can mend it: say so now rather than spend the attempts.
@@ -371,59 +371,15 @@ func tail(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-var (
-	// faultAt is a line that blames a file for not building: path, line
-	// and column. A failed assertion names its line and no column, and
-	// blames the code it judges, not the test that says so.
-	faultAt = regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.\w+):\d+:\d+:`)
-	// A name missing, and whose: a package's name, or a type's, before it
-	// says where it was looked for.
-	undefinedIn = regexp.MustCompile(`undefined: (?:(\w+)\.)?\w+`)
-	noMember    = regexp.MustCompile(`\(type \*?(?:(\w+)\.)?\w+ has no field or method|unknown field \w+ in struct literal of type \*?(?:(\w+)\.)?\w+`)
-)
-
-// MissingHere reports whether a line says a name is missing that code in
-// this repository could define: one of no package, or of a package of the
-// repository. A name missing from a library — key.NameN, a method of
-// widget.Editor — is no name any unit can define: it is a mistake in the
-// file that uses it.
-func MissingHere(line string, local map[string]bool) bool {
-	for _, re := range []*regexp.Regexp{undefinedIn, noMember} {
-		if m := re.FindStringSubmatch(line); m != nil {
-			pkg := strings.Join(m[1:], "")
-			return pkg == "" || local[pkg]
-		}
-	}
-	if strings.Contains(line, "has no field or method") {
-		return true
-	}
-	return false
-}
-
-// ScopePackages is the name of every package the scope writes into: the
-// only packages a name may be missing from because this work is to define
-// it.
-func ScopePackages(scope []string) map[string]bool {
-	out := map[string]bool{}
-	for _, p := range scope {
-		out[filepath.Base(filepath.Dir(filepath.FromSlash(p)))] = true
-	}
-	return out
-}
-
-// faultsOutside is every file a check's output blames that is outside the
-// scope, when it blames nothing inside it. A name another file finds
+// faultsOutside is every file a check's faults blame that is outside the
+// scope, when they blame nothing inside it. A name another file finds
 // missing is no fault of that file when it is what this unit was to
-// define; a name missing from a library is.
-func faultsOutside(out string, scope []string, local map[string]bool) []string {
+// declare; a name missing from a library is.
+func faultsOutside(fs []Fault, scope []string) []string {
 	var outside []string
-	for _, line := range strings.Split(out, "\n") {
-		m := faultAt.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		p := strings.TrimPrefix(m[1], "./")
-		if allowed(p, scope) || MissingHere(line, local) {
+	for _, f := range fs {
+		p := strings.TrimPrefix(f.File, "./")
+		if allowed(p, scope) || f.Missing {
 			return nil
 		}
 		if !slices.Contains(outside, p) {

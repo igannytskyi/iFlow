@@ -1591,3 +1591,18 @@ func TestEachUnitWaitsForWhatItBuildsOn(t *testing.T) {
 		t.Errorf("one code unit before the last: %v", got)
 	}
 }
+
+// Go's build says whose fault a missing name is: one missing from a package
+// the unit does not write into is the file's that uses it; one missing from
+// a package it writes into is what the unit is to declare; a failed
+// assertion blames no file.
+func TestWhoseFaultAMissingNameIs(t *testing.T) {
+	l, _ := languageOfFile("a.go")
+	read := faultsOf(l, []string{"internal/cli/resolve.go"})
+	fs := read("internal/flow/advise_test.go:177:46: m.usage.Out undefined (type model.Usage has no field or method Out)\n" +
+		"internal/cli/resolve_test.go:12:3: undefined: cli.Resolve\n" +
+		"    advise_test.go:57: got 2 paths, want 3\n")
+	if len(fs) != 2 || fs[0].File != "internal/flow/advise_test.go" || fs[0].Missing || fs[1].File != "internal/cli/resolve_test.go" || !fs[1].Missing {
+		t.Errorf("faults %+v", fs)
+	}
+}

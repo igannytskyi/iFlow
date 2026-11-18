@@ -376,7 +376,7 @@ func TestANudgeNamesWhereTheCheckFails(t *testing.T) {
 	turns = append(turns, model.Message{Content: "stop"}, model.Message{Content: "stop"}, model.Message{Content: "stop"})
 	var sent [][]model.Message
 	check := []string{"sh", "-c", "echo 'a.go:3:10: cannot use box(...) (value of func type W) as D value'; exit 1"}
-	_, _ = Loop{Model: chatting{sent: &sent, turns: turns}}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: check}, func(Event) {})
+	_, _ = Loop{Model: chatting{sent: &sent, turns: turns}}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: check, Faults: colonFaults}, func(Event) {})
 	for _, msgs := range sent {
 		if last := msgs[len(msgs)-1]; last.Role == "user" && strings.Contains(last.Content, "read enough") {
 			if !strings.Contains(last.Content, "a.go:3:10: cannot use box") {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -124,7 +126,7 @@ func TestEditsTruncationAndFaultsOutside(t *testing.T) {
 	asked = nil
 	m = scripted{asked: &asked, answers: []string{"=== FILE: a.go\nx\n=== END\n=== SUMMARY: s", "unused", "unused"}}
 	res, _ = Oneshot{Model: m}.Run(context.Background(),
-		Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: []string{"sh", "-c", "echo 'tests/a_test.go:3:5: syntax error: unexpected }'; exit 1"}},
+		Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Faults: colonFaults, Check: []string{"sh", "-c", "echo 'tests/a_test.go:3:5: syntax error: unexpected }'; exit 1"}},
 		func(Event) {})
 	if res.Terminal != FailedTask || len(asked) != 1 || !strings.Contains(res.Summary, "tests/a_test.go") {
 		t.Errorf("a fault outside the scope did not end the run at once: %+v after %d answers", res, len(asked))
@@ -135,7 +137,7 @@ func TestEditsTruncationAndFaultsOutside(t *testing.T) {
 	asked = nil
 	m = scripted{asked: &asked, answers: []string{"=== FILE: a.go\nx\n=== END\n=== SUMMARY: s", "=== FILE: a.go\ny\n=== END\n=== SUMMARY: s"}}
 	res, _ = Oneshot{Model: m, Attempts: 2}.Run(context.Background(),
-		Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Check: []string{"sh", "-c", "grep -q y a.go || { echo 'tests/a_test.go:3:5: undefined: Thing'; exit 1; }"}},
+		Task{Workspace: ws, Goal: "g", Scope: []string{"a.go"}, Faults: colonFaults, Check: []string{"sh", "-c", "grep -q y a.go || { echo 'tests/a_test.go:3:5: undefined: Thing'; exit 1; }"}},
 		func(Event) {})
 	if res.Terminal != Candidate || len(asked) != 2 {
 		t.Errorf("a missing name this unit was to define ended the run: %+v after %d answers", res, len(asked))
@@ -162,22 +164,19 @@ func TestMarkersAreRefusedAndSpacingForgiven(t *testing.T) {
 	}
 }
 
-// A name missing from a package the unit does not write into is the fault
-// of the file that uses it; one missing from a package it writes into is
-// what the unit is to define.
-func TestWhoseFaultAMissingNameIs(t *testing.T) {
+// Faults blame files outside the scope only where none is inside it and
+// none says a name is missing that the unit is to declare.
+func TestFaultsOutsideTheScope(t *testing.T) {
 	scope := []string{"internal/cli/resolve.go"}
-	out := "internal/flow/advise_test.go:177:46: m.usage.Out undefined (type model.Usage has no field or method Out)\n"
-	if got := faultsOutside(out, scope, ScopePackages(scope)); len(got) != 1 {
-		t.Errorf("a field model.Usage does not have was not blamed on the test: %v", got)
+	outside := Fault{File: "internal/flow/advise_test.go", Text: "advise_test.go:177: no field Out"}
+	if got := faultsOutside([]Fault{outside}, scope); !slices.Equal(got, []string{"internal/flow/advise_test.go"}) {
+		t.Errorf("a fault outside was not blamed: %v", got)
 	}
-	out = "internal/cli/resolve_test.go:12:3: undefined: cli.Resolve\n"
-	if got := faultsOutside(out, scope, ScopePackages(scope)); got != nil {
-		t.Errorf("a name the unit is to define was blamed on the test: %v", got)
+	if got := faultsOutside([]Fault{outside, {File: "internal/cli/resolve.go"}}, scope); got != nil {
+		t.Errorf("a fault inside the scope still blamed outside: %v", got)
 	}
-	out = "    advise_test.go:57: got 2 paths, want 3\n"
-	if got := faultsOutside(out, scope, ScopePackages(scope)); got != nil {
-		t.Errorf("a failed assertion was blamed on the test: %v", got)
+	if got := faultsOutside([]Fault{{File: "internal/cli/resolve_test.go", Missing: true}}, scope); got != nil {
+		t.Errorf("a name the unit is to declare was blamed on the test: %v", got)
 	}
 }
 
@@ -210,4 +209,16 @@ func TestAFileCutOffIsNotWritten(t *testing.T) {
 	if len(whole) != 2 || whole[0].cut || !whole[1].cut {
 		t.Errorf("parsed %+v", whole)
 	}
+}
+
+// colonFaults reads faults as many compilers write them, file:line:col: —
+// for these tests; a task is handed its language's own reading.
+func colonFaults(out string) []Fault {
+	var fs []Fault
+	for _, l := range strings.Split(out, "\n") {
+		if m := regexp.MustCompile(`^\s*([\w./-]+\.\w+):\d+:\d+:`).FindStringSubmatch(l); m != nil {
+			fs = append(fs, Fault{File: m[1], Text: strings.TrimSpace(l), Missing: strings.Contains(l, "undefined: Thing")})
+		}
+	}
+	return fs
 }
