@@ -587,7 +587,10 @@ func TestAReopenedChangeIsCarriedAgain(t *testing.T) {
 		files["shout_test.go"] = "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A" + bang + "\" {\n\t\tt.Fatal()\n\t}\n}\n"
 		files["greet.go"] = "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) + \"" + bang + "\" }\n"
 		prompts = nil
-		run, err := Reopen(cfg, repo, dir, from, "shout with an exclamation mark", nil)
+		// Shout exists now: planned again, it is changed, not provided.
+		again := cfg
+		again.Planner = planned{stubModel{spec, &prompts}, strings.Replace(plan, `,"provides":[{"file":"greet.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}]`, "", 1)}
+		run, err := Reopen(again, repo, dir, from, "shout with an exclamation mark", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1274,6 +1277,9 @@ type planned struct {
 
 func (s planned) Ask(ctx context.Context, system, prompt string) (string, model.Usage, error) {
 	if system == plannerSystem {
+		if s.handed != nil {
+			*s.handed = append(*s.handed, prompt)
+		}
 		return s.plan, model.Usage{Model: "stub"}, nil
 	}
 	return s.stubModel.Ask(ctx, system, prompt)

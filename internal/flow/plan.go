@@ -214,7 +214,9 @@ func (r *Run) plan(ctx context.Context) error {
 		return err
 	}
 	if units == nil {
-		units, planner = r.derivedUnits(all, byTests), "the framework, deriving the units from the specification alone: "+planner
+		// No plan was made that holds to the method; none is made up in its
+		// place. The person reopens the change from its plan, saying more.
+		return r.fail(2, "no plan could be made: %s", planner)
 	}
 	units = r.withContract(units)
 	repo := r.cfg.Estate.Repo(r.repo)
@@ -543,19 +545,6 @@ func (r *Run) withContract(units []unit) []unit {
 	return r.number(append(append([]unit{contract}, tests...), code...))
 }
 
-// derivedUnits is the division made without a planner: the new tests as one
-// unit, the whole scope as the other.
-func (r *Run) derivedUnits(all, byTests []string) []unit {
-	d := r.spec
-	var units []unit
-	if len(d.NewTests) > 0 {
-		units = append(units, unit{kind: meta.TestsUnit, title: "the tests that judge the change", class: d.Class, scope: d.NewTests, criteria: byTests,
-			brief: "Write the tests that decide the criteria named, as the specification states them."})
-	}
-	units = append(units, unit{kind: meta.CodeUnit, title: "the change", class: d.Class, scope: d.Scope, criteria: all,
-		brief: "Make the criteria hold: " + r.statement})
-	return r.number(units)
-}
 
 // planText is a plan as a reviewer reads it: the approach, then every unit
 // with its scope and brief.
