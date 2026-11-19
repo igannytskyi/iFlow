@@ -155,3 +155,17 @@ func (c *Client) Refuse(ctx context.Context, run, why string) error {
 func (c *Client) Stop(ctx context.Context, run string) error {
 	return c.conn.Call(ctx, protocol.Stop, protocol.RunRef{Run: run}, nil)
 }
+
+// Projects is the projects the person works on, and their changes.
+func (c *Client) Projects(ctx context.Context, also ...string) ([]protocol.Project, error) {
+	var out []protocol.Project
+	err := c.conn.Call(ctx, protocol.Projects, protocol.ProjectsParams{Also: also}, &out)
+	return out, err
+}
+
+// Record is a change's record.
+func (c *Client) Record(ctx context.Context, dir string) ([]protocol.Crossing, error) {
+	var out []protocol.Crossing
+	err := c.conn.Call(ctx, protocol.Record, protocol.ChangeRef{Dir: dir}, &out)
+	return out, err
+}

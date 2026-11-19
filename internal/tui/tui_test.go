@@ -127,7 +127,7 @@ func TestTheScreenCarriesATask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go func() { _ = service.New(ctx, fakeMaker{}, "a test").Serve(ctx, l) }()
+	go func() { _ = service.New(ctx, fakeMaker{}, "a test", nil).Serve(ctx, l) }()
 	moved := make(chan string, 64)
 	client, err := service.Dial(ctx, socket, "a test", func(run string) { moved <- run })
 	if err != nil {
@@ -137,8 +137,9 @@ func TestTheScreenCarriesATask(t *testing.T) {
 
 	m := New(ctx, client, moved, "/estate")
 	m.term = terminal{name: "a terminal"}
-	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 30})
-	if !strings.Contains(m.View(), "press n") {
+	m = drive(m, tea.WindowSizeMsg{Width: 140, Height: 30})
+	m = drive(m, m.listProjects())
+	if !strings.Contains(m.View(), "press n") || !strings.Contains(m.View(), "▾ estate") {
 		t.Fatalf("an empty project does not say how to begin:\n%s", m.View())
 	}
 	m = drive(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
@@ -148,7 +149,7 @@ func TestTheScreenCarriesATask(t *testing.T) {
 	m = drive(m, tea.KeyMsg{Type: tea.KeyEnter})
 	waitFor(t, &m, moved, func(v string) bool { return strings.Contains(v, "waiting for you") })
 	v := m.View()
-	for _, want := range []string{"shout the greeting", "1 spec ?", "WU-001-02", "› write greet.go", "[a] accept"} {
+	for _, want := range []string{"? shout the greeting", "1 spec ?", "WU-001-02", "› write greet.go", "[a] accept"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("the screen does not show %q:\n%s", want, v)
 		}
@@ -168,6 +169,52 @@ func waitFor(t *testing.T, m *Model, moved chan string, ok func(string) bool) {
 			*m = drive(*m, movedMsg(run))
 		case <-deadline:
 			t.Fatalf("the screen never showed it:\n%s", m.View())
+		}
+	}
+}
+
+// The projects the screen opens on are shown with their changes, newest
+// first; one no run carries is shown as its folder keeps it: how far it
+// went, and its record.
+func TestTheScreenShowsAProjectsChanges(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir, err := os.MkdirTemp("/tmp", "iflow-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	socket := filepath.Join(dir, "s.sock")
+	l, err := service.Listen(ctx, socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = service.New(ctx, fakeMaker{}, "a test", nil).Serve(ctx, l) }()
+	client, err := service.Dial(ctx, socket, "a test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	greeting, err := filepath.Abs("../../examples/greeting")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(ctx, client, make(chan string), greeting)
+	m.term = terminal{name: "a terminal"}
+	m = drive(m, tea.WindowSizeMsg{Width: 160, Height: 40})
+	next, cmd := m.Update(m.listProjects())
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("the change on view has no record asked for")
+	}
+	m = drive(m, cmd())
+	v := m.View()
+	if os.Getenv("IFLOW_SHOW") != "" {
+		t.Log("\n" + v)
+	}
+	for _, want := range []string{"▾ greeting", "✓", "record", "landing"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("the screen does not show %q:\n%s", want, v)
 		}
 	}
 }

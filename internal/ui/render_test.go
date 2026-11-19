@@ -104,7 +104,7 @@ func testUI(t *testing.T, cfg *flow.Config, projects ...string) *UI {
 			t.Fatal(err)
 		}
 		go func() {
-			_ = service.New(ctx, service.FlowMaker{Config: func() flow.Config { return *cfg }}, "a test").Serve(ctx, l)
+			_ = service.New(ctx, service.FlowMaker{Config: func() flow.Config { return *cfg }}, "a test", nil).Serve(ctx, l)
 		}()
 		o.Connect = func(changed func(string)) (*service.Client, error) {
 			return service.Dial(ctx, socket, "a test", changed)

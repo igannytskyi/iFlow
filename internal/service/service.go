@@ -41,6 +41,8 @@ type Service struct {
 	maker  Maker
 	person string
 	ctx    context.Context
+	// projects is the folders of the projects the person works on.
+	projects func() []string
 
 	mu   sync.Mutex
 	n    int
@@ -50,9 +52,10 @@ type Service struct {
 }
 
 // New is a service that makes its runs with maker; person is who stops a
-// run when a screen asks it to. Its runs end when ctx does.
-func New(ctx context.Context, maker Maker, person string) *Service {
-	return &Service{maker: maker, person: person, ctx: ctx, runs: map[string]*entry{}}
+// run when a screen asks it to, and projects says which projects they work
+// on. Its runs end when ctx does.
+func New(ctx context.Context, maker Maker, person string, projects func() []string) *Service {
+	return &Service{maker: maker, person: person, projects: projects, ctx: ctx, runs: map[string]*entry{}}
 }
 
 // entry is one run, and the screens watching it.
@@ -140,11 +143,32 @@ func (s *Service) Handle(ctx context.Context, c *protocol.Conn, method string, p
 		}
 		if p.Version != protocol.Version {
 			return nil, &protocol.Error{Code: protocol.Refused,
-				Message: fmt.Sprintf("this service speaks version %d of the protocol, and %s version %d", protocol.Version, p.Client, p.Version)}
+				Message: fmt.Sprintf("this service speaks version %d of the protocol, and %s version %d: stop the service (pkill -f 'iflow serve') and open the screen again, which starts the one it speaks with", protocol.Version, p.Client, p.Version)}
 		}
 		return protocol.InitializeResult{Version: protocol.Version, Server: "iflow"}, nil
 	case protocol.Runs:
 		return s.summaries(), nil
+	case protocol.Projects:
+		var p protocol.ProjectsParams
+		if err := protocol.Decode(params, &p); err != nil {
+			return nil, err
+		}
+		var paths []string
+		if s.projects != nil {
+			paths = s.projects()
+		}
+		for _, a := range p.Also {
+			if !slices.Contains(paths, a) {
+				paths = append(paths, a)
+			}
+		}
+		return Catalog(paths), nil
+	case protocol.Record:
+		var p protocol.ChangeRef
+		if err := protocol.Decode(params, &p); err != nil {
+			return nil, err
+		}
+		return record(p.Dir)
 	case protocol.Start:
 		var p protocol.StartParams
 		if err := protocol.Decode(params, &p); err != nil {

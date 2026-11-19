@@ -14,7 +14,7 @@ import (
 )
 
 // Version is the version of the protocol this side speaks.
-const Version = 1
+const Version = 2
 
 // The methods a screen calls.
 const (
@@ -27,6 +27,8 @@ const (
 	Stop       = "run.stop"   // RunRef → nothing
 	Watch      = "run.watch"  // RunRef → nothing; Changed follows
 	Unwatch    = "run.unwatch"
+	Projects   = "projects"      // ProjectsParams → []Project
+	Record     = "change.record" // ChangeRef → []Crossing
 )
 
 // Changed is what the service sends a screen watching a run, whenever the
@@ -181,3 +183,52 @@ const (
 	// not known, a question not asked.
 	Refused = -32000
 )
+
+// Project is a project the person works on, and its changes, newest first.
+type Project struct {
+	Path    string   `json:"path"`
+	Name    string   `json:"name"`
+	Changes []Change `json:"changes"`
+}
+
+// Change is a change carried on a project, as its folder says it stands.
+type Change struct {
+	Dir       string `json:"dir"`
+	Name      string `json:"name"`
+	Statement string `json:"statement"`
+	// Reached is the last area that wrote into it, 0 to 6.
+	Reached  int         `json:"reached"`
+	State    ChangeState `json:"state"`
+	Modified time.Time   `json:"modified"`
+}
+
+// ChangeState is how a change stands.
+type ChangeState string
+
+// The ways a change can stand.
+const (
+	Carried ChangeState = "working" // a run carries it now, here or elsewhere
+	Landed  ChangeState = "landed"
+	Closed  ChangeState = "closed"
+	Stopped ChangeState = "stopped"
+)
+
+// ChangeRef names a change by its folder.
+type ChangeRef struct {
+	Dir string `json:"dir"`
+}
+
+// Crossing is one line of a change's record: what crossed, when, and why.
+type Crossing struct {
+	N      int    `json:"n"`
+	At     string `json:"at"`
+	Stage  string `json:"stage"`
+	Object string `json:"object"`
+	Note   string `json:"note,omitempty"`
+}
+
+// ProjectsParams asks for the projects the person works on, and for those
+// in Also besides — a project a screen was opened on.
+type ProjectsParams struct {
+	Also []string `json:"also,omitempty"`
+}

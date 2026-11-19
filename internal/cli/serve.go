@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/igannytskyi/iflow/internal/flow"
+	"github.com/igannytskyi/iflow/internal/home"
 	"github.com/igannytskyi/iflow/internal/protocol"
 	"github.com/igannytskyi/iflow/internal/service"
 )
@@ -24,7 +25,7 @@ func (app *App) Serve(ctx context.Context) int {
 		return app.fatal(err)
 	}
 	fmt.Fprintf(app.Out, "carrying runs for the screens at %s\n", socket)
-	if err := service.New(ctx, service.FlowMaker{Config: app.flowConfigLogged}, person()).Serve(ctx, l); err != nil {
+	if err := service.New(ctx, service.FlowMaker{Config: app.flowConfigLogged}, person(), home.Projects).Serve(ctx, l); err != nil {
 		return app.fatal(err)
 	}
 	return OK

@@ -92,7 +92,7 @@ func serve(t *testing.T) (*Client, chan string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go func() { _ = New(ctx, fakeMaker{}, "a test").Serve(ctx, l) }()
+	go func() { _ = New(ctx, fakeMaker{}, "a test", nil).Serve(ctx, l) }()
 	moved := make(chan string, 64)
 	c, err := Dial(ctx, socket, "a test", func(run string) { moved <- run })
 	if err != nil {
@@ -229,7 +229,7 @@ func TestOneServiceListensAtASocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a socket left behind was not taken: %v", err)
 	}
-	go func() { _ = New(ctx, fakeMaker{}, "a test").Serve(ctx, l) }()
+	go func() { _ = New(ctx, fakeMaker{}, "a test", nil).Serve(ctx, l) }()
 	if _, err := Listen(ctx, socket); !errors.Is(err, ErrRunning) {
 		t.Errorf("a second service listened where one listens: %v", err)
 	}
