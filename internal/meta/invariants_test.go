@@ -19,7 +19,7 @@ func goodPlan() (Plan, Specification) {
 	loud := Provision{File: "loud.go", Name: "Loud", Kind: Function, Signature: "func Loud(n string) string"}
 	p := Plan{Units: []WorkUnit{
 		{ID: "WU-1", Kind: ContractUnit, Scope: []string{"shout.go", "loud.go"}, Criteria: []string{"CR-2"}, Brief: "declare", Provides: []Provision{shout, loud}},
-		{ID: "WU-2", Kind: TestsUnit, Scope: []string{"shout_test.go"}, Criteria: []string{"CR-1"}, Brief: "test"},
+		{ID: "WU-2", Kind: TestsUnit, Scope: []string{"shout_test.go"}, Criteria: []string{"CR-1"}, Brief: "test", Uses: []string{"Shout", "Loud"}},
 		{ID: "WU-3", Kind: CodeUnit, Scope: []string{"shout.go"}, Criteria: []string{"CR-1"}, Brief: "shout", Provides: []Provision{shout}},
 		{ID: "WU-4", Kind: CodeUnit, Scope: []string{"loud.go"}, Criteria: []string{"CR-1", "CR-2"}, Brief: "loud", Provides: []Provision{loud}, Uses: []string{"Shout"}},
 	}}

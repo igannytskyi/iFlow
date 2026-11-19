@@ -166,9 +166,13 @@ func PlanBreaches(p Plan, s Specification) []Breach {
 			}
 		}
 	}
-	// P10: a unit uses no name a later code unit provides and no earlier one
-	// does: the contract declares it, but its behaviour is not there yet.
+	// P10: a code unit uses no name a later code unit provides and no
+	// earlier one does: the contract declares it, but its behaviour is not
+	// there yet. Tests use what the code will provide; that is their work.
 	for i, u := range p.Units {
+		if u.Kind != CodeUnit {
+			continue
+		}
 		for _, n := range u.Uses {
 			earlier := slices.ContainsFunc(p.Units[:i], func(o WorkUnit) bool { return o.Kind == CodeUnit && provides(o, n) })
 			later := slices.ContainsFunc(p.Units[i+1:], func(o WorkUnit) bool { return o.Kind == CodeUnit && provides(o, n) })
