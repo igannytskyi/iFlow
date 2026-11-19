@@ -72,8 +72,11 @@ type Specification struct {
 	Inputs []ArbiterInput `json:"arbiter_inputs,omitempty" doc:"what the arbiters read, and whether each is in the scope"`
 	// NewTests are the tests written for this change before its code, and
 	// SuiteTests those already there that judge it.
-	NewTests   []string `json:"new_tests,omitempty" doc:"the tests written for this change, before its code"`
-	SuiteTests []string `json:"existing_tests,omitempty" doc:"the tests already there that judge it"`
+	NewTests []string `json:"new_tests,omitempty" doc:"the tests written for this change, before its code"`
+	// Relies are the names the change builds on that exist already, each
+	// as the estate declared it when the change was specified.
+	Relies     []Provision `json:"relies_on,omitempty" doc:"the existing names the change builds on, each exactly as the estate declares it"`
+	SuiteTests []string    `json:"existing_tests,omitempty" doc:"the tests already there that judge it"`
 	// Sections are the further sections a study's specification keeps —
 	// its population, hypothesis, measures — as headed prose and tables.
 	Sections []Section `json:"sections,omitempty" doc:"headed parts the model has no field for, kept as they were written"`

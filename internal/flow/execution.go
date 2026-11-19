@@ -438,7 +438,7 @@ func specDecisions(dir string, tests bool) string {
 	if err != nil {
 		return ""
 	}
-	want := []string{"Functional requirements", "Non-functional requirements", "Data model", "Interfaces", "Components and files", "Edge cases and errors"}
+	want := []string{"Functional requirements", "Non-functional requirements", "Data model", "Interfaces", "Existing names it builds on", "Components and files", "Edge cases and errors"}
 	if tests {
 		want = append(want, "Test strategy")
 	}

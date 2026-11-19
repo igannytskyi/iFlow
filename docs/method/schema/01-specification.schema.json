@@ -157,6 +157,45 @@
       "description": "what the document says besides its fields, for one written before the model held it",
       "type": "string"
     },
+    "relies_on": {
+      "description": "the existing names the change builds on, each exactly as the estate declares it",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "description": "the file it is declared in; empty only for one described",
+            "type": "string"
+          },
+          "kind": {
+            "description": "what the code declares it as",
+            "enum": [
+              "function",
+              "method",
+              "type",
+              "field",
+              "variable",
+              "constant",
+              "described"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "the name the other units call it by; empty only for one described",
+            "type": "string"
+          },
+          "signature": {
+            "description": "its declaration as the estate's language writes it, or, described, what was said of it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "schema": {
       "description": "the version of the data model this was written in",
       "minimum": 0,

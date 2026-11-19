@@ -44,8 +44,11 @@ type draft struct {
 	Document document `json:"document"`
 	// Later are the parts of a task too large for one change: each a task
 	// of its own, to be specified when this one has landed.
-	Later       []string         `json:"later"`
-	Criteria    []draftCriterion `json:"criteria"`
+	Later    []string         `json:"later"`
+	Criteria []draftCriterion `json:"criteria"`
+	// Relies are the names the change builds on that exist already, each
+	// as the estate declares it.
+	Relies      []meta.Provision `json:"relies_on"`
 	Scope       []string         `json:"scope"`
 	NewTests    []string         `json:"new_tests"`
 	SuiteTests  []string         `json:"existing_tests"`
@@ -92,9 +95,10 @@ Rules you must follow:
 - Every entry of "scope", "new_tests" and "existing_tests" is the path of a file and nothing else — "test_greeting.py", never "test_greeting.py::GreetTest" or a path with words after it.
 - Keep the change to what a few agents, each with one unit, can carry out. If the task is larger, specify its first coherent part — one that is worth landing alone — and list in "later" the rest, each written as a task of its own, in the order they should come.
 - "existing_tests" lists the estate's existing test files that judge that nothing else moves.
+- "relies_on" lists every name that exists already and the change calls, changes or builds on, each as {"file", "name", "kind": one of function, method, type, field, variable, constant, "signature": its declaration copied exactly as the estate declares it}. You are shown how the names near the task are declared; one you are not shown, you do not guess — leave it out or say in "open_questions" what is unknown. Every other part of the specification states these names as declared here: a decision about an existing name never contradicts its declaration.
 - "slug" is a few lowercase words joined by hyphens.
 
-The JSON object has exactly these keys: slug, name, statement, class, prose, document (the keys above), later, criteria (criterion, when, then, plan, threshold, judged_by_new_tests, procedure), scope, new_tests, existing_tests, termination (condition, action: stop or escalate).`
+The JSON object has exactly these keys: slug, name, statement, class, prose, document (the keys above), later, criteria (criterion, when, then, plan, threshold, judged_by_new_tests, procedure), relies_on (file, name, kind, signature), scope, new_tests, existing_tests, termination (condition, action: stop or escalate).`
 
 // overview is what a model is shown of the estate to state a change: every
 // source file and the names it defines, where the words of the task land,
@@ -106,12 +110,17 @@ func (r *Run) overview() string {
 	b.WriteString("The files of the estate, and what each defines:\n\n" + repo.Map(r.cfg.packBudget()/2) + "\n")
 	if found, _, err := repo.Survey(r.statement, 4); err == nil && len(found) > 0 {
 		b.WriteString("Where the words of the task land:\n\n")
+		var names []string
 		for _, l := range found {
 			var at []string
 			for _, p := range l.Places {
 				at = append(at, fmt.Sprintf("%s:%d", p.File, p.Start))
 			}
 			fmt.Fprintf(&b, "- %q %s %s — %s\n", l.Word, l.How, strings.Join(l.Names, ", "), strings.Join(at, ", "))
+			names = append(names, l.Names...)
+		}
+		if decl := r.declarations(names, 40); len(decl) > 0 {
+			b.WriteString("\nHow those names are declared, exactly — what \"relies_on\" copies:\n\n" + strings.Join(decl, "\n") + "\n")
 		}
 		b.WriteString("\n")
 	}
@@ -347,7 +356,11 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 		if err != nil {
 			return d, r.fail(1, "the model could not be asked: %v", err)
 		}
-		if why := d.problem(); why != "" {
+		why := d.problem()
+		if why == "" {
+			why = r.reliesProblem(d.Relies)
+		}
+		if why != "" {
 			note = "\n\nYour last answer cannot be used: " + why + ". Answer again."
 			r.say(1, "", "the draft is sent back: %s", why)
 			continue
@@ -462,7 +475,7 @@ func (r *Run) writeIntent(d draft) error {
 	if err != nil {
 		return err
 	}
-	spec := meta.Specification{Schema: meta.SchemaVersion, Name: r.slug, ID: r.id("SPEC"), Intent: r.id("INT"), Class: meta.Class(d.Class), Prose: d.Prose,
+	spec := meta.Specification{Schema: meta.SchemaVersion, Name: r.slug, ID: r.id("SPEC"), Intent: r.id("INT"), Class: meta.Class(d.Class), Prose: d.Prose, Relies: d.Relies,
 		Scope:    meta.Scope{Included: d.Scope, Excluded: append(slices.Clone(d.NewTests), d.SuiteTests...)},
 		NewTests: d.NewTests, SuiteTests: d.SuiteTests,
 	}
@@ -525,7 +538,12 @@ func (r *Run) writeIntent(d draft) error {
 	for i, c := range d.Criteria {
 		crit = append(crit, fmt.Sprintf("%s %s — when %s, then %s", r.id("CR", i+1), c.Criterion, c.When, c.Then))
 	}
-	parts := append(d.Document.parts(), artifact.Part{Title: "Acceptance criteria", Points: crit},
+	var relies []string
+	for _, p := range d.Relies {
+		relies = append(relies, p.Signature+" — "+p.File)
+	}
+	parts := append(d.Document.parts(), artifact.Part{Title: "Existing names it builds on", Points: relies},
+		artifact.Part{Title: "Acceptance criteria", Points: crit},
 		artifact.Part{Title: "Termination", Points: terms(d)},
 		artifact.Part{Title: "What comes after", Points: d.Later})
 	if err := os.WriteFile(filepath.Join(dir, artifact.ChangeFile), []byte(artifact.ChangeDoc{Name: r.slug, Statement: d.Statement, Summary: d.Prose, Parts: parts}.Markdown()), 0o644); err != nil {
@@ -579,4 +597,67 @@ func terms(d draft) []string {
 		out = append(out, t.Action+" when "+t.Condition)
 	}
 	return out
+}
+
+// declarations is how each of names is declared in the estate, at most n
+// of them: where, and its first line.
+func (r *Run) declarations(names []string, n int) []string {
+	repo := r.cfg.Estate.Repo(r.repo)
+	var out []string
+	for _, name := range slices.Compact(slices.Sorted(slices.Values(names))) {
+		places, _ := repo.WhereDefined(name)
+		for _, p := range places {
+			if len(out) == n {
+				return out
+			}
+			if ex := repo.Excerpt(p.File, p.Start, p.Start, 1); len(ex) == 1 {
+				out = append(out, fmt.Sprintf("%s:%d  %s", p.File, p.Start, estate.Signature(ex[0].Text)))
+			}
+		}
+	}
+	return out
+}
+
+// reliesProblem says where what a specification relies on is not what the
+// estate declares: a name its file does not declare, or a signature not
+// the declaration's — with the declaration, so that the author copies it.
+func (r *Run) reliesProblem(relies []meta.Provision) string {
+	repo := r.cfg.Estate.Repo(r.repo)
+	for _, p := range relies {
+		if p.Name == "" || p.File == "" || p.Signature == "" || !meta.Allowed("DeclKind", string(p.Kind)) || p.Kind == meta.Described {
+			return fmt.Sprintf("relies_on holds %q without its file, name, kind and signature", p.Name+p.Signature)
+		}
+		places, _ := repo.WhereDefined(p.Name)
+		var lines []string
+		for _, pl := range places {
+			if pl.File != p.File {
+				continue
+			}
+			if ex := repo.Excerpt(pl.File, pl.Start, pl.Start, 1); len(ex) == 1 {
+				if declares(ex[0].Text, p.Signature) {
+					lines = nil
+					break
+				}
+				lines = append(lines, estate.Signature(ex[0].Text))
+			}
+		}
+		switch {
+		case len(places) == 0 || (len(lines) == 0 && !slices.ContainsFunc(places, func(pl estate.Place) bool { return pl.File == p.File })):
+			return fmt.Sprintf("relies_on names %s in %s, which the estate does not declare there; a name the change adds is not relied on, and one that exists is relied on where it is", p.Name, p.File)
+		case len(lines) > 0:
+			return fmt.Sprintf("relies_on states %s as %q, but %s declares it %q; copy the declaration exactly, and decide nothing about %s that contradicts it",
+				p.Name, p.Signature, p.File, lines[0], p.Name)
+		}
+	}
+	return ""
+}
+
+// declares says whether line, a declaration's first line, declares what
+// signature states: the same but for its body, the block it opens, and its
+// spacing.
+func declares(line, signature string) bool {
+	norm := func(s string) string { return strings.TrimRight(strings.Join(strings.Fields(s), " "), " {:") }
+	l, s := norm(estate.Signature(line)), norm(signature)
+	rest, ok := strings.CutPrefix(l, s)
+	return ok && (rest == "" || strings.HasPrefix(strings.TrimSpace(rest), "="))
 }

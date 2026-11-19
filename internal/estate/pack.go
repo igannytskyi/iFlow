@@ -269,7 +269,7 @@ func (r *Repo) Signatures(paths []string, budget int) string {
 			}
 			seen[sym.Start] = true
 			if ex := r.Excerpt(s, sym.Start, sym.Start, 1); len(ex) == 1 {
-				b.WriteString("  " + signature(ex[0].Text) + "\n")
+				b.WriteString("  " + Signature(ex[0].Text) + "\n")
 			}
 		}
 		if Tokens(b.String()) > budget {
@@ -280,9 +280,9 @@ func (r *Repo) Signatures(paths []string, budget int) string {
 	return b.String()
 }
 
-// signature is a definition's first line without its body: a one-line
+// Signature is a definition's first line without its body: a one-line
 // function shows how it is called, not what it does.
-func signature(line string) string {
+func Signature(line string) string {
 	line = strings.TrimSpace(line)
 	if i := strings.Index(line, " {"); i >= 0 {
 		line = line[:i]

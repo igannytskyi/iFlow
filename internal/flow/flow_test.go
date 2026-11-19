@@ -1856,3 +1856,37 @@ func TestAPlanLeavingACriterionIsSentBack(t *testing.T) {
 		t.Fatalf("a plan leaving a criterion to no unit was not sent back: %v", err)
 	}
 }
+
+// What a specification relies on that exists is held to the estate's own
+// declaration: a signature the author made up goes back with the real one.
+func TestWhatTheSpecificationReliesOnIsAsDeclared(t *testing.T) {
+	repo := estateFixture(t)
+	r := &Run{repo: repo, cfg: Config{Estate: estate.NewLocal()}}
+	greet := func(sig string) []meta.Provision {
+		return []meta.Provision{{File: "greet.go", Name: "Greet", Kind: meta.Function, Signature: sig}}
+	}
+	if why := r.reliesProblem(greet("func Greet(n string) string")); why != "" {
+		t.Errorf("the estate's own declaration was refused: %s", why)
+	}
+	why := r.reliesProblem(greet("func Greet(n ...string) string"))
+	if !strings.Contains(why, `declares it "func Greet(n string) string"`) {
+		t.Errorf("a made-up signature was not sent back with the declaration: %q", why)
+	}
+	if why := r.reliesProblem([]meta.Provision{{File: "greet.go", Name: "Shout", Kind: meta.Function, Signature: "func Shout(n string) string"}}); !strings.Contains(why, "does not declare") {
+		t.Errorf("a name the estate does not declare was relied on: %q", why)
+	}
+	for _, c := range []struct {
+		line, sig string
+		want      bool
+	}{
+		{"def greet(name: str) -> str:", "def greet(name: str) -> str", true},
+		{"def greet(name: str) -> str:", "def greet(name=None)", false},
+		{"function greet(name) {", "function greet(name)", true},
+		{"func  Greet(n string)  string {", "func Greet(n string) string", true},
+		{"func Greet(n string) string {", "func Greet(n string", false},
+	} {
+		if got := declares(c.line, c.sig); got != c.want {
+			t.Errorf("declares(%q, %q) = %v", c.line, c.sig, got)
+		}
+	}
+}

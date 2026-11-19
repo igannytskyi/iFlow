@@ -5,7 +5,7 @@
 A change moves left to right, and each step only narrows what the one before it decided:
 
 1. **Intent.** The person says what they want, loosely.
-2. **Specification.** An author turns it into a specification. To write it, the author is handed the project's present state and what the project is for as a whole, not only the task: the estate's files and names, where the task's words land, the project's own README and AGENTS.md, and the person's earlier decisions. A reviewer checks the specification, then the person accepts it.
+2. **Specification.** An author turns it into a specification. To write it, the author is handed the project's present state and what the project is for as a whole, not only the task: the estate's files and names, where the task's words land, the project's own README and AGENTS.md, and the person's earlier decisions. Every existing name it builds on it states exactly as the estate declares it (`relies_on`); one stated otherwise goes back to the author with the declaration. A reviewer checks the specification, then the person accepts it.
 3. **Plan.** A planner divides the specification into units. Every unit serves criteria the specification already states. A unit invents nothing: it carries out a decision or checks one.
 4. **Execution.** Agents carry the units, each in its own copy of the estate.
 5. **Assurance.** The result is judged against the criteria, by tests written before the code and by the person where only a person can see.
@@ -107,5 +107,4 @@ The tokens each agent was handed are recorded with its costs.
 2. A test that drives the scheduler through random outcomes and shows that it always ends.
 3. Tools' machine-readable reports in place of patterns over their output.
 4. The contract written by the framework from the typed provisions, not by a model (backlog 65).
-5. The specification's interfaces typed, and every existing one checked against the estate (66).
-6. A bench task on an estate large enough for the budget to matter. Today's bench hands 2–5k tokens a unit, so it cannot show the budget's effect.
+5. A bench task on an estate large enough for the budget to matter. Today's bench hands 2–5k tokens a unit, so it cannot show the budget's effect.
