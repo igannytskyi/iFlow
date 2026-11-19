@@ -14,6 +14,7 @@ import (
 
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/harness"
+	"github.com/igannytskyi/iflow/internal/protocol"
 	"github.com/igannytskyi/iflow/internal/service"
 )
 
@@ -259,5 +260,19 @@ func TestTheScreenOpensAChangeAreaByArea(t *testing.T) {
 	m = key(m, "esc")
 	if m.focus != onList || m.mode != reading {
 		t.Error("esc did not leave the conversation")
+	}
+}
+
+// o reads the change described here, in the terminal: the specification's
+// area, from its top — nothing is opened outside the screen.
+func TestOReadsTheSpecificationInTheTerminal(t *testing.T) {
+	m := New(context.Background(), &service.Client{}, nil, "/estate") // a client told of no run
+	m.projects = []protocol.Project{{Path: "/estate", Name: "estate", Changes: []protocol.Change{{Dir: "/estate/changes/x", Statement: "x"}}}}
+	m.docs["/estate/changes/x"] = protocol.ChangeDoc{Change: protocol.Change{Dir: "/estate/changes/x"}, Document: "# The change\n\nIt greets."}
+	m.area, m.scroll = 4, 7
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = next.(Model)
+	if m.focus != onTask || m.area != 1 || m.scroll != 0 || cmd != nil {
+		t.Errorf("o did not show the specification from its top: focus %d, area %d, scroll %d", m.focus, m.area, m.scroll)
 	}
 }

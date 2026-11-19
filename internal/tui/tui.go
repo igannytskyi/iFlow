@@ -7,8 +7,6 @@ package tui
 import (
 	"context"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -416,8 +414,11 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "o":
-		if dir := m.dirOf(t); has && dir != "" {
-			return m, open(filepath.Join(dir, "change.md"))
+		// The change described is read here, in the terminal: the
+		// specification's area, from its top.
+		if has {
+			m.focus, m.area, m.row, m.scroll = onTask, 1, 0, 0
+			return m, m.onView()
 		}
 	}
 	if m.focus == onList {
@@ -518,21 +519,6 @@ func result(err error, done string) tea.Msg {
 	return noteMsg(done)
 }
 
-// open shows a file in the person's editor, or the system's viewer.
-func open(path string) tea.Cmd {
-	editor := os.Getenv("EDITOR")
-	cmd := exec.Command("open", path)
-	if editor != "" {
-		cmd = exec.Command(editor, path)
-	}
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
-		if err != nil {
-			return noteMsg(path + " could not be opened: " + err.Error())
-		}
-		return nil
-	})
-}
-
 var (
 	faint   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#8a8a85", Dark: "#7a7a75"})
 	strong  = lipgloss.NewStyle().Bold(true)
@@ -620,7 +606,7 @@ func (m Model) foot() string {
 	case onList:
 		keys = "↑↓ task · ←→ project · enter open · n new · c chat · q leave (runs go on)"
 	case onTask:
-		keys = "1–6 or ←→ area · ↑↓ choose/scroll · esc back · a accept · r send back · s stop · o open · c chat"
+		keys = "1–6 or ←→ area · ↑↓ choose/scroll · esc back · a accept · r send back · s stop · o read the spec · c chat"
 	case onChat:
 		keys = "esc back"
 	}

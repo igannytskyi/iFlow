@@ -38,7 +38,7 @@ func (m Model) task(width, height int) string {
 	var question []string
 	if live && s.Question != "" {
 		question = []string{waiting.Render("waiting for you · ") + oneLine(s.Question),
-			faint.Render("[a] accept   [r] send back with why   [o] open change.md")}
+			faint.Render("[a] accept   [r] send back with why   [o] read the specification")}
 		h -= len(question) + 1
 	}
 	var body []string
