@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gioui.org/app"
@@ -23,6 +24,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/gate"
 	"github.com/igannytskyi/iflow/internal/method"
+	"github.com/igannytskyi/iflow/internal/service"
 	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
@@ -38,6 +40,15 @@ type UI struct {
 	gate     *gate.Gate
 
 	flowConfig *flow.Config
+	// client is the window's side of the service that carries its runs;
+	// serviceErr why there is none, where there is none.
+	client     *service.Client
+	serviceErr string
+	// runOf is the project each run the window started belongs to, so that
+	// what the service tells of a run reaches its project: told from the
+	// client's goroutine, it is guarded.
+	runsMu     sync.Mutex
+	runOf      map[string]*project
 	rebuild    func() (flow.Config, string)
 	modelsNote string
 	settings   *settings
@@ -78,12 +89,24 @@ type Options struct {
 	// anything; Rebuild makes Flow again after the choice changes.
 	ModelsProblem string
 	Rebuild       func() (flow.Config, string)
+	// Connect speaks to the service that carries the runs, telling changed
+	// whenever one the window watches moves; nil leaves the window able to
+	// show but not to run.
+	Connect func(changed func(run string)) (*service.Client, error)
 }
 
 func newUI(ctx context.Context, o Options, s *settings) *UI {
 	u := &UI{model: o.Model, gate: o.Gate, flowConfig: o.Flow, rebuild: o.Rebuild, modelsNote: o.ModelsProblem, settings: s, ctx: ctx, parallel: max(o.Parallel, 1),
 		clicks: clicks{}, lists: lists{}, docs: newDocs(), splits: map[string]*split{}}
 	u.adding.SingleLine, u.adding.Submit = true, true
+	u.serviceErr = "no service is configured"
+	if o.Connect != nil {
+		if c, err := o.Connect(u.moved); err != nil {
+			u.serviceErr = err.Error()
+		} else {
+			u.client, u.serviceErr = c, ""
+		}
+	}
 	u.chosen = make(chan chosen, 1)
 	u.setTheme(s.Dark)
 	named := o.Projects
@@ -559,8 +582,8 @@ func (u *UI) taskRow(p *project, key, title, state, spent string, c *workspace.C
 					dir = c.Change.Dir
 				}
 				if key == runKey || (p.run != nil && p.run.View().Dir == dir) {
-					if p.cancel != nil {
-						p.cancel()
+					if p.run != nil {
+						p.run.Stop()
 					}
 				} else if err := flow.Stop(dir, u.person()); err != nil {
 					p.resolveErr = err.Error()

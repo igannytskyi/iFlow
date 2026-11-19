@@ -10,6 +10,7 @@ import (
 	"gioui.org/widget/material"
 
 	"github.com/igannytskyi/iflow/internal/flow"
+	"github.com/igannytskyi/iflow/internal/protocol"
 	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
@@ -138,23 +139,9 @@ func (u *UI) reopen(p *project, c *workspace.Change, from int, notes, ref string
 	if p.running() {
 		return errBusy
 	}
-	ctx, cancel := context.WithCancel(u.ctx)
-	run, err := flow.Reopen(*u.flowConfig, p.path, c.Change.Dir, from, notes, u.invalidate)
-	if err != nil {
-		cancel()
-		return err
-	}
-	if ref != "" {
-		run.Settles(ref)
-	}
-	p.cancel = cancel
-	p.run, p.live, p.seen, p.item, p.area, p.selected = run, nil, 0, nil, from, runKey
-	go func() {
-		_ = run.Start(ctx)
-		p.stale.Store(true)
-		u.invalidate()
-	}()
-	return nil
+	return u.begin(p, from, func(ctx context.Context) (string, error) {
+		return u.client.Reopen(ctx, protocol.ReopenParams{Dir: c.Change.Dir, From: from, Notes: notes, Settles: settlesOf(ref)})
+	})
 }
 
 func keyFocus(tag any) key.FocusCmd { return key.FocusCmd{Tag: tag} }
@@ -196,20 +183,9 @@ func (u *UI) resume(p *project, c *workspace.Change) error {
 	if p.running() {
 		return errBusy
 	}
-	ctx, cancel := context.WithCancel(u.ctx)
-	run, err := flow.Resume(*u.flowConfig, p.path, c.Change.Dir, u.invalidate)
-	if err != nil {
-		cancel()
-		return err
-	}
-	p.cancel = cancel
-	p.run, p.live, p.seen, p.item, p.selected = run, nil, 0, nil, runKey
-	go func() {
-		_ = run.Start(ctx)
-		p.stale.Store(true)
-		u.invalidate()
-	}()
-	return nil
+	return u.begin(p, p.area, func(ctx context.Context) (string, error) {
+		return u.client.Resume(ctx, protocol.ResumeParams{Dir: c.Change.Dir})
+	})
 }
 
 func (u *UI) person() string {

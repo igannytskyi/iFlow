@@ -76,8 +76,10 @@ type fakeMaker struct{}
 func (fakeMaker) New(project, statement string, _ []string, changed func()) (Run, error) {
 	return &fakeRun{v: flow.View{Repo: project, Statement: statement}, answer: make(chan bool), changed: changed}, nil
 }
-func (fakeMaker) Resume(string, func()) (Run, error)              { return nil, errors.New("not here") }
-func (fakeMaker) Reopen(string, int, string, func()) (Run, error) { return nil, errors.New("not here") }
+func (fakeMaker) Resume(string, []string, func()) (Run, error) { return nil, errors.New("not here") }
+func (fakeMaker) Reopen(string, int, string, []string, func()) (Run, error) {
+	return nil, errors.New("not here")
+}
 
 // serve starts a service on a fresh socket and answers a screen connected
 // to it, told whenever a run moves.

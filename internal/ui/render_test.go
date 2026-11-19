@@ -24,6 +24,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/method"
 	"github.com/igannytskyi/iflow/internal/model"
+	"github.com/igannytskyi/iflow/internal/service"
 	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
@@ -88,7 +89,28 @@ func testUI(t *testing.T, cfg *flow.Config, projects ...string) *UI {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	s := &settings{Widths: map[string]float32{}, path: filepath.Join(t.TempDir(), "desk.json")}
-	u := newUI(ctx, Options{Model: m, Gate: gate.New(est), Parallel: 2, Projects: projects, Flow: cfg}, s)
+	o := Options{Model: m, Gate: gate.New(est), Parallel: 2, Projects: projects, Flow: cfg}
+	if cfg != nil {
+		// The runs are carried by a service of the test's own, as the
+		// window's are by the person's.
+		dir, err := os.MkdirTemp("/tmp", "iflow-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.RemoveAll(dir) })
+		socket := filepath.Join(dir, "s.sock")
+		l, err := service.Listen(ctx, socket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			_ = service.New(ctx, service.FlowMaker{Config: func() flow.Config { return *cfg }}, "a test").Serve(ctx, l)
+		}()
+		o.Connect = func(changed func(string)) (*service.Client, error) {
+			return service.Dial(ctx, socket, "a test", changed)
+		}
+	}
+	u := newUI(ctx, o, s)
 	u.setTheme(os.Getenv("IFLOW_DARK") != "")
 	return u
 }

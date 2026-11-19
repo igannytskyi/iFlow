@@ -32,8 +32,8 @@ type Run interface {
 // moves.
 type Maker interface {
 	New(project, statement string, settles []string, changed func()) (Run, error)
-	Resume(dir string, changed func()) (Run, error)
-	Reopen(dir string, from int, notes string, changed func()) (Run, error)
+	Resume(dir string, settles []string, changed func()) (Run, error)
+	Reopen(dir string, from int, notes string, settles []string, changed func()) (Run, error)
 }
 
 // Service is the runs being carried, and who watches each.
@@ -161,14 +161,14 @@ func (s *Service) Handle(ctx context.Context, c *protocol.Conn, method string, p
 		if err := protocol.Decode(params, &p); err != nil {
 			return nil, err
 		}
-		return s.start(projectOf(p.Dir), func(changed func()) (Run, error) { return s.maker.Resume(p.Dir, changed) })
+		return s.start(projectOf(p.Dir), func(changed func()) (Run, error) { return s.maker.Resume(p.Dir, p.Settles, changed) })
 	case protocol.Reopen:
 		var p protocol.ReopenParams
 		if err := protocol.Decode(params, &p); err != nil {
 			return nil, err
 		}
 		return s.start(projectOf(p.Dir), func(changed func()) (Run, error) {
-			return s.maker.Reopen(p.Dir, p.From, p.Notes, changed)
+			return s.maker.Reopen(p.Dir, p.From, p.Notes, p.Settles, changed)
 		})
 	case protocol.Answer:
 		var p protocol.AnswerParams
@@ -343,9 +343,6 @@ func (s *Service) summaries() []protocol.RunSummary {
 	}
 	return out
 }
-
-// projectOf is the estate a change's folder belongs to: <estate>/changes/<slug>.
-func projectOf(dir string) string { return filepath.Dir(filepath.Dir(dir)) }
 
 // ErrRunning is a service already listening where this one would.
 var ErrRunning = errors.New("a service is listening already")

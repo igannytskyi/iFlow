@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/protocol"
@@ -25,34 +24,18 @@ func (app *App) Serve(ctx context.Context) int {
 		return app.fatal(err)
 	}
 	fmt.Fprintf(app.Out, "carrying runs for the screens at %s\n", socket)
-	if err := service.New(ctx, flowMaker{app}, person()).Serve(ctx, l); err != nil {
+	if err := service.New(ctx, service.FlowMaker{Config: app.flowConfigLogged}, person()).Serve(ctx, l); err != nil {
 		return app.fatal(err)
 	}
 	return OK
 }
 
-// flowMaker makes the service's runs as the path carries any: with the
-// models chosen now, read again for every run.
-type flowMaker struct{ app *App }
-
-func (m flowMaker) config() flow.Config {
-	cfg, problems := m.app.FlowConfig()
+// flowConfigLogged is the configuration a run is carried with, saying on
+// standard error what is wrong with the choice of models, if anything.
+func (app *App) flowConfigLogged() flow.Config {
+	cfg, problems := app.FlowConfig()
 	if problems != "" {
-		fmt.Fprintln(m.app.Err, problems)
+		fmt.Fprintln(app.Err, problems)
 	}
 	return cfg
-}
-
-func (m flowMaker) New(project, statement string, settles []string, changed func()) (service.Run, error) {
-	r := flow.New(m.config(), project, statement, changed)
-	r.Settles(settles...)
-	return r, nil
-}
-
-func (m flowMaker) Resume(dir string, changed func()) (service.Run, error) {
-	return flow.Resume(m.config(), filepath.Dir(filepath.Dir(dir)), dir, changed)
-}
-
-func (m flowMaker) Reopen(dir string, from int, notes string, changed func()) (service.Run, error) {
-	return flow.Reopen(m.config(), filepath.Dir(filepath.Dir(dir)), dir, from, notes, changed)
 }

@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/igannytskyi/iflow/internal/protocol"
+	"github.com/igannytskyi/iflow/internal/service"
 	"github.com/igannytskyi/iflow/internal/tui"
 )
 
@@ -23,7 +24,12 @@ func (app *App) TUI(ctx context.Context, args []string) int {
 		return app.fatal(err)
 	}
 	moved := make(chan string, 256)
-	client, err := tui.Connect(ctx, protocol.Socket(), moved)
+	client, err := service.Connect(ctx, protocol.Socket(), "iflow tui", func(run string) {
+		select {
+		case moved <- run:
+		default: // the screen reads every run again when it next draws
+		}
+	})
 	if err != nil {
 		return app.fatal(err)
 	}

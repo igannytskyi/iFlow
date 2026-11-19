@@ -55,15 +55,17 @@ type StartParams struct {
 
 // ResumeParams carries a stopped change on from where it stopped.
 type ResumeParams struct {
-	Dir string `json:"dir"`
+	Dir     string   `json:"dir"`
+	Settles []string `json:"settles,omitempty"`
 }
 
 // ReopenParams carries a change again from its specification (1) or its
 // plan (2), with what the person says is to change.
 type ReopenParams struct {
-	Dir   string `json:"dir"`
-	From  int    `json:"from"`
-	Notes string `json:"notes"`
+	Dir     string   `json:"dir"`
+	From    int      `json:"from"`
+	Notes   string   `json:"notes"`
+	Settles []string `json:"settles,omitempty"`
 }
 
 // AnswerParams answers the question a run waits on: accepted, or refused

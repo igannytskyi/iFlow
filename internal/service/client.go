@@ -118,8 +118,8 @@ func (c *Client) Start(ctx context.Context, p protocol.StartParams) (string, err
 }
 
 // Resume carries a stopped change on, and watches it.
-func (c *Client) Resume(ctx context.Context, dir string) (string, error) {
-	return c.begin(ctx, protocol.Resume, protocol.ResumeParams{Dir: dir})
+func (c *Client) Resume(ctx context.Context, p protocol.ResumeParams) (string, error) {
+	return c.begin(ctx, protocol.Resume, p)
 }
 
 // Reopen carries a change again from its specification or its plan, and

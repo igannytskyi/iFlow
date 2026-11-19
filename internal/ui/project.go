@@ -16,6 +16,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/gate"
 	"github.com/igannytskyi/iflow/internal/ledger"
+	"github.com/igannytskyi/iflow/internal/protocol"
 	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
@@ -53,10 +54,12 @@ type project struct {
 	// are being run against the framework as it is now: "" when not.
 	arbiters atomic.Pointer[string]
 
-	run    *flow.Run
-	cancel context.CancelFunc
-	live   *workspace.Change // what the run has written so far
-	seen   int               // steps seen when live was last read
+	run  *remoteRun
+	live *workspace.Change // what the run has written so far
+	seen int               // steps seen when live was last read
+	// failed is what the service last said when asked about the run, for
+	// the window to show.
+	failed atomic.Pointer[string]
 
 	area  int             // the node of the path opened under the graph
 	nodeH int             // how tall the graph's nodes are drawn
@@ -287,23 +290,19 @@ func (p *project) state() string {
 	return "stopped"
 }
 
-// start carries a task along the path in the background.
+// start has the service carry a task along the path, and shows its run.
 func (u *UI) start(p *project, statement string) {
 	statement = strings.TrimSpace(statement)
 	if statement == "" || u.flowConfig == nil || p.running() {
 		return
 	}
-	ctx, cancel := context.WithCancel(u.ctx)
-	p.cancel = cancel
-	run := flow.New(*u.flowConfig, p.path, statement, u.invalidate)
-	run.Settles(p.settles...)
+	settles := p.settles
 	p.settles = nil
-	p.run, p.live, p.seen, p.item, p.area, p.selected = run, nil, 0, nil, 1, runKey
-	go func() {
-		_ = run.Start(ctx)
-		p.stale.Store(true)
-		u.invalidate()
-	}()
+	if err := u.begin(p, 1, func(ctx context.Context) (string, error) {
+		return u.client.Start(ctx, protocol.StartParams{Project: p.path, Statement: statement, Settles: settles})
+	}); err != nil {
+		p.failed.Store(new(err.Error()))
+	}
 }
 
 // refresh rereads what the run has written when the run has moved, and

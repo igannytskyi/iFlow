@@ -88,8 +88,8 @@ type fakeMaker struct{}
 func (fakeMaker) New(project, statement string, _ []string, changed func()) (service.Run, error) {
 	return &fakeRun{v: flow.View{Repo: project, Statement: statement}, answer: make(chan bool), changed: changed}, nil
 }
-func (fakeMaker) Resume(string, func()) (service.Run, error) { return nil, errors.New("no") }
-func (fakeMaker) Reopen(string, int, string, func()) (service.Run, error) {
+func (fakeMaker) Resume(string, []string, func()) (service.Run, error) { return nil, errors.New("no") }
+func (fakeMaker) Reopen(string, int, string, []string, func()) (service.Run, error) {
 	return nil, errors.New("no")
 }
 
@@ -129,7 +129,7 @@ func TestTheScreenCarriesATask(t *testing.T) {
 	}
 	go func() { _ = service.New(ctx, fakeMaker{}, "a test").Serve(ctx, l) }()
 	moved := make(chan string, 64)
-	client, err := Connect(ctx, socket, moved)
+	client, err := service.Dial(ctx, socket, "a test", func(run string) { moved <- run })
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -473,61 +472,4 @@ func (m Model) foot() string {
 		keys = m.note + faint.Render("  ·  ") + keys
 	}
 	return ansi.Truncate(keys, m.width, "…")
-}
-
-// Connect speaks to the service at socket, starting one beside the screen
-// where none listens: the runs it starts go on when the screen closes.
-func Connect(ctx context.Context, socket string, moved chan string) (*service.Client, error) {
-	changed := func(run string) {
-		select {
-		case moved <- run:
-		default: // the screen will read every run again when it next draws
-		}
-	}
-	if c, err := service.Dial(ctx, socket, "iflow tui", changed); err == nil {
-		return c, nil
-	}
-	if err := spawn(socket); err != nil {
-		return nil, err
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		c, err := service.Dial(ctx, socket, "iflow tui", changed)
-		if err == nil {
-			return c, nil
-		}
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("the service did not come up at %s: %w", socket, err)
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-}
-
-// spawn starts the service apart from the screen, writing what it says to a
-// log beside its socket.
-func spawn(socket string) error {
-	self, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
-		return err
-	}
-	log, err := os.OpenFile(filepath.Join(filepath.Dir(socket), "serve.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	defer log.Close()
-	cmd := exec.Command(self, "serve")
-	cmd.Env = append(os.Environ(), "IFLOW_SOCKET="+socket)
-	cmd.Stdout, cmd.Stderr = log, log
-	detach(cmd)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	return cmd.Process.Release()
 }

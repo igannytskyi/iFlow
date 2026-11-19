@@ -177,14 +177,18 @@ func (u *UI) composer(p *project) W {
 		if u.clicked(gtx, send) && !busy {
 			u.enter(p, chatting, key, dir, ed.Text())
 		}
-		if u.clicked(gtx, stop) && busy && p.cancel != nil {
-			p.cancel()
+		if u.clicked(gtx, stop) && busy && p.run != nil {
+			p.run.Stop()
 		}
 		hint := "What should change in " + p.name + "? Enter runs it."
 		label := "Run"
 		switch {
 		case u.flowConfig == nil:
 			hint = "No model is configured, so nothing can be asked or run from here."
+		case u.client == nil && !chatting:
+			hint = errNoService(u.serviceErr).Error()
+		case p.failed.Load() != nil && !chatting && !busy:
+			hint = *p.failed.Load()
 		case chatting && key == "":
 			hint, label = "Ask about "+p.name+" — Enter sends. Each task has its own conversation.", "Send"
 		case chatting:
