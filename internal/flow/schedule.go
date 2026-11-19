@@ -41,6 +41,7 @@ const (
 	outContractActs
 	outTestsWrong
 	outCannot
+	outSentBack
 	outFailed
 )
 
@@ -250,6 +251,10 @@ func (s *scheduler) next(ctx context.Context, f finished) error {
 		s.redo(blamed)
 		s.redo(i)
 		return nil
+	case outSentBack:
+		var sb *sentBack
+		errors.As(f.err, &sb)
+		return sb
 	case outCannot:
 		r.say(4, r.units[i].id, "%s cannot be done as it was planned: %s", r.units[i].id, f.carried.res.Cannot)
 		return &sentBack{area: 2, unit: r.units[i].id, why: "it cannot be done as it was planned: " + f.carried.res.Cannot}
@@ -263,9 +268,12 @@ func (s *scheduler) next(ctx context.Context, f finished) error {
 func (s *scheduler) outcomeOf(i int, f finished) (outcome, int) {
 	var h *holds
 	var b *behaves
+	var sb *sentBack
 	switch {
 	case f.err == nil:
 		return outCandidate, -1
+	case errors.As(f.err, &sb):
+		return outSentBack, -1
 	case errors.As(f.err, &h):
 		return outHolds, -1
 	case errors.As(f.err, &b):

@@ -1253,7 +1253,12 @@ func TestWhatIsDeclaredIsReadFromTheCode(t *testing.T) {
 		{File: "util.py", Name: "language", Kind: meta.Field, Signature: "self.language"},
 		{Kind: meta.Described, Signature: "nothing named"},
 	})
-	if want := []string{"Notify", "quiet", "farewell"}; !slices.Equal(got, want) {
+	// Python's own parser sees fields too, where python3 is here.
+	want := []string{"Notify", "quiet", "farewell"}
+	if _, err := exec.LookPath("python3"); err == nil {
+		want = append(want, "language")
+	}
+	if !slices.Equal(got, want) {
 		t.Errorf("undeclared %v, want %v", got, want)
 	}
 }
@@ -1941,5 +1946,15 @@ func TestWhatTestsMayRead(t *testing.T) {
 	loud := `{"file":"loud.go","name":"Loud","kind":"function","signature":"func Loud(n string) string"}`
 	if _, why := r.unitsOf(plan("loud.go", loud)); why != "" {
 		t.Errorf("tests reading what the contract declares were sent back: %s", why)
+	}
+}
+
+// A carrying that sends the change back keeps saying so through the
+// scheduler: it is not read as a failure, which would stop the run.
+func TestASentBackIsNotAFailure(t *testing.T) {
+	s := &scheduler{r: &Run{}}
+	sb := &sentBack{area: 2, unit: "WU-1", why: "the contract cannot be declared"}
+	if out, _ := s.outcomeOf(0, finished{err: fmt.Errorf("wrapped: %w", sb)}); out != outSentBack {
+		t.Errorf("a carrying sent back was read as outcome %d", out)
 	}
 }

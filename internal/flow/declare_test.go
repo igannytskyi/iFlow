@@ -146,3 +146,21 @@ for (const call of [() => m.shout("a"), () => g.wave("a")]) {
 		t.Errorf("not declared without behaviour:\n%s\n%s", got, out)
 	}
 }
+
+// Python's own parser says what a module declares: a constant assigned at
+// the top, a class's annotations, what a method assigns to self.
+func TestPythonDeclaresAreReadByPython(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("no python3 here")
+	}
+	src := "_OMITTED = object()\n\n\nclass Greeter:\n    language: str\n\n    def __init__(self):\n        self.mood = 1\n\n\ndef greet_in(lang, name=_OMITTED):\n    pass\n"
+	names, err := pyDeclares([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"_OMITTED", "Greeter", "language", "mood", "greet_in"} {
+		if !names[n] {
+			t.Errorf("%s is not seen as declared: %v", n, names)
+		}
+	}
+}

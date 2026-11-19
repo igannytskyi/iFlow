@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -80,15 +81,15 @@ var languages = []language{
 		},
 		build: []string{"go", "build", "./..."}, vet: goVet, check: goBuild, format: gofmt, declares: goDeclares, declare: map[string]declarer{".go": goDeclare},
 		fault: regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.go):\d+:\d+:`), missing: goMissing, libraries: goLibraries,
-		tests:   regexp.MustCompile(`(?m)^func (Test\w+)\(`),
+		tests:   regexp.MustCompile(`(?m)^func ((?:Test|Fuzz)\w*)\(`), // what -run runs: tests, and fuzz tests on their seeds
 		faults:  regexp.MustCompile(`[\w./-]*_test\.go:\d+`),
 		failed:  regexp.MustCompile(`(?m)^\s*--- FAIL: (\w+)`),
 		noneRan: regexp.MustCompile(`\[no tests to run\]|\[no test files\]`),
 	},
 	{
 		name: "pytest", marks: []string{"pyproject.toml", "pytest.ini", "setup.py"}, exts: []string{".py"},
-		declare: map[string]declarer{".py": pyDeclare},
-		suite:   []string{"python3", "-m", "pytest", "-q"},
+		declare: map[string]declarer{".py": pyDeclare}, declares: pyDeclares,
+		suite: []string{"python3", "-m", "pytest", "-q"},
 		only: func(n []string) []string {
 			return []string{"python3", "-m", "pytest", "-q", "-k", strings.Join(n, " or ")}
 		},
@@ -400,4 +401,46 @@ func nothingRan(out string, names []string) bool {
 		return false
 	}
 	return slices.ContainsFunc(languages, func(l language) bool { return l.noneRan != nil && l.noneRan.MatchString(out) })
+}
+
+// pyNames lists, one a line, every name a Python module declares: its
+// functions, classes and assignments, and within classes their methods,
+// attributes and what their methods assign to self.
+const pyNames = `import ast, sys
+tree = ast.parse(sys.stdin.read())
+out = set()
+def targets(t):
+    if isinstance(t, ast.Name): out.add(t.id)
+    elif isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name) and t.value.id == "self": out.add(t.attr)
+    elif isinstance(t, (ast.Tuple, ast.List)):
+        for e in t.elts: targets(e)
+def walk(body, top):
+    for n in body:
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(n.name)
+            if isinstance(n, ast.ClassDef): walk(n.body, False)
+            else:
+                for m in ast.walk(n):
+                    if isinstance(m, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                        for t in (m.targets if isinstance(m, ast.Assign) else [m.target]):
+                            if isinstance(t, ast.Attribute): targets(t)
+        elif isinstance(n, ast.Assign):
+            for t in n.targets: targets(t)
+        elif isinstance(n, ast.AnnAssign): targets(n.target)
+walk(tree.body, True)
+print("\n".join(sorted(out)))`
+
+// pyDeclares is every name a Python file declares, by Python's own parser.
+func pyDeclares(src []byte) (map[string]bool, error) {
+	cmd := exec.Command("python3", "-I", "-c", pyNames)
+	cmd.Stdin = bytes.NewReader(src)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]bool{}
+	for _, n := range strings.Fields(string(out)) {
+		names[n] = true
+	}
+	return names, nil
 }
