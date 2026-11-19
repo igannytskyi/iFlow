@@ -24,8 +24,8 @@ func (b Breach) String() string {
 // specification s decide alone: its order and kinds, what each unit may
 // write, which criteria it serves, what it provides and uses, and what it
 // reads. What only the estate can decide — whether a name exists already,
-// whether a file is there, how much a unit weighs — is held at planning,
-// against the estate as it stood then.
+// whether a file is there (P7, P10's other half, P11), how much a unit
+// weighs (P13) — is held at planning, against the estate as it stood then.
 //
 // A plan whose contract was described in prose (DeclKind described: carried
 // before provisions were typed) is held to the invariants that do not
@@ -123,9 +123,10 @@ func PlanBreaches(p Plan, s Specification) []Breach {
 			case (pr.Kind == Field || pr.Kind == Method) && pr.Of == "":
 				add("P6", u.ID, "provides the %s %s without the type it belongs to", pr.Kind, pr.Name)
 			}
-			// P8: no name is provided twice in one package.
+			// P8: no name is provided twice in one namespace — of the same
+			// type, for a field or method.
 			if pr.Kind != Described && slices.ContainsFunc(provided, func(o Provision) bool {
-				return o.Name == pr.Name && path.Dir(o.File) == path.Dir(pr.File)
+				return o.Name == pr.Name && o.Of == pr.Of && namespace(o.File) == namespace(pr.File)
 			}) {
 				add("P8", u.ID, "provides %s, which another unit provides in the same package", pr.Name)
 			}
@@ -181,18 +182,6 @@ func PlanBreaches(p Plan, s Specification) []Breach {
 			}
 		}
 	}
-	// P11: a tests unit reads nothing a code unit writes: the tests are
-	// written before any code but the contract's.
-	for _, u := range p.Units {
-		if u.Kind != TestsUnit {
-			continue
-		}
-		for _, f := range u.Reads {
-			if slices.ContainsFunc(p.Units, func(o WorkUnit) bool { return o.Kind == CodeUnit && slices.Contains(o.Scope, f) }) {
-				add("P11", u.ID, "reads %s, which a code unit writes after it", f)
-			}
-		}
-	}
 	// P12: no unit writes what judges the change, but the tests units the
 	// new tests they are for.
 	for _, u := range p.Units {
@@ -210,4 +199,13 @@ func PlanBreaches(p Plan, s Specification) []Breach {
 
 func provides(u WorkUnit, name string) bool {
 	return slices.ContainsFunc(u.Provides, func(p Provision) bool { return p.Name == name })
+}
+
+// namespace is where a name provided in file is one name: a Go package is
+// its directory; a module elsewhere is its file.
+func namespace(file string) string {
+	if path.Ext(file) == ".go" {
+		return path.Dir(file)
+	}
+	return file
 }

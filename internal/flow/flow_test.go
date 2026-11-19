@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -1911,5 +1912,34 @@ func TestAPlanWithNoCodeIsSentBack(t *testing.T) {
 	})
 	if err := run.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "has no code unit") {
 		t.Fatalf("a plan with no code was not sent back for it: %v", err)
+	}
+}
+
+// Tests may read a file that exists — the code they judge — though a code
+// unit writes it after them; a file that does not exist yet they may read
+// only where the contract declares in it, for nothing else is there before
+// them.
+func TestWhatTestsMayRead(t *testing.T) {
+	repo := estateFixture(t)
+	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal()}}
+	plan := func(reads string, provides string) planDraft {
+		var p planDraft
+		js := `{"units":[
+ {"title":"tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"o","tasks":["t"],"reads":["` + reads + `"]},
+ {"title":"code","kind":"code","scope":["greet.go","loud.go"],"criteria":["CR-001-01"],"objective":"o","tasks":["t"],"provides":[` + provides + `]}]}`
+		if err := json.Unmarshal([]byte(js), &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	if _, why := r.unitsOf(plan("greet.go", "")); why != "" {
+		t.Errorf("tests reading the code they judge were sent back: %s", why)
+	}
+	if _, why := r.unitsOf(plan("loud.go", "")); !strings.Contains(why, "neither exists nor is written before it") {
+		t.Errorf("tests reading what only the code will write were let be: %q", why)
+	}
+	loud := `{"file":"loud.go","name":"Loud","kind":"function","signature":"func Loud(n string) string"}`
+	if _, why := r.unitsOf(plan("loud.go", loud)); why != "" {
+		t.Errorf("tests reading what the contract declares were sent back: %s", why)
 	}
 }

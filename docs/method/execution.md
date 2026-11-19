@@ -37,7 +37,7 @@ contract ──► tests ──► code (chain A) ─┐
 
 Code units that change a file in common form a chain and are carried in order. Separate chains are carried at the same time; that is the only source of parallel work, and it is computed from the plan, not chosen. The last code unit completes the change: it must pass the change's tests and then the whole suite.
 
-A plan that breaks any of the rules below goes back to its planner, told which rule and why. P1–P12 are one function of the plan and the specification, `meta.PlanBreaches`, and the gate holds every plan to it as rule R24; P7, P10's estate half, P11's estate half and P13 depend on the estate as it stood and are held at planning. The planner gets at most three tries. If no plan holds, area 2 stops and says why; nothing is made up in the planner's place.
+A plan that breaks any of the rules below goes back to its planner, told which rule and why. P1–P12 are one function of the plan and the specification, `meta.PlanBreaches`, and the gate holds every plan to it as rule R24; P7, P10's estate half, P11 and P13 depend on the estate as it stood and are held at planning. The planner gets at most three tries. If no plan holds, area 2 stops and says why; nothing is made up in the planner's place.
 
 | | Rule | Checked |
 |---|---|---|
@@ -51,7 +51,7 @@ A plan that breaks any of the rules below goes back to its planner, told which r
 | P8 | No name is provided twice in one package | R24 |
 | P9 | A contract exists whenever tests and code are written apart | R24 |
 | P10 | A unit uses only names the estate defines or an earlier unit provides | R24; against the estate: `orderOf` |
-| P11 | A unit reads only files that exist or another unit writes | R24; that the file exists: `unitsOf` |
+| P11 | A unit reads only files that exist or another unit writes | at planning, against the estate: `unitsOf` |
 | P12 | No unit's scope holds what judges the change | R24 |
 | P13 | A unit fits one agent: its brief, the specification's decisions and its files whole, within the budget | `oversized`, at planning; a unit of one file too long for it is let be, and is read by parts |
 

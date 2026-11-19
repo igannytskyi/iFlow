@@ -31,6 +31,18 @@ func TestAPlanThatHoldsBreaksNothing(t *testing.T) {
 	if b := PlanBreaches(p, s); len(b) > 0 {
 		t.Errorf("a plan that holds breaks %v", b)
 	}
+	// One name in two modules of one folder is two names, outside Go.
+	s.Scope.Included = append(s.Scope.Included, "a.py", "b.py")
+	help := func(f string) WorkUnit {
+		return WorkUnit{ID: "WU-" + f, Kind: CodeUnit, Scope: []string{f}, Criteria: []string{"CR-1"}, Brief: f,
+			Provides: []Provision{{File: f, Name: "helper", Kind: Function, Signature: "def helper()"}}}
+	}
+	p.Units = append(p.Units, help("a.py"), help("b.py"))
+	p.Units[0].Provides = append(p.Units[0].Provides, p.Units[4].Provides[0], p.Units[5].Provides[0])
+	p.Units[0].Scope = append(p.Units[0].Scope, "a.py", "b.py")
+	if b := PlanBreaches(p, s); len(b) > 0 {
+		t.Errorf("one name in two Python modules breaks %v", b)
+	}
 }
 
 // Each invariant, broken alone, is named by its number.
@@ -52,7 +64,6 @@ func TestEachInvariantIsNamedWhenBroken(t *testing.T) {
 		}},
 		{"P9", func(p *Plan, _ *Specification) { p.Units[0].Provides = p.Units[0].Provides[:1] }},
 		{"P10", func(p *Plan, _ *Specification) { p.Units[2].Uses = []string{"Loud"} }},
-		{"P11", func(p *Plan, _ *Specification) { p.Units[1].Reads = []string{"loud.go"} }},
 		{"P12", func(p *Plan, s *Specification) {
 			s.Scope.Included = append(s.Scope.Included, "test.sh")
 			p.Units[3].Scope = append(p.Units[3].Scope, "test.sh")

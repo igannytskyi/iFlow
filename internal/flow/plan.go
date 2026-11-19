@@ -360,9 +360,20 @@ func (r *Run) unitsOf(p planDraft) ([]unit, string) {
 			return nil, fmt.Sprintf("unit %q has no objective or no tasks", pu.Title)
 		}
 		for _, f := range u.reads {
-			written := slices.ContainsFunc(p.Units, func(o ticket) bool { return o.Title != pu.Title && slices.Contains(o.Scope, f) })
-			if !written && !fileExists(filepath.Join(r.repo, filepath.FromSlash(f))) {
-				return nil, fmt.Sprintf("unit %q reads %s, which neither exists nor is written by another unit of the plan", pu.Title, f)
+			// P11: a file read exists, or another unit writes it — for tests,
+			// which are written before any code, only the contract, which
+			// declares in the files the code units provide in.
+			if fileExists(filepath.Join(r.repo, filepath.FromSlash(f))) {
+				continue
+			}
+			written := slices.ContainsFunc(p.Units, func(o ticket) bool {
+				if u.kind == meta.TestsUnit {
+					return slices.ContainsFunc(o.Provides, func(pr meta.Provision) bool { return pr.File == f })
+				}
+				return o.Title != pu.Title && slices.Contains(o.Scope, f)
+			})
+			if !written {
+				return nil, fmt.Sprintf("unit %q reads %s, which neither exists nor is written before it", pu.Title, f)
 			}
 		}
 		if why := r.oversized(u); why != "" {
