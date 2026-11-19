@@ -184,10 +184,12 @@ type WorkUnit struct {
 // Provision is one name a unit gives the others: where it is declared, as
 // what, and exactly how.
 type Provision struct {
-	File      string   `json:"file,omitempty" doc:"the file it is declared in; empty only for one described"`
-	Name      string   `json:"name,omitempty" doc:"the name the other units call it by; empty only for one described"`
-	Kind      DeclKind `json:"kind" doc:"what the code declares it as"`
-	Signature string   `json:"signature" doc:"its declaration as the estate's language writes it, or, described, what was said of it"`
+	File string   `json:"file,omitempty" doc:"the file it is declared in; empty only for one described"`
+	Name string   `json:"name,omitempty" doc:"the name the other units call it by; empty only for one described"`
+	Kind DeclKind `json:"kind" doc:"what the code declares it as"`
+	// Of is the type a field or method belongs to.
+	Of        string `json:"of,omitempty" doc:"the type a field or method belongs to"`
+	Signature string `json:"signature" doc:"its declaration as the estate's language writes it, or, described, what was said of it"`
 }
 
 // Answer is a question the method asks, and the answer given.

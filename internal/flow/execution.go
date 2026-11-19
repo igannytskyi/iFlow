@@ -123,18 +123,10 @@ func (r *Run) carry(ctx context.Context, i int, on []onto, prof profile, ok bool
 	if err != nil {
 		return c, fmt.Errorf("the workspace could not be read: %v", err)
 	}
-	// What the agent is handed, and what it asks of the estate as it works,
-	// is the copy it works in: the estate with exactly the candidates it is
-	// carried on, and no others.
-	here := r.cfg.Estate.Repo(r.repo).Over(ws)
-	goal := r.goal(u)
-	pack := r.pack(u, here, on, r.cfg.packBudget()-estate.Tokens(goal))
-	handed := estate.Tokens(goal) + pack.Tokens()
 	c.store = filepath.Join(r.dir, "candidates", c.ca)
 	if err := os.MkdirAll(c.store, 0o755); err != nil {
 		return c, fmt.Errorf("%s: the candidate could not be kept: %v", u.id, err)
 	}
-	_ = os.WriteFile(filepath.Join(c.store, "pack.md"), []byte("# Goal\n\n"+goal+"\n\n"+pack.String()), 0o644)
 	scope := u.scope
 	if i == len(r.units)-1 && !u.isTests() {
 		// The last unit completes the change: the whole suite must pass
@@ -142,80 +134,22 @@ func (r *Run) carry(ctx context.Context, i int, on []onto, prof profile, ok bool
 		// change writes. It may mend all of that code — never the tests.
 		scope = r.codeScope()
 	}
-	task := harness.Task{Workspace: ws, Goal: goal, Role: string(u.kind), Scope: scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
-	switch {
-	case ok && u.isTests() && prof.vet != nil:
-		// Tests written first build against the contract, declared before
-		// them: what they call is there, without its behaviour. They are
-		// vetted — built, run none — and must build.
-		task.Check = resolve(ws, prof.vet(u.scope))
-	case !ok || u.isTests():
-		// Without a runner to vet with, tests written first are judged
-		// afterwards, by failing against the estate as it stands.
-	case i == len(r.units)-1:
-		task.Check = resolve(ws, prof.suite) // the last unit completes the change
-		// The change's own tests run first: seconds, where the whole suite
-		// takes minutes, and most of what fails fails there.
-		if names := r.newTestNames(prof); len(names) > 0 {
-			task.First = resolve(ws, prof.only(names))
+	if u.isContract() && canDeclare(u) {
+		// The contract is the plan's provisions, declared: data the
+		// framework writes, never a model's to write without behaviour.
+		res, err := r.declareContract(ctx, ws, u, prof, ok)
+		if err != nil {
+			return c, err
 		}
-	case len(prof.build) > 0:
-		task.Check = resolve(ws, prof.build) // an earlier one leaves the estate building
-	}
-	if !u.isTests() {
-		provides := u.provides
-		task.Unprovided = func(ws string) []string { return undeclared(ws, provides) }
-	}
-	task.Graph = estateGraph{repo: here, root: ws}
-	// The language of what the unit writes reads its check's faults; the
-	// estate's language says where its libraries can be read.
-	if l, ok := scopeLanguage(scope); ok {
-		task.Faults = faultsOf(l, scope)
-	}
-	if l, ok := languageOfEstate(r.repo); ok && l.libraries != nil {
-		task.Libraries = l.libraries()
-	}
-	if ok && !u.isTests() && prof.quick != nil {
-		task.Quick = func(files []string) []string {
-			if cmd := prof.quick(files); cmd != nil {
-				return resolve(ws, cmd)
-			}
-			return nil
+		c.res = res
+	} else {
+		res, err := r.byAgent(ctx, i, ws, on, scope, prof, ok, c)
+		c.res = res
+		if err != nil {
+			return c, err
 		}
 	}
-	if ok && prof.focus != nil {
-		task.Focus = func(pattern, path string) []string { return resolve(ws, prof.focus(pattern, path)) }
-	}
-	r.say(4, u.id, "%s handed to %s: %d tokens, of %d an agent is handed at most", u.id, r.cfg.Executor.Name(), handed, r.cfg.packBudget())
-	res, err := r.cfg.Executor.Run(ctx, task, func(e harness.Event) {
-		r.mu.Lock()
-		r.agent[u.id] = append(r.agent[u.id], e)
-		r.mu.Unlock()
-		r.changed()
-	})
-	c.res = res
-	r.spend(res.Usage)
-	r.cost(artifact.Cost{Area: 4, Unit: u.id, What: "execution of " + u.id, Actor: r.cfg.Executor.Name() + " " + r.cfg.Executor.Version(),
-		Turns: res.Turns, Steps: res.Steps, Handed: handed, Kept: "candidates/" + c.ca + "/pack.md", Note: res.Terminal}, res.Usage, res.Elapsed)
-	r.writeTrace(c.store, u.id) // kept whether or not a candidate comes of it
-	if err != nil {
-		return c, fmt.Errorf("%s: the executor failed: %v", u.id, err)
-	}
-	if !u.isTests() && ok && (res.Terminal == harness.Exhausted || res.Terminal == harness.Terminated) {
-		// A code unit that spent its steps while the change's own tests still
-		// fail may be failing tests that ask for what cannot be: where they
-		// fail is said, so that the tests are carried again with it, once.
-		if names := r.newTestNames(prof); len(names) > 0 {
-			if passed, out, _ := runIn(ctx, ws, resolve(ws, prof.only(names))); !passed {
-				if at := testFaults(out); at != "" {
-					res.Terminal, res.Blames = harness.FailedTask, r.failingTestFiles(out)
-					res.Summary = "its agent spent its steps and the change's own tests in " + strings.Join(res.Blames, ", ") +
-						" still fail — they may ask for what no code can give: " + at
-					c.res = res
-				}
-			}
-		}
-	}
+	res := c.res
 	changes, err := harness.Since(ws, before)
 	if err != nil {
 		return c, fmt.Errorf("%s: what changed could not be read: %v", u.id, err)
@@ -295,6 +229,93 @@ func (r *Run) carry(ctx context.Context, i int, on []onto, prof profile, ok bool
 	return c, nil
 }
 
+// byAgent hands a unit to the executor's agent in ws, handed what its copy
+// of the estate holds, and says what came of it.
+func (r *Run) byAgent(ctx context.Context, i int, ws string, on []onto, scope []string, prof profile, ok bool, c carried) (harness.Result, error) {
+	u := r.units[i]
+	// What the agent is handed, and what it asks of the estate as it works,
+	// is the copy it works in: the estate with exactly the candidates it is
+	// carried on, and no others.
+	here := r.cfg.Estate.Repo(r.repo).Over(ws)
+	goal := r.goal(u)
+	pack := r.pack(u, here, on, r.cfg.packBudget()-estate.Tokens(goal))
+	handed := estate.Tokens(goal) + pack.Tokens()
+	_ = os.WriteFile(filepath.Join(c.store, "pack.md"), []byte("# Goal\n\n"+goal+"\n\n"+pack.String()), 0o644)
+	task := harness.Task{Workspace: ws, Goal: goal, Role: string(u.kind), Scope: scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
+	switch {
+	case ok && u.isTests() && prof.vet != nil:
+		// Tests written first build against the contract, declared before
+		// them: what they call is there, without its behaviour. They are
+		// vetted — built, run none — and must build.
+		task.Check = resolve(ws, prof.vet(u.scope))
+	case !ok || u.isTests():
+		// Without a runner to vet with, tests written first are judged
+		// afterwards, by failing against the estate as it stands.
+	case i == len(r.units)-1:
+		task.Check = resolve(ws, prof.suite) // the last unit completes the change
+		// The change's own tests run first: seconds, where the whole suite
+		// takes minutes, and most of what fails fails there.
+		if names := r.newTestNames(prof); len(names) > 0 {
+			task.First = resolve(ws, prof.only(names))
+		}
+	case len(prof.build) > 0:
+		task.Check = resolve(ws, prof.build) // an earlier one leaves the estate building
+	}
+	if !u.isTests() {
+		provides := u.provides
+		task.Unprovided = func(ws string) []string { return undeclared(ws, provides) }
+	}
+	task.Graph = estateGraph{repo: here, root: ws}
+	// The language of what the unit writes reads its check's faults; the
+	// estate's language says where its libraries can be read.
+	if l, ok := scopeLanguage(scope); ok {
+		task.Faults = faultsOf(l, scope)
+	}
+	if l, ok := languageOfEstate(r.repo); ok && l.libraries != nil {
+		task.Libraries = l.libraries()
+	}
+	if ok && !u.isTests() && prof.quick != nil {
+		task.Quick = func(files []string) []string {
+			if cmd := prof.quick(files); cmd != nil {
+				return resolve(ws, cmd)
+			}
+			return nil
+		}
+	}
+	if ok && prof.focus != nil {
+		task.Focus = func(pattern, path string) []string { return resolve(ws, prof.focus(pattern, path)) }
+	}
+	r.say(4, u.id, "%s handed to %s: %d tokens, of %d an agent is handed at most", u.id, r.cfg.Executor.Name(), handed, r.cfg.packBudget())
+	res, err := r.cfg.Executor.Run(ctx, task, func(e harness.Event) {
+		r.mu.Lock()
+		r.agent[u.id] = append(r.agent[u.id], e)
+		r.mu.Unlock()
+		r.changed()
+	})
+	r.spend(res.Usage)
+	r.cost(artifact.Cost{Area: 4, Unit: u.id, What: "execution of " + u.id, Actor: r.cfg.Executor.Name() + " " + r.cfg.Executor.Version(),
+		Turns: res.Turns, Steps: res.Steps, Handed: handed, Kept: "candidates/" + c.ca + "/pack.md", Note: res.Terminal}, res.Usage, res.Elapsed)
+	r.writeTrace(c.store, u.id) // kept whether or not a candidate comes of it
+	if err != nil {
+		return res, fmt.Errorf("%s: the executor failed: %v", u.id, err)
+	}
+	if !u.isTests() && ok && (res.Terminal == harness.Exhausted || res.Terminal == harness.Terminated) {
+		// A code unit that spent its steps while the change's own tests still
+		// fail may be failing tests that ask for what cannot be: where they
+		// fail is said, so that the tests are carried again with it, once.
+		if names := r.newTestNames(prof); len(names) > 0 {
+			if passed, out, _ := runIn(ctx, ws, resolve(ws, prof.only(names))); !passed {
+				if at := testFaults(out); at != "" {
+					res.Terminal, res.Blames = harness.FailedTask, r.failingTestFiles(out)
+					res.Summary = "its agent spent its steps and the change's own tests in " + strings.Join(res.Blames, ", ") +
+						" still fail — they may ask for what no code can give: " + at
+				}
+			}
+		}
+	}
+	return res, nil
+}
+
 // pack is what one unit's agent is handed of the copy it works in, within
 // budget tokens: the tests it must pass, whole; the files it may change and
 // those the plan says it reads, whole, or by their outline where whole would
@@ -369,6 +390,9 @@ func (r *Run) goal(u unit) string {
 	// and no unit defines what another provides.
 	var contract []string
 	for _, o := range r.units {
+		if o.isContract() {
+			continue // it declares what the code units provide: each is said once, by its provider
+		}
 		for _, p := range signatures(o.provides) {
 			who := o.id
 			if o.id == u.id {

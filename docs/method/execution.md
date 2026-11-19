@@ -25,7 +25,7 @@ The known cost of dividing is that agents decide the same thing differently. So 
 
 The plan has three kinds of unit:
 
-- **contract**: declares every name the units give each other, without behaviour;
+- **contract**: declares every name the units give each other, without behaviour. The framework writes it from the plan's provisions — file, name, kind, the type a field or method belongs to, its declaration — each language by its own declarer (Go, Python, JavaScript); a function or method fails as not yet done when called. Only where a file's language has no declarer is it handed to an agent;
 - **tests**: tests written first, which fail before the change;
 - **code**: the code itself.
 
@@ -65,7 +65,8 @@ What comes of each carrying is one outcome, and the outcome decides what happens
 |---|---|
 | candidate | kept; the units waiting on it may go |
 | holds — the tests pass before any code | the change is closed: nothing to do |
-| contract acts — the tests pass only with the contract | contract and tests carried again, once |
+| contract acts — the tests pass only with the contract | contract and tests carried again, once; it cannot happen where the framework declares the contract |
+| the contract cannot be declared as the plan states it | the plan goes back to its planner, with why, once |
 | tests wrong — a code unit blames a test file | that tests unit and the blaming unit carried again, once; wrong again, the specification goes back to its author with why, once, and the person accepts it again |
 | cannot — the unit cannot be done as planned | the plan goes back to its planner, once |
 | failed | area 4 stops and says why; the change can be resumed |
@@ -106,5 +107,4 @@ The tokens each agent was handed are recorded with its costs.
 1. Outcomes for blaming the contract or an earlier code unit, each with its bound.
 2. A test that drives the scheduler through random outcomes and shows that it always ends.
 3. Tools' machine-readable reports in place of patterns over their output.
-4. The contract written by the framework from the typed provisions, not by a model (backlog 65).
-5. A bench task on an estate large enough for the budget to matter. Today's bench hands 2–5k tokens a unit, so it cannot show the budget's effect.
+4. A bench task on an estate large enough for the budget to matter. Today's bench hands 2–5k tokens a unit, so it cannot show the budget's effect.

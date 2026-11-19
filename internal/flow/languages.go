@@ -60,6 +60,10 @@ type language struct {
 	// name a file of it declares, fields among them; where it has none,
 	// the estate's reader says what is declared, and a field it cannot see.
 	declares func(src []byte) (map[string]bool, error)
+	// declare is, by extension, how provisions are written into a file of
+	// it without behaviour: the contract, which the framework declares
+	// wherever a file's extension has a declarer.
+	declare map[string]declarer
 }
 
 // languages is every language the framework knows, in the order an
@@ -74,7 +78,7 @@ var languages = []language{
 		focus: func(pattern, path string) []string {
 			return []string{"go", "test", "-count=1", "-v", "-run", pattern, "./" + strings.TrimPrefix(filepath.ToSlash(filepath.Clean(path)), "./") + "/..."}
 		},
-		build: []string{"go", "build", "./..."}, vet: goVet, check: goBuild, format: gofmt, declares: goDeclares,
+		build: []string{"go", "build", "./..."}, vet: goVet, check: goBuild, format: gofmt, declares: goDeclares, declare: map[string]declarer{".go": goDeclare},
 		fault: regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.go):\d+:\d+:`), missing: goMissing, libraries: goLibraries,
 		tests:   regexp.MustCompile(`(?m)^func (Test\w+)\(`),
 		faults:  regexp.MustCompile(`[\w./-]*_test\.go:\d+`),
@@ -83,7 +87,8 @@ var languages = []language{
 	},
 	{
 		name: "pytest", marks: []string{"pyproject.toml", "pytest.ini", "setup.py"}, exts: []string{".py"},
-		suite: []string{"python3", "-m", "pytest", "-q"},
+		declare: map[string]declarer{".py": pyDeclare},
+		suite:   []string{"python3", "-m", "pytest", "-q"},
 		only: func(n []string) []string {
 			return []string{"python3", "-m", "pytest", "-q", "-k", strings.Join(n, " or ")}
 		},
@@ -101,7 +106,8 @@ var languages = []language{
 	},
 	{
 		name: "node --test", marks: []string{"package.json"}, exts: []string{".js", ".cjs", ".mjs", ".ts", ".tsx", ".jsx"},
-		suite: []string{"node", "--test"},
+		declare: map[string]declarer{".js": jsDeclare, ".cjs": jsDeclare, ".mjs": jsDeclare},
+		suite:   []string{"node", "--test"},
 		only: func(n []string) []string {
 			out := []string{"node", "--test"}
 			for _, name := range n {

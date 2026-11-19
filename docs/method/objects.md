@@ -67,7 +67,7 @@ Area 4 is this graph, carried by one scheduler: each unit waits for the units it
 |---|---|
 | a candidate | it is kept, and the units waiting on it may go |
 | what was asked holds | the change is closed as an answer: nothing to change |
-| the contract acts | the tests pass on the contract alone: it is declared again, once, with why, and the tests written again |
+| the contract acts | the tests pass on the contract alone: it is declared again, once, with why, and the tests written again — only where an agent declared it; the framework's declarations do nothing |
 | the tests are wrong | a code unit names the tests it cannot pass, or spends its steps on them: they are written again, once, with why, and the unit carried again |
 | it cannot be done as planned | the plan goes back to its planner, once |
 | it failed | area 4 stops, saying why |

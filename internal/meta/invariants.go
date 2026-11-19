@@ -120,6 +120,8 @@ func PlanBreaches(p Plan, s Specification) []Breach {
 				add("P6", u.ID, "provides %q without its name, file and signature", pr.Name+pr.Signature)
 			case !slices.Contains(u.Scope, pr.File):
 				add("P6", u.ID, "provides %s in %s, which it does not write", pr.Name, pr.File)
+			case (pr.Kind == Field || pr.Kind == Method) && pr.Of == "":
+				add("P6", u.ID, "provides the %s %s without the type it belongs to", pr.Kind, pr.Name)
 			}
 			// P8: no name is provided twice in one package.
 			if pr.Kind != Described && slices.ContainsFunc(provided, func(o Provision) bool {

@@ -152,8 +152,9 @@ func TestATaskTravelsThePath(t *testing.T) {
 		Estate: est, Gate: gate.New(est), Person: "a test",
 	}
 	defer func() {
-		// The contract first, then the tests against it, then the code.
-		if len(goals) != 3 || !strings.Contains(goals[0], "Declare exactly these names") || !strings.Contains(goals[2], "Add func Shout") {
+		// The contract is the framework's to declare; the agents write the
+		// tests against it, then the code.
+		if len(goals) != 2 || !strings.Contains(goals[0], "Write only the tests") || !strings.Contains(goals[1], "Add func Shout") {
 			t.Errorf("the units were not handed their briefs: %q", goals)
 		}
 		if b, _ := os.ReadFile(filepath.Join(landed, "plan.md")); !strings.Contains(string(b), "## The units") || !strings.Contains(string(b), "Planned by stub") {
@@ -192,10 +193,10 @@ func TestATaskTravelsThePath(t *testing.T) {
 				t.Errorf("review %s was not kept", f)
 			}
 		}
-		if len(packs) != 3 {
+		if len(packs) != 2 {
 			t.Fatalf("%d packs handed", len(packs))
 		}
-		for i, want := range [][]string{{"May change: greet.go"}, {"May change: shout_test.go", "Read: greet.go", `return ""`}, {"Must pass, written by WU-001-02", "TestShout", "May change: greet.go"}} {
+		for i, want := range [][]string{{"May change: shout_test.go", "Read: greet.go", `panic("not yet: Shout")`}, {"Must pass, written by WU-001-02", "TestShout", "May change: greet.go"}} {
 			for _, w := range want {
 				if !strings.Contains(packs[i], w) {
 					t.Errorf("unit %d was not handed %q:\n%s", i+1, w, packs[i])
@@ -1419,11 +1420,8 @@ func TestTwoCodeUnitsBuildOnAContract(t *testing.T) {
 		c, _ := artifact.Load(run.View().Dir)
 		t.Fatalf("%v: %v", err, cfg.Gate.Check(context.Background(), c).Problems())
 	}
-	if len(goals) != 4 || !strings.Contains(goals[0], "Declare exactly these names") || !strings.Contains(goals[0], "func Loud(n string) string") {
-		t.Fatalf("the contract was not carried first: %d units, the first asked\n%.400s", len(goals), goals[0])
-	}
-	if !strings.Contains(goals[1], "Write only the tests") || !strings.Contains(packs[1], "func Loud(n string) string") {
-		t.Error("the tests were not handed the contract")
+	if len(goals) != 3 || !strings.Contains(goals[0], "Write only the tests") || !strings.Contains(packs[0], `panic("not yet: Loud")`) {
+		t.Fatalf("the tests were not written first, on the contract declared: %d agents, the first asked\n%.400s", len(goals), goals[0])
 	}
 	c, _ := artifact.Load(run.View().Dir)
 	if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
@@ -1489,8 +1487,8 @@ func TestChainsAreCarriedAtOnce(t *testing.T) {
 		c, _ := artifact.Load(run.View().Dir)
 		t.Fatalf("%v: %v", err, cfg.Gate.Check(context.Background(), c).Problems())
 	}
-	if len(goals) != 5 {
-		t.Errorf("%d units were carried, want the contract, the tests and three code units", len(goals))
+	if len(goals) != 4 {
+		t.Errorf("%d units were handed to agents, want the tests and three code units — the contract is declared by the framework", len(goals))
 	}
 	b, _ := os.ReadFile(filepath.Join(repo, "whisper.go"))
 	if !strings.Contains(string(b), "ToLower") {
@@ -1615,9 +1613,10 @@ func (o overreach) Run(ctx context.Context, t harness.Task, emit func(harness.Ev
 	return o.stubExecutor.Run(ctx, t, emit)
 }
 
-// A contract that does what it was only to declare is told so and declared
-// again; the change is not closed as asking for what holds already.
-func TestAContractThatBehavesIsDeclaredAgain(t *testing.T) {
+// The contract is declared by the framework from the plan's provisions, so
+// it cannot do what it was only to declare: no agent is handed it — not
+// even one that would overreach — and the change lands on it.
+func TestTheContractIsDeclaredByTheFramework(t *testing.T) {
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	twoFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go"]`, 1)
@@ -1645,8 +1644,13 @@ func TestAContractThatBehavesIsDeclaredAgain(t *testing.T) {
 	if err := run.Start(context.Background()); err != nil {
 		t.Fatalf("the run ended: %v", err)
 	}
-	if contracts != 2 || !slices.ContainsFunc(goals, func(g string) bool { return strings.Contains(g, "did more than declare") }) {
-		t.Errorf("the contract was declared %d times, and not told why", contracts)
+	if contracts != 0 {
+		t.Errorf("an agent was handed the contract %d times", contracts)
+	}
+	c, _ := artifact.Load(run.View().Dir)
+	declared, err := os.ReadFile(filepath.Join(run.View().Dir, "candidates", c.Meta.Execution.Candidates[0].ID, "files", "shout.go"))
+	if err != nil || !strings.Contains(string(declared), `panic("not yet: Shout")`) {
+		t.Errorf("the contract was not declared without behaviour (%v):\n%s", err, declared)
 	}
 }
 

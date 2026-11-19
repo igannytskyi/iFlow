@@ -203,6 +203,10 @@
                   "description": "the name the other units call it by; empty only for one described",
                   "type": "string"
                 },
+                "of": {
+                  "description": "the type a field or method belongs to",
+                  "type": "string"
+                },
                 "signature": {
                   "description": "its declaration as the estate's language writes it, or, described, what was said of it",
                   "type": "string"
