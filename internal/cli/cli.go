@@ -21,6 +21,8 @@ import (
 const usage = `usage: iflow desk [project...]            the workbench: projects side by side, a task carried through each
        iflow run [--accept|--ask] <estate> <task> carry a task along the path; --ask reads
                                          each answer on stdin: accept, or notes to send it back
+       iflow serve                        carry runs for every screen that connects (IFLOW_SOCKET)
+       iflow tui [project]                the path in a terminal, through the service
        iflow bench [--only a,b] [--set review=1,attempts=1,repeat=once] [--label name]
                                          carry the reference tasks (examples/bench.json), every
                                          question answered yes, and say what each came to and cost
@@ -104,6 +106,8 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		return OK
 	case len(args) > 0 && args[0] == "run":
 		return app.RunTask(ctx, args[1:])
+	case len(args) == 1 && args[0] == "serve":
+		return app.Serve(ctx)
 	case len(args) > 0 && args[0] == "bench":
 		return app.Bench(ctx, args[1:])
 	case len(args) > 0 && args[0] == "adopt":
