@@ -108,6 +108,8 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		return app.RunTask(ctx, args[1:])
 	case len(args) == 1 && args[0] == "serve":
 		return app.Serve(ctx)
+	case len(args) > 0 && args[0] == "tui":
+		return app.TUI(ctx, args[1:])
 	case len(args) > 0 && args[0] == "bench":
 		return app.Bench(ctx, args[1:])
 	case len(args) > 0 && args[0] == "adopt":
