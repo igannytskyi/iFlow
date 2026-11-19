@@ -11,10 +11,12 @@ package protocol
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/igannytskyi/iflow/internal/meta"
 )
 
 // Version is the version of the protocol this side speaks.
-const Version = 2
+const Version = 3
 
 // The methods a screen calls.
 const (
@@ -29,7 +31,15 @@ const (
 	Unwatch    = "run.unwatch"
 	Projects   = "projects"      // ProjectsParams → []Project
 	Record     = "change.record" // ChangeRef → []Crossing
+	Get        = "change.get"    // ChangeRef → ChangeDoc
+	Trace      = "unit.trace"    // TraceParams → []Event
+	Ask        = "chat.ask"      // AskParams → nothing; ChatChanged follows for who watches
+	Listen     = "chat.watch"    // ChatRef → nothing; ChatChanged follows
 )
+
+// ChatChanged is what the service sends a screen watching a conversation,
+// whenever it moves: a ChatState.
+const ChatChanged = "chat.changed"
 
 // Changed is what the service sends a screen watching a run, whenever the
 // run moves: a RunDelta.
@@ -231,4 +241,75 @@ type Crossing struct {
 // in Also besides — a project a screen was opened on.
 type ProjectsParams struct {
 	Also []string `json:"also,omitempty"`
+}
+
+// ChangeDoc is a change as its folder holds it: the change described, every
+// document of the path it has reached, in the data model, and what its work
+// cost.
+type ChangeDoc struct {
+	Change        Change              `json:"change"`
+	Document      string              `json:"document,omitempty"` // change.md
+	Specification *meta.Specification `json:"specification,omitempty"`
+	Plan          *meta.Plan          `json:"plan,omitempty"`
+	Admission     *meta.Admission     `json:"admission,omitempty"`
+	Execution     *meta.Execution     `json:"execution,omitempty"`
+	Assurance     *meta.Assurance     `json:"assurance,omitempty"`
+	Landing       *meta.Landing       `json:"landing,omitempty"`
+	Record        []Crossing          `json:"record,omitempty"`
+	Costs         []Cost              `json:"costs,omitempty"`
+}
+
+// Cost is one piece of model or tool work a change did, and what it spent.
+type Cost struct {
+	Area       int     `json:"area"`
+	Unit       string  `json:"unit,omitempty"`
+	What       string  `json:"what"`
+	Actor      string  `json:"actor"`
+	Model      string  `json:"model,omitempty"`
+	Handed     int     `json:"handed,omitempty"`
+	Input      int     `json:"input"`
+	CacheRead  int     `json:"cache_read"`
+	CacheWrite int     `json:"cache_write"`
+	Output     int     `json:"output"`
+	CostUSD    float64 `json:"cost_usd"`
+	ElapsedMS  int64   `json:"elapsed_ms"`
+}
+
+// TraceParams names a candidate of a change, whose agent's steps are asked
+// for.
+type TraceParams struct {
+	Dir       string `json:"dir"`
+	Candidate string `json:"candidate"`
+}
+
+// ChatRef names a conversation: about a task, by the task's folder, or about
+// a project, by the project's folder and no task.
+type ChatRef struct {
+	Project string `json:"project"`
+	Dir     string `json:"dir,omitempty"`
+}
+
+// AskParams puts the person's words to the model, in a conversation.
+type AskParams struct {
+	ChatRef
+	Text string `json:"text"`
+}
+
+// ChatMessage is one turn of a conversation.
+type ChatMessage struct {
+	At      time.Time `json:"at"`
+	Role    string    `json:"role"` // person or model
+	Text    string    `json:"text"`
+	CostUSD float64   `json:"cost_usd,omitempty"`
+	Err     bool      `json:"err,omitempty"`
+}
+
+// ChatState is a conversation as it stands: its turns, the answer being
+// written, and what it spent.
+type ChatState struct {
+	ChatRef
+	Messages []ChatMessage `json:"messages"`
+	Partial  string        `json:"partial,omitempty"`
+	Waiting  bool          `json:"waiting"`
+	CostUSD  float64       `json:"cost_usd"`
 }

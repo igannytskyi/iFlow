@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/igannytskyi/iflow/internal/flow"
+	"github.com/igannytskyi/iflow/internal/model"
 	"github.com/igannytskyi/iflow/internal/protocol"
 )
 
@@ -36,13 +37,28 @@ type Maker interface {
 	Reopen(dir string, from int, notes string, settles []string, changed func()) (Run, error)
 }
 
-// Service is the runs being carried, and who watches each.
+// Config is what a service is made with.
+type Config struct {
+	// Maker makes the runs it carries.
+	Maker Maker
+	// Person is who stops a run when a screen asks it to.
+	Person string
+	// Projects is the folders of the projects the person works on.
+	Projects func() []string
+	// Model is who a conversation beside the work talks with; nil leaves
+	// the service without conversations.
+	Model func() model.Model
+}
+
+// Service is the runs being carried, and who watches each, and the
+// conversations beside them.
 type Service struct {
-	maker  Maker
-	person string
-	ctx    context.Context
-	// projects is the folders of the projects the person works on.
+	maker    Maker
+	person   string
+	ctx      context.Context
 	projects func() []string
+	model    func() model.Model
+	talk     talk
 
 	mu   sync.Mutex
 	n    int
@@ -51,11 +67,9 @@ type Service struct {
 	order []string
 }
 
-// New is a service that makes its runs with maker; person is who stops a
-// run when a screen asks it to, and projects says which projects they work
-// on. Its runs end when ctx does.
-func New(ctx context.Context, maker Maker, person string, projects func() []string) *Service {
-	return &Service{maker: maker, person: person, projects: projects, ctx: ctx, runs: map[string]*entry{}}
+// New is a service made with cfg. Its runs end when ctx does.
+func New(ctx context.Context, cfg Config) *Service {
+	return &Service{maker: cfg.Maker, person: cfg.Person, projects: cfg.Projects, model: cfg.Model, ctx: ctx, runs: map[string]*entry{}}
 }
 
 // entry is one run, and the screens watching it.
@@ -169,6 +183,31 @@ func (s *Service) Handle(ctx context.Context, c *protocol.Conn, method string, p
 			return nil, err
 		}
 		return record(p.Dir)
+	case protocol.Get:
+		var p protocol.ChangeRef
+		if err := protocol.Decode(params, &p); err != nil {
+			return nil, err
+		}
+		return document(p.Dir)
+	case protocol.Trace:
+		var p protocol.TraceParams
+		if err := protocol.Decode(params, &p); err != nil {
+			return nil, err
+		}
+		return trace(p)
+	case protocol.Ask:
+		var p protocol.AskParams
+		if err := protocol.Decode(params, &p); err != nil {
+			return nil, err
+		}
+		return nil, s.ask(p)
+	case protocol.Listen:
+		var p protocol.ChatRef
+		if err := protocol.Decode(params, &p); err != nil {
+			return nil, err
+		}
+		s.talk.watch(p, c)
+		return nil, nil
 	case protocol.Start:
 		var p protocol.StartParams
 		if err := protocol.Decode(params, &p); err != nil {

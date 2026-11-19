@@ -12,6 +12,7 @@ import (
 
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/harness"
+	"github.com/igannytskyi/iflow/internal/model"
 	"github.com/igannytskyi/iflow/internal/protocol"
 )
 
@@ -92,7 +93,7 @@ func serve(t *testing.T) (*Client, chan string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go func() { _ = New(ctx, fakeMaker{}, "a test", nil).Serve(ctx, l) }()
+	go func() { _ = New(ctx, Config{Maker: fakeMaker{}, Person: "a test"}).Serve(ctx, l) }()
 	moved := make(chan string, 64)
 	c, err := Dial(ctx, socket, "a test", func(run string) { moved <- run })
 	if err != nil {
@@ -229,8 +230,86 @@ func TestOneServiceListensAtASocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a socket left behind was not taken: %v", err)
 	}
-	go func() { _ = New(ctx, fakeMaker{}, "a test", nil).Serve(ctx, l) }()
+	go func() { _ = New(ctx, Config{Maker: fakeMaker{}, Person: "a test"}).Serve(ctx, l) }()
 	if _, err := Listen(ctx, socket); !errors.Is(err, ErrRunning) {
 		t.Errorf("a second service listened where one listens: %v", err)
+	}
+}
+
+// A change is read whole for a screen: its documents in the data model, its
+// record and its costs; a candidate's steps are asked for by its id alone.
+func TestAChangeIsReadWhole(t *testing.T) {
+	c, _, _ := serve(t)
+	ctx := context.Background()
+	dir, err := filepath.Abs("../../examples/greeting/changes/greet-the-world")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := c.Change(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Change.State != protocol.Landed || doc.Specification == nil || doc.Plan == nil || len(doc.Plan.Units) == 0 ||
+		doc.Assurance == nil || doc.Landing == nil || len(doc.Record) == 0 || doc.Document == "" {
+		t.Errorf("the change was not read whole: state %s, %d record lines, plan %v", doc.Change.State, len(doc.Record), doc.Plan != nil)
+	}
+	if _, err := c.Trace(ctx, dir, "../greet-the-world"); err == nil {
+		t.Error("a candidate named by a path was read")
+	}
+	if _, err := c.Change(ctx, filepath.Join(dir, "nothing")); err == nil {
+		t.Error("a folder that holds no change was read as one")
+	}
+}
+
+// saying is a model that answers what it is told to.
+type saying string
+
+func (saying) Name() string { return "a test model" }
+func (s saying) Ask(context.Context, string, string) (string, model.Usage, error) {
+	return string(s), model.Usage{CostUSD: 0.001}, nil
+}
+
+// A conversation about a task is had through the service: the screen that
+// watches it is told the question and the answer, and it is kept beside the
+// task.
+func TestAConversationIsHadThroughTheService(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	socket := filepath.Join(shortTemp(t), "s.sock")
+	l, err := Listen(ctx, socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		_ = New(ctx, Config{Maker: fakeMaker{}, Person: "a test", Model: func() model.Model { return saying("it landed") }}).Serve(ctx, l)
+	}()
+	moved := make(chan string, 16)
+	c, err := Dial(ctx, socket, "a test", func(k string) { moved <- k })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	task := t.TempDir()
+	ref := protocol.ChatRef{Project: filepath.Dir(task), Dir: task}
+	if err := c.Talk(ctx, ref); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Ask(ctx, ref, "did it land?"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(5 * time.Second)
+	for {
+		if s, ok := c.Chat(ref); ok && len(s.Messages) == 2 && s.Messages[1].Text == "it landed" && !s.Waiting {
+			break
+		}
+		select {
+		case <-moved:
+		case <-deadline:
+			s, _ := c.Chat(ref)
+			t.Fatalf("the conversation was not told: %+v", s)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(task, "chat.jsonl")); err != nil {
+		t.Error("the conversation is not kept beside the task")
 	}
 }

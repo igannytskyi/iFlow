@@ -127,7 +127,7 @@ func TestTheScreenCarriesATask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go func() { _ = service.New(ctx, fakeMaker{}, "a test", nil).Serve(ctx, l) }()
+	go func() { _ = service.New(ctx, service.Config{Maker: fakeMaker{}, Person: "a test"}).Serve(ctx, l) }()
 	moved := make(chan string, 64)
 	client, err := service.Dial(ctx, socket, "a test", func(run string) { moved <- run })
 	if err != nil {
@@ -189,7 +189,7 @@ func TestTheScreenShowsAProjectsChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go func() { _ = service.New(ctx, fakeMaker{}, "a test", nil).Serve(ctx, l) }()
+	go func() { _ = service.New(ctx, service.Config{Maker: fakeMaker{}, Person: "a test"}).Serve(ctx, l) }()
 	client, err := service.Dial(ctx, socket, "a test", nil)
 	if err != nil {
 		t.Fatal(err)
