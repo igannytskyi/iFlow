@@ -1958,3 +1958,24 @@ func TestASentBackIsNotAFailure(t *testing.T) {
 		t.Errorf("a carrying sent back was read as outcome %d", out)
 	}
 }
+
+// A criterion about behaviour the change makes is judged by new tests:
+// one left to the existing tests, which pass before the change, is sent
+// back to the author.
+func TestNewBehaviourIsJudgedByNewTests(t *testing.T) {
+	var d draft
+	if err := json.Unmarshal([]byte(spec), &d); err != nil {
+		t.Fatal(err)
+	}
+	if why := d.problem(); why != "" {
+		t.Fatalf("the fixture is refused: %s", why)
+	}
+	d.Criteria[0].New = false
+	if why := d.problem(); !strings.Contains(why, "no new test judges it") {
+		t.Errorf("new behaviour left to the existing tests was let be: %q", why)
+	}
+	d.Criteria[0].New, d.NewTests = true, nil
+	if why := d.problem(); !strings.Contains(why, "no new test judges it") {
+		t.Errorf("new behaviour with no new test file was let be: %q", why)
+	}
+}

@@ -318,7 +318,7 @@ func (r *Run) planned(ctx context.Context, byTests []string, feedback string) ([
 		began := time.Now()
 		var p planDraft
 		kept, handed := r.handed("planner", plannerSystem, prompt+why)
-		_, u, err := model.AskJSON(ctx, m, plannerSystem, prompt+why, &p)
+		answer, u, err := model.AskJSON(ctx, m, plannerSystem, prompt+why, &p)
 		r.spend(u)
 		r.cost(artifact.Cost{Area: 2, What: fmt.Sprintf("the plan, attempt %d", attempt), Actor: m.Name(), Turns: 1,
 			Handed: handed, Kept: kept}, u, time.Since(began))
@@ -335,7 +335,11 @@ func (r *Run) planned(ctx context.Context, byTests []string, feedback string) ([
 		}
 		if problem != "" {
 			r.say(2, "", "the plan is sent back: %s", problem)
-			why = "\n\nYour last plan cannot be used: " + problem + ". Answer again."
+			// It is handed what it answered and exactly what breaks, to mend
+			// that and keep the rest: asked afresh, it would plan afresh, and
+			// break something else.
+			why = "\n\n# Your last plan\n\n```json\n" + strings.TrimSpace(answer) + "\n```\n\nIt cannot be used: " + problem +
+				".\n\nAnswer with that plan, mended exactly where it breaks, and the rest as it was."
 			continue
 		}
 		approach := []artifact.Part{{Title: "How", Text: p.Approach.Summary}, {Title: "In order", Points: p.Approach.Steps},

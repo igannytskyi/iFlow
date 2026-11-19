@@ -450,6 +450,14 @@ func (d draft) problem() string {
 			return t + " is both in scope and a test that judges it"
 		}
 	}
+	// What the change makes true that is not true now is judged by tests
+	// that fail before it: the existing tests pass before it, and judge
+	// nothing of it.
+	for i, c := range d.Criteria {
+		if c.Plan == "required" && c.Procedure != "human" && (!c.New || len(d.NewTests) == 0) {
+			return fmt.Sprintf("criterion %d (%s) is about behaviour the change makes, and no new test judges it: the existing tests pass before the change and cannot; name a new test file in new_tests and mark the criterion judged_by_new_tests", i+1, c.Criterion)
+		}
+	}
 	return ""
 }
 

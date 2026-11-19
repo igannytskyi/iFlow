@@ -149,7 +149,7 @@ func PlanBreaches(p Plan, s Specification) []Breach {
 	// P5: every criterion is made true by some code unit.
 	for _, c := range s.Criteria {
 		if !slices.ContainsFunc(p.Units, func(u WorkUnit) bool { return u.Kind == CodeUnit && slices.Contains(u.Criteria, c.ID) }) {
-			add("P5", "", "no code unit serves %s", c.ID)
+			add("P5", "", "no code unit serves %s — the code unit that makes it true names it in its criteria; a tests unit naming it judges it, and makes nothing true", c.ID)
 		}
 	}
 	// P9: where tests and code are written apart and the code provides,
