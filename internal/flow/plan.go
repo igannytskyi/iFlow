@@ -468,7 +468,9 @@ func (r *Run) number(units []unit) []unit {
 		switch {
 		case units[i].isContract():
 		case units[i].isTests():
-			units[i].preparatoryFor = units[firstCode].id
+			if firstCode >= 0 { // a plan with no code is sent back (P1), not numbered wrong
+				units[i].preparatoryFor = units[firstCode].id
+			}
 			testIDs = append(testIDs, units[i].id)
 		case i == firstCode:
 			units[i].dependsOn = joinIDs(testIDs)

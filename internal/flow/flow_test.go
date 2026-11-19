@@ -1894,3 +1894,22 @@ func TestWhatTheSpecificationReliesOnIsAsDeclared(t *testing.T) {
 		}
 	}
 }
+
+// A plan with tests and no code is sent back, saying so; it does not bring
+// the run down.
+func TestAPlanWithNoCodeIsSentBack(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	testsOnly := `{"approach":{"summary":"Test.","steps":["test"],"risks":["none"]},"units":[
+ {"title":"the shout test","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge shouting.","tasks":["Test Shout."],"done_when":["it fails"]}]}`
+	cfg := Config{Model: planned{stubModel{answer: spec}, testsOnly}, Executor: stubExecutor{}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "has no code unit") {
+		t.Fatalf("a plan with no code was not sent back for it: %v", err)
+	}
+}
