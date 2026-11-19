@@ -93,19 +93,43 @@ func (fakeMaker) Reopen(string, int, string, []string, func()) (service.Run, err
 	return nil, errors.New("no")
 }
 
-// drive applies msg and, for a key, what its command answers, as the
-// program would. What waits on the service is the test's to feed, from
-// moved: a command that waits is never run here.
+// drive applies msg and what its commands answer, as the program would.
+// What waits on the service — told by moved — is the test's to feed: what
+// a run's move asks is never run here.
 func drive(m Model, msg tea.Msg) Model {
 	next, cmd := m.Update(msg)
 	m = next.(Model)
-	if _, key := msg.(tea.KeyMsg); key && cmd != nil {
-		if out := cmd(); out != nil {
-			switch out.(type) {
-			case tea.BatchMsg, tea.KeyMsg:
-			default:
-				m = drive(m, out)
-			}
+	if _, wait := msg.(movedMsg); wait {
+		return m
+	}
+	return run(m, cmd)
+}
+
+func run(m Model, cmd tea.Cmd) Model {
+	if cmd == nil {
+		return m
+	}
+	switch out := cmd().(type) {
+	case nil:
+	case tea.BatchMsg:
+		for _, c := range out {
+			m = run(m, c)
+		}
+	default:
+		m = drive(m, out)
+	}
+	return m
+}
+
+func key(m Model, keys ...string) Model {
+	for _, k := range keys {
+		switch k {
+		case "enter":
+			m = drive(m, tea.KeyMsg{Type: tea.KeyEnter})
+		case "esc":
+			m = drive(m, tea.KeyMsg{Type: tea.KeyEsc})
+		default:
+			m = drive(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
 		}
 	}
 	return m
@@ -142,19 +166,20 @@ func TestTheScreenCarriesATask(t *testing.T) {
 	if !strings.Contains(m.View(), "press n") || !strings.Contains(m.View(), "▾ estate") {
 		t.Fatalf("an empty project does not say how to begin:\n%s", m.View())
 	}
-	m = drive(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = key(m, "n")
 	for _, r := range "shout the greeting" {
-		m = drive(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = key(m, string(r))
 	}
-	m = drive(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = key(m, "enter")
 	waitFor(t, &m, moved, func(v string) bool { return strings.Contains(v, "waiting for you") })
+	m = key(m, "4") // the execution: the unit and its agent
 	v := m.View()
 	for _, want := range []string{"? shout the greeting", "1 spec ?", "WU-001-02", "› write greet.go", "[a] accept"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("the screen does not show %q:\n%s", want, v)
 		}
 	}
-	m = drive(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = key(m, "a")
 	waitFor(t, &m, moved, func(v string) bool { return strings.Contains(v, "6 land ✓") })
 }
 
@@ -174,9 +199,9 @@ func waitFor(t *testing.T, m *Model, moved chan string, ok func(string) bool) {
 }
 
 // The projects the screen opens on are shown with their changes, newest
-// first; one no run carries is shown as its folder keeps it: how far it
-// went, and its record.
-func TestTheScreenShowsAProjectsChanges(t *testing.T) {
+// first; a change opened is read area by area — its specification, its
+// units and their briefs, its verdicts, its record — beside what it cost.
+func TestTheScreenOpensAChangeAreaByArea(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	dir, err := os.MkdirTemp("/tmp", "iflow-")
@@ -201,20 +226,38 @@ func TestTheScreenShowsAProjectsChanges(t *testing.T) {
 	}
 	m := New(ctx, client, make(chan string), greeting)
 	m.term = terminal{name: "a terminal"}
-	m = drive(m, tea.WindowSizeMsg{Width: 160, Height: 40})
-	next, cmd := m.Update(m.listProjects())
-	m = next.(Model)
-	if cmd == nil {
-		t.Fatal("the change on view has no record asked for")
-	}
-	m = drive(m, cmd())
-	v := m.View()
-	if os.Getenv("IFLOW_SHOW") != "" {
-		t.Log("\n" + v)
-	}
-	for _, want := range []string{"▾ greeting", "✓", "record", "landing"} {
-		if !strings.Contains(v, want) {
-			t.Errorf("the screen does not show %q:\n%s", want, v)
+	m = drive(m, tea.WindowSizeMsg{Width: 180, Height: 40})
+	m = drive(m, m.listProjects())
+	m = key(m, "enter")
+	show := func(what string, wants ...string) {
+		t.Helper()
+		v := m.View()
+		if os.Getenv("IFLOW_SHOW") != "" {
+			t.Log(what + "\n" + v)
 		}
+		for _, want := range wants {
+			if !strings.Contains(v, want) {
+				t.Errorf("%s does not show %q:\n%s", what, want, v)
+			}
+		}
+	}
+	show("the landing", "▾ greeting", "6 land ✓", "record", "landing", "cost", "by area")
+	m = key(m, "1")
+	show("the specification", "When nobody is named")
+	m = key(m, "2")
+	show("the plan", "WU-00", "scope:")
+	m = key(m, "5")
+	show("the assurance", "CR-00", "met")
+	m = key(m, "4")
+	show("the execution", "WU-00", "its agent")
+	m = key(m, "esc")
+	if m.focus != onList {
+		t.Error("esc did not go back to the list")
+	}
+	m = key(m, "c")
+	show("the conversation", "talk about")
+	m = key(m, "esc")
+	if m.focus != onList || m.mode != reading {
+		t.Error("esc did not leave the conversation")
 	}
 }

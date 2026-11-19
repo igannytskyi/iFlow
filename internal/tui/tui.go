@@ -1,11 +1,11 @@
-// Package tui is the path in a terminal: the same runs the window shows,
-// carried by the service, watched and answered from the keyboard. It holds
-// nothing but what the service told it.
+// Package tui is the path in a terminal: the person's projects and their
+// tasks, each task area by area, its costs, and a conversation beside it —
+// what the window shows, carried by the service, read and answered from the
+// keyboard. It holds nothing but what the service told it.
 package tui
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +26,15 @@ import (
 // areaNames are the six areas of the path, as the screen names them.
 var areaNames = [7]string{"", "spec", "plan", "admit", "execute", "assure", "land"}
 
+// focus is where the keys go.
+type focus int
+
+const (
+	onList focus = iota // the projects and their tasks
+	onTask              // the task on view, area by area
+	onChat              // the conversation beside it
+)
+
 // typing is what the line at the foot is being written for.
 type typing int
 
@@ -33,6 +42,7 @@ const (
 	reading typing = iota
 	intent         // a new task, to start
 	ground         // why the person does not accept, to send it back with
+	asking         // words to the model, in the conversation
 )
 
 // Model is the screen.
@@ -49,9 +59,19 @@ type Model struct {
 	proj     int                // the project on view
 	runs     []string           // every run watched, oldest first
 	sel      int                // the task of the project on view
-	unit     int                // the unit whose agent is on view
-	// records are the records of changes on view, by folder, as read.
-	records map[string][]protocol.Crossing
+
+	focus  focus
+	back   focus // where esc returns from the conversation
+	area   int   // the area of the task on view, 1 to 6
+	row    int   // the line chosen in the area: a unit, a verdict
+	scroll int   // how far the area is scrolled
+
+	// docs are the changes on view as their folders hold them, by folder;
+	// steps how many steps their run had told when each was read.
+	docs   map[string]protocol.ChangeDoc
+	steps  map[string]int
+	traces map[string][]protocol.Event // a candidate's agent's steps, by folder and candidate
+	md     map[string]string           // a change described, drawn for a width
 
 	input textinput.Model
 	mode  typing
@@ -63,23 +83,24 @@ type Model struct {
 }
 
 // New is the screen opened on project, speaking to the service through
-// client; moved carries the ids of the runs that moved.
+// client; moved carries what moved: a run's id, or a conversation's key.
 func New(ctx context.Context, client *service.Client, moved chan string, project string) Model {
 	in := textinput.New()
-	in.Prompt = "intent ▸ "
-	in.CharLimit = 2000
+	in.CharLimit = 4000
 	in.Cursor.SetMode(cursor.CursorStatic) // a cursor that does not blink asks nothing of the screen
-	return Model{ctx: ctx, client: client, moved: moved, project: project, term: detect(os.Getenv),
-		input: in, told: map[string]string{}, records: map[string][]protocol.Crossing{}}
+	return Model{ctx: ctx, client: client, moved: moved, project: project, term: detect(os.Getenv), area: 1,
+		input: in, told: map[string]string{}, docs: map[string]protocol.ChangeDoc{}, steps: map[string]int{},
+		traces: map[string][]protocol.Event{}, md: map[string]string{}}
 }
 
 type (
 	movedMsg    string
 	runsMsg     []protocol.RunSummary
 	projectsMsg []protocol.Project
-	recordMsg   struct {
-		dir string
-		rec []protocol.Crossing
+	docMsg      protocol.ChangeDoc
+	traceMsg    struct {
+		key    string
+		events []protocol.Event
 	}
 	noteMsg  string
 	lostMsg  struct{}
@@ -116,13 +137,23 @@ func (m Model) listRuns() tea.Msg {
 	return runsMsg(runs)
 }
 
-func (m Model) loadRecord(dir string) tea.Cmd {
+func (m Model) readDoc(dir string) tea.Cmd {
 	return func() tea.Msg {
-		rec, err := m.client.Record(m.ctx, dir)
+		doc, err := m.client.Change(m.ctx, dir)
 		if err != nil {
-			return noteMsg("the record could not be read: " + err.Error())
+			return noteMsg("the change could not be read: " + err.Error())
 		}
-		return recordMsg{dir, rec}
+		return docMsg(doc)
+	}
+}
+
+func (m Model) readTrace(dir, candidate string) tea.Cmd {
+	return func() tea.Msg {
+		events, err := m.client.Trace(m.ctx, dir, candidate)
+		if err != nil {
+			return noteMsg("the agent's steps could not be read: " + err.Error())
+		}
+		return traceMsg{dir + "/" + candidate, events}
 	}
 }
 
@@ -176,12 +207,42 @@ func (m Model) current() (protocol.Project, task, bool) {
 	return p, ts[min(m.sel, len(ts)-1)], true
 }
 
+// dirOf is the folder of the task: its change's, or what its run has
+// written to so far.
+func (m Model) dirOf(t task) string {
+	if s, ok := m.client.Run(t.run); ok && s.Dir != "" {
+		return s.Dir
+	}
+	return t.change.Dir
+}
+
+// onView asks for what the task on view needs that is not read yet: its
+// change as its folder holds it, read again when its run has moved.
+func (m Model) onView() tea.Cmd {
+	_, t, ok := m.current()
+	if !ok {
+		return nil
+	}
+	dir := m.dirOf(t)
+	if dir == "" {
+		return nil
+	}
+	s, live := m.client.Run(t.run)
+	_, have := m.docs[dir]
+	if !have || (live && len(s.Steps) != m.steps[dir]) {
+		m.steps[dir] = len(s.Steps)
+		return m.readDoc(dir)
+	}
+	return nil
+}
+
 // Update applies what happened: a key, a run that moved, a window resized.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.input.Width = max(10, msg.Width-12)
+		m.input.Width = max(10, msg.Width-24)
+		m.md = map[string]string{}
 	case projectsMsg:
 		first := len(m.projects) == 0
 		m.projects = msg
@@ -189,7 +250,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.proj = max(0, slices.IndexFunc(m.projects, func(p protocol.Project) bool { return p.Path == m.project }))
 		}
 		m.proj = min(m.proj, max(0, len(m.projects)-1))
-		return m, m.recordOnView()
+		return m, m.onView()
 	case runsMsg:
 		for _, r := range msg {
 			if !slices.Contains(m.runs, r.Run) {
@@ -197,19 +258,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case movedMsg:
-		run := string(msg)
-		cmds := []tea.Cmd{m.waitMoved, m.notify(run)}
-		if !slices.Contains(m.runs, run) {
-			m.runs = append(m.runs, run)
-		}
-		// A run that wrote its folder, or ended, has moved what the projects
-		// list: they are asked for again.
-		if s, ok := m.client.Run(run); ok && (s.Finished || s.Dir != "") {
-			cmds = append(cmds, m.listProjects)
+		what := string(msg)
+		cmds := []tea.Cmd{m.waitMoved}
+		if !strings.HasPrefix(what, "chat:") {
+			cmds = append(cmds, m.notify(what))
+			if !slices.Contains(m.runs, what) {
+				m.runs = append(m.runs, what)
+			}
+			// A run that wrote its folder, or ended, has moved what the
+			// projects list.
+			if s, ok := m.client.Run(what); ok && (s.Finished || s.Dir != "") {
+				cmds = append(cmds, m.listProjects)
+			}
+			cmds = append(cmds, m.onView())
 		}
 		return m, tea.Batch(cmds...)
-	case recordMsg:
-		m.records[msg.dir] = msg.rec
+	case docMsg:
+		m.docs[msg.Change.Dir] = protocol.ChangeDoc(msg)
+		for k := range m.md {
+			if strings.HasPrefix(k, msg.Change.Dir+"@") {
+				delete(m.md, k)
+			}
+		}
+		return m, m.traceOnView()
+	case traceMsg:
+		m.traces[msg.key] = msg.events
 	case everyMsg:
 		return m, tea.Batch(m.listProjects, every())
 	case noteMsg:
@@ -220,15 +293,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.key(msg)
 	}
 	return m, nil
-}
-
-// recordOnView reads the record of the change on view, where no run tells
-// of it.
-func (m Model) recordOnView() tea.Cmd {
-	if _, t, ok := m.current(); ok && t.run == "" && t.change.Dir != "" {
-		return m.loadRecord(t.change.Dir)
-	}
-	return nil
 }
 
 // notify tells the person, through the terminal, what they are waited for
@@ -260,44 +324,72 @@ func (m Model) notify(run string) tea.Cmd {
 	}
 }
 
-func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	p, t, has := m.current()
-	if m.mode != reading {
-		switch k.Type {
-		case tea.KeyEsc:
-			m.mode = reading
-			m.input.Blur()
-			m.input.SetValue("")
+// begin begins typing at the foot, for what.
+func (m Model) begin(what typing, prompt string) (Model, tea.Cmd) {
+	m.mode, m.input.Prompt = what, prompt
+	return m, m.input.Focus()
+}
+
+func (m Model) typed(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.Type {
+	case tea.KeyEsc:
+		if m.mode == asking {
+			m.focus = m.back
+		}
+		m.mode = reading
+		m.input.Blur()
+		m.input.SetValue("")
+		return m, nil
+	case tea.KeyEnter:
+		text := strings.TrimSpace(m.input.Value())
+		m.input.SetValue("")
+		if text == "" {
 			return m, nil
-		case tea.KeyEnter:
-			text := strings.TrimSpace(m.input.Value())
-			mode := m.mode
+		}
+		p, t, _ := m.current()
+		switch m.mode {
+		case intent:
+			m.mode, m.sel, m.focus, m.area = reading, 0, onTask, 1 // the new task comes first, and is shown
+			m.input.Blur()
+			return m, m.start(p.Path, text)
+		case ground:
 			m.mode = reading
 			m.input.Blur()
-			m.input.SetValue("")
-			if text == "" {
-				return m, nil
-			}
-			if mode == intent {
-				m.sel = 0 // the new task comes first
-				return m, m.start(p.Path, text)
-			}
 			run := t.run
 			return m, func() tea.Msg { return result(m.client.Refuse(m.ctx, run, text), "sent back") }
+		case asking:
+			ref := m.chatRef()
+			return m, func() tea.Msg { return result(m.client.Ask(m.ctx, ref, text), "") }
 		}
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(k)
-		return m, cmd
 	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(k)
+	return m, cmd
+}
+
+func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.mode != reading {
+		return m.typed(k)
+	}
+	p, t, has := m.current()
 	s, live := m.client.Run(t.run)
+	// What the keys do wherever the focus is.
 	switch k.String() {
-	case "q", "ctrl+c":
+	case "ctrl+c", "q":
 		return m, tea.Quit // the runs go on in the service
 	case "n":
 		if len(m.projects) > 0 {
-			m.mode, m.input.Prompt = intent, "intent for "+p.Name+" ▸ "
-			return m, m.input.Focus()
+			return m.begin(intent, "intent for "+p.Name+" ▸ ")
 		}
+		return m, nil
+	case "c":
+		if len(m.projects) == 0 {
+			return m, nil
+		}
+		m.back, m.focus = m.focus, onChat
+		ref := m.chatRef()
+		next, cmd := m.begin(asking, "ask ▸ ")
+		return next, tea.Batch(cmd, func() tea.Msg { return result(m.client.Talk(m.ctx, ref), "") })
 	case "a":
 		if live && s.Question != "" {
 			run := t.run
@@ -305,8 +397,7 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		if live && s.Question != "" {
-			m.mode, m.input.Prompt = ground, "why ▸ "
-			return m, m.input.Focus()
+			return m.begin(ground, "why ▸ ")
 		}
 	case "s":
 		if live && !s.Finished {
@@ -325,31 +416,86 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "o":
-		if has && t.change.Dir != "" {
-			return m, open(filepath.Join(t.change.Dir, "change.md"))
+		if dir := m.dirOf(t); has && dir != "" {
+			return m, open(filepath.Join(dir, "change.md"))
 		}
+	}
+	if m.focus == onList {
+		return m.listKey(k, p)
+	}
+	return m.taskKey(k, t)
+}
+
+// listKey moves among the projects and their tasks, and opens one.
+func (m Model) listKey(k tea.KeyMsg, p protocol.Project) (tea.Model, tea.Cmd) {
+	switch k.String() {
 	case "down", "j":
-		m.sel, m.unit = min(m.sel+1, max(0, len(m.tasks(p))-1)), 0
-		return m, m.recordOnView()
+		m.sel = min(m.sel+1, max(0, len(m.tasks(p))-1))
 	case "up", "k":
-		m.sel, m.unit = max(m.sel-1, 0), 0
-		return m, m.recordOnView()
+		m.sel = max(m.sel-1, 0)
 	case "right", "l", "tab":
 		if len(m.projects) > 0 {
-			m.proj, m.sel, m.unit = (m.proj+1)%len(m.projects), 0, 0
-			return m, m.recordOnView()
+			m.proj, m.sel = (m.proj+1)%len(m.projects), 0
 		}
 	case "left", "h", "shift+tab":
 		if len(m.projects) > 0 {
-			m.proj, m.sel, m.unit = (m.proj+len(m.projects)-1)%len(m.projects), 0, 0
-			return m, m.recordOnView()
+			m.proj, m.sel = (m.proj+len(m.projects)-1)%len(m.projects), 0
 		}
-	case "]":
-		m.unit = min(m.unit+1, max(0, len(s.Agent)-1))
-	case "[":
-		m.unit = max(m.unit-1, 0)
+	case "enter":
+		_, t, ok := m.current()
+		if !ok {
+			return m, nil
+		}
+		m.focus, m.row, m.scroll = onTask, 0, 0
+		m.area = m.areaOf(t)
 	}
-	return m, nil
+	return m, m.onView()
+}
+
+// areaOf is the area a task opens on: where its run is, or how far it went.
+func (m Model) areaOf(t task) int {
+	if s, ok := m.client.Run(t.run); ok {
+		for n := 1; n <= 6; n++ {
+			if s.Areas[n] == protocol.Working || s.Areas[n] == protocol.Waiting || s.Areas[n] == protocol.Failed {
+				return n
+			}
+		}
+	}
+	if t.change.State == protocol.Stopped {
+		return min(t.change.Reached+1, 6)
+	}
+	return max(1, min(t.change.Reached, 6))
+}
+
+// taskKey moves within the task on view: between its areas, and along what
+// each area holds.
+func (m Model) taskKey(k tea.KeyMsg, t task) (tea.Model, tea.Cmd) {
+	switch key := k.String(); key {
+	case "esc", "backspace":
+		if m.focus == onChat {
+			m.focus = m.back
+		} else {
+			m.focus = onList
+		}
+	case "1", "2", "3", "4", "5", "6":
+		m.area, m.row, m.scroll = int(key[0]-'0'), 0, 0
+	case "right", "l", "tab":
+		m.area, m.row, m.scroll = m.area%6+1, 0, 0
+	case "left", "h", "shift+tab":
+		m.area, m.row, m.scroll = (m.area+4)%6+1, 0, 0
+	case "down", "j":
+		m.row++
+		m.scroll++
+	case "up", "k":
+		m.row = max(m.row-1, 0)
+		m.scroll = max(m.scroll-1, 0)
+	case "pgdown", " ":
+		m.scroll += max(1, m.height/2)
+	case "pgup":
+		m.scroll = max(0, m.scroll-max(1, m.height/2))
+	}
+	m.row = min(m.row, max(0, m.rows(t)-1))
+	return m, tea.Batch(m.onView(), m.traceOnView())
 }
 
 func (m Model) start(project, statement string) tea.Cmd {
@@ -365,6 +511,9 @@ func (m Model) start(project, statement string) tea.Cmd {
 func result(err error, done string) tea.Msg {
 	if err != nil {
 		return noteMsg(err.Error())
+	}
+	if done == "" {
+		return nil
 	}
 	return noteMsg(done)
 }
@@ -391,128 +540,59 @@ var (
 	bad     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#a32d2d", Dark: "#f09595"})
 	active  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#185fa5", Dark: "#85b7eb"})
 	waiting = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#854f0b", Dark: "#fac775"})
+	chosen  = lipgloss.NewStyle().Reverse(true)
 	rule    = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).BorderTop(true).
 		BorderForeground(lipgloss.AdaptiveColor{Light: "#d3d1c7", Dark: "#444441"})
 )
 
 // View draws the screen: the projects and their tasks on the left, the
-// task on view on the right, and the line to type on at the foot.
+// task on view in the middle, what it cost on the right, and the line to
+// type on at the foot.
 func (m Model) View() string {
 	if m.width == 0 {
 		return ""
 	}
 	top := strong.Render("iflow") + faint.Render(" · "+m.term.name)
+	if m.note != "" {
+		top += faint.Render("  ·  ") + ansi.Truncate(m.note, m.width-20, "…")
+	}
 	body := max(4, m.height-3)
-	side := min(40, max(24, m.width/3))
-	main := m.width - side - 3
-	return top + "\n" + lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(side).Height(body).MaxHeight(body).Render(m.sidebar(side, body)),
+	side := min(36, max(22, m.width/4))
+	rest := m.width - side - 3
+	costs := 0
+	if rest >= 110 {
+		costs = 30
+		rest -= costs + 3
+	}
+	cols := []string{
+		box(side, body, m.sidebar(side, body)),
 		faint.Render(" │ "),
-		lipgloss.NewStyle().Width(main).Height(body).MaxHeight(body).Render(m.task(main, body))) + "\n" + m.foot()
+		box(rest, body, m.middle(rest, body)),
+	}
+	if costs > 0 {
+		cols = append(cols, faint.Render(" │ "), box(costs, body, m.costs(costs)))
+	}
+	return top + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, cols...) + "\n" + m.foot()
 }
 
-// sidebar is every project, the one on view open on its tasks.
-func (m Model) sidebar(width, height int) string {
-	if len(m.projects) == 0 {
-		return faint.Render("no projects yet")
+// box is text in a box of width and height, cut where it overflows.
+func box(width, height int, text string) string {
+	lines := strings.Split(text, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
 	}
-	var lines []string
-	for i, p := range m.projects {
-		ts := m.tasks(p)
-		if i != m.proj {
-			lines = append(lines, faint.Render(ansi.Truncate(fmt.Sprintf("▸ %s  %d", p.Name, len(ts)), width, "…")))
-			continue
-		}
-		lines = append(lines, strong.Render(ansi.Truncate("▾ "+p.Name, width, "…")))
-		room := max(1, height-len(m.projects))
-		first := max(0, min(m.sel-room/2, len(ts)-room))
-		for j, t := range ts[first:min(len(ts), first+room)] {
-			what := oneLine(t.change.Statement)
-			if what == "" {
-				what = t.change.Name
-			}
-			line := ansi.Truncate(m.taskMark(t)+" "+what, width-2, "…")
-			if first+j == m.sel {
-				line = strong.Render("› ") + line
-			} else {
-				line = "  " + line
-			}
-			lines = append(lines, line)
-		}
-		if len(ts) == 0 {
-			lines = append(lines, faint.Render("  no task yet — n"))
-		}
+	for i, l := range lines {
+		lines[i] = ansi.Truncate(l, width, "…")
 	}
-	return strings.Join(lines, "\n")
+	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
 
-// taskMark is how a task stands, in one sign: by its run where one carries
-// it, by its folder where not.
-func (m Model) taskMark(t task) string {
-	if s, ok := m.client.Run(t.run); ok && !s.Finished {
-		return mark(s)
+// middle is the conversation where it is open, else the task on view.
+func (m Model) middle(width, height int) string {
+	if m.focus == onChat {
+		return m.chat(width, height)
 	}
-	switch t.change.State {
-	case protocol.Landed:
-		return good.Render("✓")
-	case protocol.Carried:
-		return active.Render("●")
-	case protocol.Closed:
-		return faint.Render("–")
-	}
-	return bad.Render("✗")
-}
-
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
-
-// task is the task on view: as its run tells it, or as its folder keeps it.
-func (m Model) task(width, height int) string {
-	_, t, ok := m.current()
-	if !ok {
-		return "\n" + faint.Render("  no task here yet — press n and say what you want")
-	}
-	if s, live := m.client.Run(t.run); live {
-		out := m.head(s, width)
-		h := height - 3
-		if s.Question != "" {
-			h -= 3
-		}
-		out += m.columns(s, width, max(3, h))
-		if s.Question != "" {
-			out += m.question(s, width)
-		}
-		return out
-	}
-	return m.history(t.change, width, height)
-}
-
-// history is a change no run carries now: how far it went, how it stands,
-// and its record.
-func (m Model) history(c protocol.Change, width, height int) string {
-	var areas []string
-	for n := 1; n <= 6; n++ {
-		name := fmt.Sprintf("%d %s", n, areaNames[n])
-		switch {
-		case n <= c.Reached:
-			areas = append(areas, good.Render(name+" ✓"))
-		case n == c.Reached+1 && c.State == protocol.Stopped:
-			areas = append(areas, bad.Render(name+" ✗"))
-		default:
-			areas = append(areas, faint.Render(name))
-		}
-	}
-	title := m.term.link(filepath.Join(c.Dir, "change.md"), ansi.Truncate(oneLine(c.Statement), width-2, "…"))
-	out := rule.Width(width).Render(title) + "\n" + strings.Join(areas, "  ") + "   " + faint.Render(string(c.State)) + "\n"
-	rec := m.records[c.Dir]
-	lines := []string{faint.Render("record")}
-	for _, x := range rec[max(0, len(rec)-(height-7)):] {
-		lines = append(lines, ansi.Truncate(fmt.Sprintf("%2d %s %-13s %s", x.N, x.At, x.Stage, oneLine(x.Note)), width, "…"))
-	}
-	out += strings.Join(lines, "\n") + "\n\n"
-	if c.State == protocol.Stopped {
-		return out + faint.Render("[R] resume from where it stopped   [o] open change.md")
-	}
-	return out + faint.Render("[o] open change.md")
+	return m.task(width, height)
 }
 
 // mark is how a run stands, in one sign.
@@ -528,132 +608,21 @@ func mark(s service.State) string {
 	return active.Render("●")
 }
 
-// head is the run's task, the six areas as they stand, and what it spent.
-func (m Model) head(s service.State, width int) string {
-	var areas []string
-	for n := 1; n <= 6; n++ {
-		name := fmt.Sprintf("%d %s", n, areaNames[n])
-		switch s.Areas[n] {
-		case protocol.Done:
-			areas = append(areas, good.Render(name+" ✓"))
-		case protocol.Working:
-			areas = append(areas, active.Render(name+" ●"))
-		case protocol.Waiting:
-			areas = append(areas, waiting.Render(name+" ?"))
-		case protocol.Failed:
-			areas = append(areas, bad.Render(name+" ✗"))
-		default:
-			areas = append(areas, faint.Render(name))
-		}
-	}
-	spent := faint.Render(fmt.Sprintf("$%.3f · %dk in", s.Spent.CostUSD, (s.Spent.Input+s.Spent.CacheRead+s.Spent.CacheWrite)/1000))
-	task := ansi.Truncate(oneLine(s.Statement), width-2, "…")
-	if s.Dir != "" {
-		task = m.term.link(filepath.Join(s.Dir, "change.md"), task)
-	}
-	return rule.Width(width).Render(task) + "\n" + strings.Join(areas, "  ") + "   " + spent + "\n"
-}
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-// units is the run's units with an agent at work, in order.
-func units(s service.State) []string {
-	out := make([]string, 0, len(s.Agent))
-	for u := range s.Agent {
-		out = append(out, u)
-	}
-	slices.Sort(out)
-	return out
-}
-
-// columns is the path so far beside the agent of the unit on view.
-func (m Model) columns(s service.State, width, height int) string {
-	left := width * 2 / 5
-	right := width - left - 3
-	var l []string
-	us := units(s)
-	if len(us) > 0 {
-		l = append(l, faint.Render("units"))
-		for i, u := range us {
-			line := unitMark(s.Agent[u]) + " " + u
-			if i == m.unit {
-				line = strong.Render("› " + line)
-			} else {
-				line = "  " + line
-			}
-			l = append(l, line)
-		}
-		l = append(l, "")
-	}
-	l = append(l, faint.Render("path"))
-	steps := s.Steps[max(0, len(s.Steps)-(height-len(l))):]
-	for _, st := range steps {
-		text := fmt.Sprintf("%d %s", st.Area, st.Text)
-		if st.Bad {
-			text = bad.Render(text)
-		}
-		l = append(l, ansi.Truncate(text, left, "…"))
-	}
-	var r []string
-	if len(us) > 0 {
-		u := us[min(m.unit, len(us)-1)]
-		r = append(r, faint.Render(u+" · agent"))
-		events := s.Agent[u]
-		for _, e := range events[max(0, len(events)-(height-1)):] {
-			r = append(r, ansi.Truncate(event(e), right, "…"))
-		}
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(left).Height(height).Render(strings.Join(l, "\n")),
-		faint.Render(" │ "),
-		lipgloss.NewStyle().Width(right).Height(height).Render(strings.Join(r, "\n"))) + "\n"
-}
-
-// unitMark is how a unit stands by the last thing its agent did.
-func unitMark(events []protocol.Event) string {
-	if len(events) == 0 {
-		return " "
-	}
-	last := events[len(events)-1]
-	switch {
-	case last.Kind == "ended" && strings.HasPrefix(last.Detail, "candidate"):
-		return good.Render("✓")
-	case last.Kind == "ended":
-		return bad.Render("✗")
-	}
-	return active.Render("●")
-}
-
-// event is one thing an agent did, in a line.
-func event(e protocol.Event) string {
-	detail := strings.Join(strings.Fields(e.Detail), " ")
-	switch e.Kind {
-	case "called":
-		return "› " + strings.ToLower(e.Tool) + " " + detail
-	case "got":
-		return faint.Render("  " + detail)
-	case "refused":
-		return bad.Render("  refused: " + detail)
-	case "ended":
-		return strong.Render("■ " + detail)
-	}
-	return faint.Render(e.Kind + " " + detail)
-}
-
-// question is what the run waits on the person for, and how to answer.
-func (m Model) question(s service.State, width int) string {
-	box := lipgloss.NewStyle().Width(width).BorderStyle(lipgloss.NormalBorder()).BorderTop(true).
-		BorderForeground(lipgloss.AdaptiveColor{Light: "#ba7517", Dark: "#ef9f27"})
-	return box.Render(waiting.Render("waiting for you · ")+ansi.Truncate(s.Question, width-20, "…")) + "\n" +
-		faint.Render("[a] accept   [r] send back with why   [o] open change.md") + "\n"
-}
-
-// foot is the line the person types on, or what the keys do.
+// foot is the line the person types on, or what the keys do here.
 func (m Model) foot() string {
 	if m.mode != reading {
 		return m.input.View()
 	}
-	keys := faint.Render("↑↓ task · ←→ project · [ ] unit · n new · a accept · r send back · s stop · q leave (runs go on)")
-	if m.note != "" {
-		keys = m.note + faint.Render("  ·  ") + keys
+	var keys string
+	switch m.focus {
+	case onList:
+		keys = "↑↓ task · ←→ project · enter open · n new · c chat · q leave (runs go on)"
+	case onTask:
+		keys = "1–6 or ←→ area · ↑↓ choose/scroll · esc back · a accept · r send back · s stop · o open · c chat"
+	case onChat:
+		keys = "esc back"
 	}
-	return ansi.Truncate(keys, m.width, "…")
+	return ansi.Truncate(faint.Render(keys), m.width, "…")
 }
