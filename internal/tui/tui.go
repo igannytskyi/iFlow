@@ -30,7 +30,6 @@ type focus int
 const (
 	onList focus = iota // the projects and their tasks
 	onTask              // the task on view, area by area
-	onChat              // the conversation beside it
 )
 
 // typing is what the line at the foot is being written for.
@@ -50,6 +49,8 @@ type Model struct {
 	moved   chan string
 	project string // the project the screen was opened on
 	term    terminal
+	theme   Theme
+	st      styles
 
 	width, height int
 
@@ -59,10 +60,9 @@ type Model struct {
 	sel      int                // the task of the project on view
 
 	focus  focus
-	back   focus // where esc returns from the conversation
-	area   int   // the area of the task on view, 1 to 6
-	row    int   // the line chosen in the area: a unit, a verdict
-	scroll int   // how far the area is scrolled
+	area   int // the area of the task on view, 1 to 6
+	row    int // the line chosen in the area: a unit, a verdict
+	scroll int // how far the area is scrolled
 
 	// docs are the changes on view as their folders hold them, by folder;
 	// steps how many steps their run had told when each was read.
@@ -70,6 +70,10 @@ type Model struct {
 	steps  map[string]int
 	traces map[string][]protocol.Event // a candidate's agent's steps, by folder and candidate
 	md     map[string]string           // a change described, drawn for a width
+
+	// talking is the conversation open below the task, while chatOpen.
+	chatOpen bool
+	talking  protocol.ChatRef
 
 	input textinput.Model
 	mode  typing
@@ -80,13 +84,14 @@ type Model struct {
 	told map[string]string
 }
 
-// New is the screen opened on project, speaking to the service through
-// client; moved carries what moved: a run's id, or a conversation's key.
-func New(ctx context.Context, client *service.Client, moved chan string, project string) Model {
+// New is the screen opened on project, coloured by theme, speaking to the
+// service through client; moved carries what moved: a run's id, or a
+// conversation's key.
+func New(ctx context.Context, client *service.Client, moved chan string, project string, theme Theme) Model {
 	in := textinput.New()
 	in.CharLimit = 4000
 	in.Cursor.SetMode(cursor.CursorStatic) // a cursor that does not blink asks nothing of the screen
-	return Model{ctx: ctx, client: client, moved: moved, project: project, term: detect(os.Getenv), area: 1,
+	return Model{ctx: ctx, client: client, moved: moved, project: project, term: detect(os.Getenv), theme: theme, st: stylesOf(theme), area: 1,
 		input: in, told: map[string]string{}, docs: map[string]protocol.ChangeDoc{}, steps: map[string]int{},
 		traces: map[string][]protocol.Event{}, md: map[string]string{}}
 }
@@ -289,6 +294,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.note = "the service has gone; the runs it carried stopped with it"
 	case tea.KeyMsg:
 		return m.key(msg)
+	case tea.MouseMsg:
+		return m.mouse(msg)
 	}
 	return m, nil
 }
@@ -331,9 +338,6 @@ func (m Model) begin(what typing, prompt string) (Model, tea.Cmd) {
 func (m Model) typed(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.Type {
 	case tea.KeyEsc:
-		if m.mode == asking {
-			m.focus = m.back
-		}
 		m.mode = reading
 		m.input.Blur()
 		m.input.SetValue("")
@@ -356,7 +360,7 @@ func (m Model) typed(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			run := t.run
 			return m, func() tea.Msg { return result(m.client.Refuse(m.ctx, run, text), "sent back") }
 		case asking:
-			ref := m.chatRef()
+			ref := m.talking
 			return m, func() tea.Msg { return result(m.client.Ask(m.ctx, ref, text), "") }
 		}
 	}
@@ -381,13 +385,12 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "c":
-		if len(m.projects) == 0 {
+		return m.talk()
+	case "esc":
+		if m.chatOpen {
+			m.chatOpen = false // the conversation closes before anything else does
 			return m, nil
 		}
-		m.back, m.focus = m.focus, onChat
-		ref := m.chatRef()
-		next, cmd := m.begin(asking, "ask ▸ ")
-		return next, tea.Batch(cmd, func() tea.Msg { return result(m.client.Talk(m.ctx, ref), "") })
 	case "a":
 		if live && s.Question != "" {
 			run := t.run
@@ -473,11 +476,7 @@ func (m Model) areaOf(t task) int {
 func (m Model) taskKey(k tea.KeyMsg, t task) (tea.Model, tea.Cmd) {
 	switch key := k.String(); key {
 	case "esc", "backspace":
-		if m.focus == onChat {
-			m.focus = m.back
-		} else {
-			m.focus = onList
-		}
+		m.focus = onList
 	case "1", "2", "3", "4", "5", "6":
 		m.area, m.row, m.scroll = int(key[0]-'0'), 0, 0
 	case "right", "l", "tab":
@@ -519,44 +518,25 @@ func result(err error, done string) tea.Msg {
 	return noteMsg(done)
 }
 
-var (
-	faint   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#8a8a85", Dark: "#7a7a75"})
-	strong  = lipgloss.NewStyle().Bold(true)
-	good    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#3b6d11", Dark: "#97c459"})
-	bad     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#a32d2d", Dark: "#f09595"})
-	active  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#185fa5", Dark: "#85b7eb"})
-	waiting = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#854f0b", Dark: "#fac775"})
-	chosen  = lipgloss.NewStyle().Reverse(true)
-	rule    = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).BorderTop(true).
-		BorderForeground(lipgloss.AdaptiveColor{Light: "#d3d1c7", Dark: "#444441"})
-)
-
 // View draws the screen: the projects and their tasks on the left, the
-// task on view in the middle, what it cost on the right, and the line to
-// type on at the foot.
+// task on view in the middle with the conversation below it where one is
+// open, what it cost on the right, and the line to type on at the foot.
 func (m Model) View() string {
 	if m.width == 0 {
 		return ""
 	}
-	top := strong.Render("iflow") + faint.Render(" · "+m.term.name)
+	l := m.layout()
+	top := m.st.strong.Render("iflow") + m.st.faint.Render(" · "+m.term.name)
 	if m.note != "" {
-		top += faint.Render("  ·  ") + ansi.Truncate(m.note, m.width-20, "…")
+		top += m.st.faint.Render("  ·  ") + ansi.Truncate(m.note, m.width-20, "…")
 	}
-	body := max(4, m.height-3)
-	side := min(36, max(22, m.width/4))
-	rest := m.width - side - 3
-	costs := 0
-	if rest >= 110 {
-		costs = 30
-		rest -= costs + 3
+	middle := box(l.mid, l.taskH, m.task(l.mid, l.taskH))
+	if m.chatOpen {
+		middle += "\n" + m.st.faint.Render(strings.Repeat("─", l.mid)) + "\n" + box(l.mid, l.chatH, m.chat(l.mid, l.chatH))
 	}
-	cols := []string{
-		box(side, body, m.sidebar(side, body)),
-		faint.Render(" │ "),
-		box(rest, body, m.middle(rest, body)),
-	}
-	if costs > 0 {
-		cols = append(cols, faint.Render(" │ "), box(costs, body, m.costs(costs)))
+	cols := []string{box(l.side, l.body, m.sidebar(l.side, l.body)), m.st.faint.Render(" │ "), middle}
+	if l.costs > 0 {
+		cols = append(cols, m.st.faint.Render(" │ "), box(l.costs, l.body, m.costs(l.costs)))
 	}
 	return top + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, cols...) + "\n" + m.foot()
 }
@@ -573,25 +553,17 @@ func box(width, height int, text string) string {
 	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
 
-// middle is the conversation where it is open, else the task on view.
-func (m Model) middle(width, height int) string {
-	if m.focus == onChat {
-		return m.chat(width, height)
-	}
-	return m.task(width, height)
-}
-
 // mark is how a run stands, in one sign.
-func mark(s service.State) string {
+func (m Model) mark(s service.State) string {
 	switch {
 	case s.Question != "":
-		return waiting.Render("?")
+		return m.st.waiting.Render("?")
 	case s.Finished && s.Areas[6] == protocol.Done:
-		return good.Render("✓")
+		return m.st.good.Render("✓")
 	case s.Finished:
-		return bad.Render("✗")
+		return m.st.bad.Render("✗")
 	}
-	return active.Render("●")
+	return m.st.active.Render("●")
 }
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
@@ -604,11 +576,12 @@ func (m Model) foot() string {
 	var keys string
 	switch m.focus {
 	case onList:
-		keys = "↑↓ task · ←→ project · enter open · n new · c chat · q leave (runs go on)"
+		keys = "↑↓ task · ←→ project · enter or click to open · n new · c talk · q leave (runs go on)"
 	case onTask:
-		keys = "1–6 or ←→ area · ↑↓ choose/scroll · esc back · a accept · r send back · s stop · o read the spec · c chat"
-	case onChat:
-		keys = "esc back"
+		keys = "1–6, ←→ or click an area · ↑↓ choose/scroll · esc back · a accept · r send back · s stop · o read the spec · c talk"
 	}
-	return ansi.Truncate(faint.Render(keys), m.width, "…")
+	if m.chatOpen {
+		keys = "c to type · esc closes the conversation · " + keys
+	}
+	return ansi.Truncate(m.st.faint.Render(keys), m.width, "…")
 }

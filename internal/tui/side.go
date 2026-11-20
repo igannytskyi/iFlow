@@ -12,18 +12,18 @@ import (
 // sidebar is every project, the one on view open on its tasks.
 func (m Model) sidebar(width, height int) string {
 	if len(m.projects) == 0 {
-		return faint.Render("no projects yet")
+		return m.st.faint.Render("no projects yet")
 	}
 	var lines []string
 	for i, p := range m.projects {
 		ts := m.tasks(p)
 		if i != m.proj {
-			lines = append(lines, faint.Render(fmt.Sprintf("▸ %s  %d", p.Name, len(ts))))
+			lines = append(lines, m.st.faint.Render(fmt.Sprintf("▸ %s  %d", p.Name, len(ts))))
 			continue
 		}
 		head := "▾ " + p.Name
 		if m.focus == onList {
-			head = strong.Render(head)
+			head = m.st.strong.Render(head)
 		}
 		lines = append(lines, head)
 		room := max(1, height-len(m.projects))
@@ -36,16 +36,16 @@ func (m Model) sidebar(width, height int) string {
 			line := ansi.Truncate(m.taskMark(t)+" "+what, width-2, "…")
 			switch {
 			case first+j == m.sel && m.focus == onList:
-				line = strong.Render("› ") + chosen.Render(ansi.Strip(line))
+				line = m.st.strong.Render("› ") + m.st.chosen.Render(ansi.Strip(line))
 			case first+j == m.sel:
-				line = strong.Render("› ") + line
+				line = m.st.strong.Render("› ") + line
 			default:
 				line = "  " + line
 			}
 			lines = append(lines, line)
 		}
 		if len(ts) == 0 {
-			lines = append(lines, faint.Render("  no task yet — n"))
+			lines = append(lines, m.st.faint.Render("  no task yet — n"))
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -55,15 +55,15 @@ func (m Model) sidebar(width, height int) string {
 // it, by its folder where not.
 func (m Model) taskMark(t task) string {
 	if s, ok := m.client.Run(t.run); ok && !s.Finished {
-		return mark(s)
+		return m.mark(s)
 	}
 	switch t.change.State {
 	case protocol.Landed:
-		return good.Render("✓")
+		return m.st.good.Render("✓")
 	case protocol.Carried:
-		return active.Render("●")
+		return m.st.active.Render("●")
 	case protocol.Closed:
-		return faint.Render("–")
+		return m.st.faint.Render("–")
 	}
-	return bad.Render("✗")
+	return m.st.bad.Render("✗")
 }

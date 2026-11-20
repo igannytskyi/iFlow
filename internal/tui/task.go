@@ -22,64 +22,67 @@ import (
 func (m Model) task(width, height int) string {
 	_, t, ok := m.current()
 	if !ok {
-		return "\n" + faint.Render("  no task here yet — press n and say what you want")
+		return "\n" + m.st.faint.Render("  no task here yet — press n and say what you want")
 	}
 	s, live := m.client.Run(t.run)
-	doc := m.docs[m.dirOf(t)]
 	title := oneLine(t.change.Statement)
 	if live {
 		title = oneLine(s.Statement)
 	}
+	title = ansi.Truncate(title, width-2, "…")
 	if dir := m.dirOf(t); dir != "" {
-		title = m.term.link(filepath.Join(dir, "change.md"), ansi.Truncate(title, width-2, "…"))
+		title = m.term.link(filepath.Join(dir, "change.md"), title)
 	}
-	out := append(strings.Split(rule.Width(width).Render(title), "\n"), m.areas(t, s, live))
-	h := height - len(out)
+	out := append(strings.Split(m.st.rule.Width(width).Render(title), "\n"), strings.Join(m.areaLabels(t), "  "))
 	var question []string
 	if live && s.Question != "" {
-		question = []string{waiting.Render("waiting for you · ") + oneLine(s.Question),
-			faint.Render("[a] accept   [r] send back with why   [o] read the specification")}
-		h -= len(question) + 1
+		question = []string{m.st.waitBlock.Render("waiting for you") + " " + oneLine(s.Question),
+			m.st.faint.Render("[a] accept   [r] send back with why   [o] read the specification")}
 	}
-	var body []string
-	switch m.area {
-	case 1:
-		body = m.spec(doc, width)
-	case 2:
-		body = m.plan(doc, width)
-	case 3:
-		body = m.admission(doc, width)
-	case 4:
-		body = m.execution(t, doc, s, live, width, h)
-	case 5:
-		body = m.assurance(doc, width)
-	case 6:
-		body = m.landing(doc, t, width)
-	}
-	if m.area != 4 {
-		body = window(body, m.scroll, h)
-	}
-	out = append(out, body...)
+	lines, _, _ := m.body(t, width, height-len(out)-len(question))
+	out = append(out, lines...)
 	for len(out) < height-len(question) {
 		out = append(out, "")
 	}
-	if len(question) > 0 {
-		out = append(out[:height-len(question)], question...)
+	return strings.Join(append(out[:max(0, height-len(question))], question...), "\n")
+}
+
+// body is what the area open holds, as it fits height: its lines, the row
+// each line chooses (-1 for none), and how far it is scrolled.
+func (m Model) body(t task, width, height int) ([]string, []int, int) {
+	doc := m.docs[m.dirOf(t)]
+	s, live := m.client.Run(t.run)
+	var lines []string
+	var rows []int
+	switch m.area {
+	case 1:
+		lines = m.spec(doc, width)
+	case 2:
+		lines, rows = m.plan(doc, width)
+	case 3:
+		lines = m.admission(doc)
+	case 4:
+		lines, rows = m.execution(t, doc, s, live, width, height)
+		return lines, rows, 0 // the agent's steps keep to the room left
+	case 5:
+		lines = m.assurance(doc, width)
+	case 6:
+		lines = m.landing(doc, t, width)
 	}
-	return strings.Join(out, "\n")
+	scroll := min(m.scroll, max(0, len(lines)-height))
+	end := min(len(lines), scroll+max(0, height))
+	if rows != nil {
+		rows = rows[scroll:end]
+	}
+	return lines[scroll:end], rows, scroll
 }
 
-// window is the lines from scroll on that fit height.
-func window(lines []string, scroll, height int) []string {
-	scroll = min(scroll, max(0, len(lines)-height))
-	return lines[scroll:min(len(lines), scroll+max(0, height))]
-}
-
-// areas is the six areas as they stand, the one open marked.
-func (m Model) areas(t task, s service.State, live bool) string {
-	var parts []string
+// areaLabels is the six areas as they stand, each a block of the colour of
+// how it stands, the one open marked.
+func (m Model) areaLabels(t task) []string {
+	s, live := m.client.Run(t.run)
+	var out []string
 	for n := 1; n <= 6; n++ {
-		name := fmt.Sprintf("%d %s", n, areaNames[n])
 		var st protocol.Status
 		switch {
 		case live:
@@ -89,24 +92,24 @@ func (m Model) areas(t task, s service.State, live bool) string {
 		case n == t.change.Reached+1 && t.change.State == protocol.Stopped:
 			st = protocol.Failed
 		}
+		name := fmt.Sprintf("%d %s", n, areaNames[n])
+		style := m.st.idleBlock
 		switch st {
 		case protocol.Done:
-			name = good.Render(name + " ✓")
+			style, name = m.st.goodBlock, name+" ✓"
 		case protocol.Working:
-			name = active.Render(name + " ●")
+			style, name = m.st.activeBlock, name+" ●"
 		case protocol.Waiting:
-			name = waiting.Render(name + " ?")
+			style, name = m.st.waitBlock, name+" ?"
 		case protocol.Failed:
-			name = bad.Render(name + " ✗")
-		default:
-			name = faint.Render(name)
+			style, name = m.st.badBlock, name+" ✗"
 		}
 		if n == m.area && m.focus == onTask {
-			name = chosen.Render(ansi.Strip(name))
+			style = style.Bold(true).Underline(true)
 		}
-		parts = append(parts, name)
+		out = append(out, style.Render(name))
 	}
-	return strings.Join(parts, "  ")
+	return out
 }
 
 // rows is how many lines can be chosen in the area open: units, verdicts.
@@ -126,12 +129,16 @@ func (m Model) rows(t task) int {
 // spec is the change described, drawn as Markdown for the width.
 func (m Model) spec(doc protocol.ChangeDoc, width int) []string {
 	if doc.Document == "" {
-		return []string{faint.Render("nothing is specified yet")}
+		return []string{m.st.faint.Render("nothing is specified yet")}
 	}
 	key := fmt.Sprintf("%s@%d", doc.Change.Dir, width)
 	out, ok := m.md[key]
 	if !ok {
-		r, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(width-2))
+		style := glamour.WithAutoStyle()
+		if m.theme == Light {
+			style = glamour.WithStandardStyle("light") // the terminal is set to white, whatever it says
+		}
+		r, err := glamour.NewTermRenderer(style, glamour.WithWordWrap(width-2))
 		if err == nil {
 			out, err = r.Render(doc.Document)
 		}
@@ -144,49 +151,56 @@ func (m Model) spec(doc protocol.ChangeDoc, width int) []string {
 }
 
 // plan is the units the change is divided into, the one chosen open on its
-// brief.
-func (m Model) plan(doc protocol.ChangeDoc, width int) []string {
+// brief, and the unit each line chooses.
+func (m Model) plan(doc protocol.ChangeDoc, width int) ([]string, []int) {
 	if doc.Plan == nil {
-		return []string{faint.Render("not planned yet")}
+		return []string{m.st.faint.Render("not planned yet")}, []int{-1}
 	}
 	var out []string
+	var rows []int
+	add := func(row int, lines ...string) {
+		for _, l := range lines {
+			out, rows = append(out, l), append(rows, row)
+		}
+	}
 	for i, u := range doc.Plan.Units {
 		line := fmt.Sprintf("%s  %-8s %s", u.ID, u.Kind, u.Title)
-		if i == m.row {
-			out = append(out, chosen.Render(ansi.Truncate(line, width, "…")))
-			out = append(out, faint.Render("  scope: "+strings.Join(u.Scope, ", ")+"   criteria: "+strings.Join(u.Criteria, ", ")))
-			for _, p := range u.Provides {
-				out = append(out, faint.Render("  provides: "+p.Signature+" — "+p.File))
-			}
-			for _, l := range strings.Split(wrap(u.Brief, width-4), "\n") {
-				out = append(out, "  "+l)
-			}
-			out = append(out, "")
+		if i != m.row {
+			add(i, line)
 			continue
 		}
-		out = append(out, line)
+		add(i, m.st.chosen.Render(ansi.Truncate(line, width, "…")),
+			m.st.faint.Render("  scope: "+strings.Join(u.Scope, ", ")+"   criteria: "+strings.Join(u.Criteria, ", ")))
+		for _, p := range u.Provides {
+			add(i, m.st.faint.Render("  provides: "+p.Signature+" — "+p.File))
+		}
+		for _, l := range strings.Split(wrap(u.Brief, width-4), "\n") {
+			add(i, "  "+l)
+		}
+		add(i, "")
 	}
-	return out
+	return out, rows
 }
 
 // admission is what was decided of each unit before any was carried.
-func (m Model) admission(doc protocol.ChangeDoc, width int) []string {
+func (m Model) admission(doc protocol.ChangeDoc) []string {
 	if doc.Admission == nil {
-		return []string{faint.Render("not admitted yet")}
+		return []string{m.st.faint.Render("not admitted yet")}
 	}
 	var out []string
 	for _, d := range doc.Admission.Decisions {
-		out = append(out, fmt.Sprintf("%s  %s", d.Unit, d.Outcome), faint.Render("  "+oneLine(d.Condition)))
+		out = append(out, fmt.Sprintf("%s  %s", d.Unit, d.Outcome), m.st.faint.Render("  "+oneLine(d.Condition)))
 	}
 	for _, c := range doc.Admission.Conflicts {
-		out = append(out, "", waiting.Render("meet: "+c.Units), faint.Render("  "+oneLine(c.Region)+" — "+oneLine(c.Resolution)))
+		out = append(out, "", m.st.waiting.Render("meet: "+c.Units), m.st.faint.Render("  "+oneLine(c.Region)+" — "+oneLine(c.Resolution)))
 	}
 	return out
 }
 
 // execution is each unit as it was carried, and what the agent of the one
-// chosen did: live as its run tells it, or as its candidate keeps it.
-func (m Model) execution(t task, doc protocol.ChangeDoc, s service.State, live bool, width, height int) []string {
+// chosen did: live as its run tells it, or as its candidate keeps it; and
+// the unit each line chooses.
+func (m Model) execution(t task, doc protocol.ChangeDoc, s service.State, live bool, width, height int) ([]string, []int) {
 	type unit struct{ id, kind, title, terminal, candidate string }
 	var units []unit
 	if doc.Plan != nil {
@@ -206,24 +220,25 @@ func (m Model) execution(t task, doc protocol.ChangeDoc, s service.State, live b
 		}
 	}
 	if len(units) == 0 {
-		return []string{faint.Render("nothing carried yet")}
+		return []string{m.st.faint.Render("nothing carried yet")}, []int{-1}
 	}
 	var out []string
+	var rows []int
 	for i, u := range units {
-		sign := faint.Render("○")
+		sign := m.st.faint.Render("○")
 		switch {
 		case u.terminal == string(meta.CandidateEnd) || u.candidate != "":
-			sign = good.Render("✓")
+			sign = m.st.good.Render("✓")
 		case u.terminal != "":
-			sign = bad.Render("✗")
+			sign = m.st.bad.Render("✗")
 		case len(s.Agent[u.id]) > 0:
-			sign = active.Render("●")
+			sign = m.st.active.Render("●")
 		}
 		line := fmt.Sprintf("%s %s  %-8s %s", sign, u.id, u.kind, u.title)
 		if i == m.row {
-			line = chosen.Render(ansi.Strip(line))
+			line = m.st.chosen.Render(ansi.Strip(line))
 		}
-		out = append(out, ansi.Truncate(line, width, "…"))
+		out, rows = append(out, ansi.Truncate(line, width, "…")), append(rows, i)
 	}
 	out = append(out, "")
 	chosenUnit := units[min(m.row, len(units)-1)]
@@ -233,15 +248,18 @@ func (m Model) execution(t task, doc protocol.ChangeDoc, s service.State, live b
 		events = m.traces[m.dirOf(t)+"/"+chosenUnit.candidate]
 		where = chosenUnit.candidate
 	}
-	out = append(out, faint.Render(chosenUnit.id+" · its agent · "+cmp.Or(where, "no candidate")))
+	out = append(out, m.st.faint.Render(chosenUnit.id+" · its agent · "+cmp.Or(where, "no candidate")))
 	room := max(1, height-len(out))
 	for _, e := range events[max(0, len(events)-room):] {
-		out = append(out, ansi.Truncate(event(e), width, "…"))
+		out = append(out, ansi.Truncate(m.event(e), width, "…"))
 	}
 	if len(events) == 0 {
-		out = append(out, faint.Render("  no steps kept"))
+		out = append(out, m.st.faint.Render("  no steps kept"))
 	}
-	return out
+	for len(rows) < len(out) {
+		rows = append(rows, -1)
+	}
+	return out, rows
 }
 
 // traceOnView asks for the steps of the chosen unit's candidate, in the
@@ -274,25 +292,25 @@ func (m Model) traceOnView() tea.Cmd {
 }
 
 // event is one thing an agent did, in a line.
-func event(e protocol.Event) string {
+func (m Model) event(e protocol.Event) string {
 	detail := oneLine(e.Detail)
 	switch e.Kind {
 	case "called":
 		return "› " + strings.ToLower(e.Tool) + " " + detail
 	case "got":
-		return faint.Render("  " + detail)
+		return m.st.faint.Render("  " + detail)
 	case "refused":
-		return bad.Render("  refused: " + detail)
+		return m.st.bad.Render("  refused: " + detail)
 	case "ended":
-		return strong.Render("■ " + detail)
+		return m.st.strong.Render("■ " + detail)
 	}
-	return faint.Render(e.Kind + " " + detail)
+	return m.st.faint.Render(e.Kind + " " + detail)
 }
 
 // assurance is the verdict on every criterion, with the criterion's words.
 func (m Model) assurance(doc protocol.ChangeDoc, width int) []string {
 	if doc.Assurance == nil {
-		return []string{faint.Render("not judged yet")}
+		return []string{m.st.faint.Render("not judged yet")}
 	}
 	words := map[string]string{}
 	if doc.Specification != nil {
@@ -302,13 +320,13 @@ func (m Model) assurance(doc protocol.ChangeDoc, width int) []string {
 	}
 	var out []string
 	for _, v := range doc.Assurance.Verdicts {
-		sign := good.Render("✓")
+		sign := m.st.good.Render("✓")
 		if v.Outcome != meta.Met {
-			sign = bad.Render("✗")
+			sign = m.st.bad.Render("✗")
 		}
-		out = append(out, fmt.Sprintf("%s %s  %s  %s", sign, v.Criterion, v.Outcome, faint.Render(v.Unit+" · "+string(v.State))))
+		out = append(out, fmt.Sprintf("%s %s  %s  %s", sign, v.Criterion, v.Outcome, m.st.faint.Render(v.Unit+" · "+string(v.State))))
 		if w := words[v.Criterion]; w != "" {
-			out = append(out, faint.Render("  "+ansi.Truncate(oneLine(w), width-4, "…")))
+			out = append(out, m.st.faint.Render("  "+ansi.Truncate(oneLine(w), width-4, "…")))
 		}
 	}
 	return out
@@ -323,14 +341,14 @@ func (m Model) landing(doc protocol.ChangeDoc, t task, width int) []string {
 		}
 		out = append(out, "")
 	} else {
-		out = append(out, faint.Render("not landed"), "")
+		out = append(out, m.st.faint.Render("not landed"), "")
 	}
-	out = append(out, faint.Render("record"))
+	out = append(out, m.st.faint.Render("record"))
 	for _, x := range doc.Record {
 		out = append(out, ansi.Truncate(fmt.Sprintf("%2d %s %-13s %s", x.N, x.At, x.Stage, oneLine(x.Note)), width, "…"))
 	}
 	if t.change.State == protocol.Stopped {
-		out = append(out, "", faint.Render("[R] resume from where it stopped"))
+		out = append(out, "", m.st.faint.Render("[R] resume from where it stopped"))
 	}
 	return out
 }
@@ -366,23 +384,23 @@ func (m Model) costs(width int) string {
 	if s, live := m.client.Run(t.run); live && s.Spent.CostUSD > total[0] {
 		total[0] = s.Spent.CostUSD
 	}
-	lines := []string{strong.Render("cost"), fmt.Sprintf("$%.3f", total[0]),
-		faint.Render(fmt.Sprintf("%dk in · %dk out", in/1000, outTok/1000)), ""}
+	lines := []string{m.st.strong.Render("cost"), fmt.Sprintf("$%.3f", total[0]),
+		m.st.faint.Render(fmt.Sprintf("%dk in · %dk out", in/1000, outTok/1000)), ""}
 	if handedN > 0 {
-		lines = append(lines, faint.Render("handed an agent"), fmt.Sprintf("%dk tokens on average", handed/handedN/1000), "")
+		lines = append(lines, m.st.faint.Render("handed an agent"), fmt.Sprintf("%dk tokens on average", handed/handedN/1000), "")
 	}
-	lines = append(lines, faint.Render("by area"))
+	lines = append(lines, m.st.faint.Render("by area"))
 	for n := 1; n <= 6; n++ {
 		if byArea[n] > 0 {
 			lines = append(lines, fmt.Sprintf("%d %-8s $%.3f", n, areaNames[n], byArea[n]))
 		}
 	}
-	lines = append(lines, "", faint.Render("by model"))
+	lines = append(lines, "", m.st.faint.Render("by model"))
 	for _, k := range sortedByCost(byModel) {
 		lines = append(lines, ansi.Truncate(fmt.Sprintf("$%.3f %s", byModel[k], k), width, "…"))
 	}
 	if len(byUnit) > 0 {
-		lines = append(lines, "", faint.Render("dearest units"))
+		lines = append(lines, "", m.st.faint.Render("dearest units"))
 		for _, k := range sortedByCost(byUnit)[:min(5, len(byUnit))] {
 			lines = append(lines, fmt.Sprintf("$%.3f %s", byUnit[k], k))
 		}

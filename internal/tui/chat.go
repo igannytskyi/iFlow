@@ -12,7 +12,7 @@ import (
 func (m Model) chatRef() protocol.ChatRef {
 	p, t, ok := m.current()
 	ref := protocol.ChatRef{Project: p.Path}
-	if ok && (m.back == onTask || m.focus == onTask) {
+	if ok && m.focus == onTask {
 		ref.Dir = m.dirOf(t)
 	}
 	return ref
@@ -21,21 +21,21 @@ func (m Model) chatRef() protocol.ChatRef {
 // chat is the conversation on view: its turns, newest at the foot, and the
 // answer being written.
 func (m Model) chat(width, height int) string {
-	ref := m.chatRef()
+	ref := m.talking
 	about := "the project"
 	if ref.Dir != "" {
 		about = "this task"
 	}
-	head := rule.Width(width).Render(strong.Render("talk about "+about) + faint.Render(" — the model reads what it has written, and changes nothing"))
+	head := m.st.strong.Render("talk about "+about) + m.st.faint.Render(" — the model reads what it has written, and changes nothing")
 	s, _ := m.client.Chat(ref)
 	var lines []string
 	for _, msg := range s.Messages {
-		who := active.Render("you")
+		who := m.st.you.Render("you")
 		if msg.Role != "person" {
-			who = good.Render("model")
+			who = m.st.model.Render("model")
 		}
 		if msg.Err {
-			who = bad.Render("failed")
+			who = m.st.bad.Render("failed")
 		}
 		lines = append(lines, who)
 		for _, l := range strings.Split(wrap(msg.Text, width-2), "\n") {
@@ -44,18 +44,18 @@ func (m Model) chat(width, height int) string {
 		lines = append(lines, "")
 	}
 	if s.Waiting {
-		lines = append(lines, good.Render("model"))
+		lines = append(lines, m.st.model.Render("model"))
 		for _, l := range strings.Split(wrap(s.Partial+" …", width-2), "\n") {
 			lines = append(lines, "  "+l)
 		}
 	}
 	if len(lines) == 0 {
-		lines = []string{faint.Render("ask anything: why it stopped, what a unit was handed, what to do next")}
+		lines = []string{m.st.faint.Render("ask anything: why it stopped, what a unit was handed, what to do next")}
 	}
 	room := max(1, height-2)
 	lines = lines[max(0, len(lines)-room):]
 	if s.CostUSD > 0 {
-		head += "\n" + faint.Render(fmt.Sprintf("this conversation has cost $%.3f", s.CostUSD))
+		head += "\n" + m.st.faint.Render(fmt.Sprintf("this conversation has cost $%.3f", s.CostUSD))
 	} else {
 		head += "\n"
 	}

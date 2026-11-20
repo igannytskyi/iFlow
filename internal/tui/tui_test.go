@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/harness"
@@ -160,7 +161,7 @@ func TestTheScreenCarriesATask(t *testing.T) {
 	}
 	defer client.Close()
 
-	m := New(ctx, client, moved, "/estate")
+	m := New(ctx, client, moved, "/estate", Terminal)
 	m.term = terminal{name: "a terminal"}
 	m = drive(m, tea.WindowSizeMsg{Width: 140, Height: 30})
 	m = drive(m, m.listProjects())
@@ -225,7 +226,7 @@ func TestTheScreenOpensAChangeAreaByArea(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(ctx, client, make(chan string), greeting)
+	m := New(ctx, client, make(chan string), greeting, Terminal)
 	m.term = terminal{name: "a terminal"}
 	m = drive(m, tea.WindowSizeMsg{Width: 180, Height: 40})
 	m = drive(m, m.listProjects())
@@ -256,17 +257,35 @@ func TestTheScreenOpensAChangeAreaByArea(t *testing.T) {
 		t.Error("esc did not go back to the list")
 	}
 	m = key(m, "c")
-	show("the conversation", "talk about")
+	show("the conversation, below the task", "talk about the project", "▾ greeting")
 	m = key(m, "esc")
-	if m.focus != onList || m.mode != reading {
-		t.Error("esc did not leave the conversation")
+	if m.mode != reading || !m.chatOpen {
+		t.Error("esc did not leave the line typed on, the conversation still open")
+	}
+	m = key(m, "esc")
+	if m.chatOpen {
+		t.Error("a second esc did not close the conversation")
+	}
+
+	// The mouse: a click on a task opens it; a click on an area opens that.
+	m = drive(m, tea.MouseMsg{X: 4, Y: 2, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	if m.focus != onTask || m.sel != 0 {
+		t.Fatalf("a click on the first task did not open it: focus %d, task %d", m.focus, m.sel)
+	}
+	lay := m.layout()
+	_, task0, _ := m.current()
+	labels := m.areaLabels(task0)
+	x := lay.side + 3 + ansi.StringWidth(labels[0]) + 2 + 1 // inside the second area's name
+	m = drive(m, tea.MouseMsg{X: x, Y: 1 + areasLine, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	if m.area != 2 {
+		t.Errorf("a click on the plan's name opened area %d", m.area)
 	}
 }
 
 // o reads the change described here, in the terminal: the specification's
 // area, from its top — nothing is opened outside the screen.
 func TestOReadsTheSpecificationInTheTerminal(t *testing.T) {
-	m := New(context.Background(), &service.Client{}, nil, "/estate") // a client told of no run
+	m := New(context.Background(), &service.Client{}, nil, "/estate", Terminal) // a client told of no run
 	m.projects = []protocol.Project{{Path: "/estate", Name: "estate", Changes: []protocol.Change{{Dir: "/estate/changes/x", Statement: "x"}}}}
 	m.docs["/estate/changes/x"] = protocol.ChangeDoc{Change: protocol.Change{Dir: "/estate/changes/x"}, Document: "# The change\n\nIt greets."}
 	m.area, m.scroll = 4, 7

@@ -22,7 +22,7 @@ const usage = `usage: iflow desk [project...]            the workbench: projects
        iflow run [--accept|--ask] <estate> <task> carry a task along the path; --ask reads
                                          each answer on stdin: accept, or notes to send it back
        iflow serve                        carry runs for every screen that connects (IFLOW_SOCKET)
-       iflow tui [project]                the path in a terminal, through the service
+       iflow tui [--theme light|terminal] [project]  the path in a terminal, through the service
        iflow bench [--only a,b] [--set review=1,attempts=1,repeat=once] [--label name]
                                          carry the reference tasks (examples/bench.json), every
                                          question answered yes, and say what each came to and cost
