@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-
 	"github.com/igannytskyi/iflow/internal/protocol"
 )
 
