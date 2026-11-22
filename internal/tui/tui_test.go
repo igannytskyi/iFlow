@@ -268,7 +268,7 @@ func TestTheScreenOpensAChangeAreaByArea(t *testing.T) {
 	}
 
 	// The mouse: a click on a task opens it; a click on an area opens that.
-	m = drive(m, tea.MouseMsg{X: 4, Y: 2, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	m = drive(m, tea.MouseMsg{X: 4, Y: m.layout().top + 1, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
 	if m.focus != onTask || m.sel != 0 {
 		t.Fatalf("a click on the first task did not open it: focus %d, task %d", m.focus, m.sel)
 	}
@@ -276,7 +276,7 @@ func TestTheScreenOpensAChangeAreaByArea(t *testing.T) {
 	_, task0, _ := m.current()
 	labels := m.areaLabels(task0)
 	x := lay.side + 3 + ansi.StringWidth(labels[0]) + 2 + 1 // inside the second area's name
-	m = drive(m, tea.MouseMsg{X: x, Y: 1 + areasLine, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	m = drive(m, tea.MouseMsg{X: x, Y: lay.top + len(m.head(task0, lay.mid)) - 1, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
 	if m.area != 2 {
 		t.Errorf("a click on the plan's name opened area %d", m.area)
 	}
@@ -293,5 +293,30 @@ func TestOReadsTheSpecificationInTheTerminal(t *testing.T) {
 	m = next.(Model)
 	if m.focus != onTask || m.area != 1 || m.scroll != 0 || cmd != nil {
 		t.Errorf("o did not show the specification from its top: focus %d, area %d, scroll %d", m.focus, m.area, m.scroll)
+	}
+}
+
+// Nothing said is cut: a task's words too long for its line go on to the
+// next, in the list as in the task, and the screen shows no ellipsis.
+func TestNothingIsCut(t *testing.T) {
+	long := "make the greeting say good morning, good afternoon or good evening by the hour of the person's own clock, and keep every other greeting as it is"
+	m := New(context.Background(), &service.Client{}, nil, "/estate", Terminal)
+	m.projects = []protocol.Project{{Path: "/estate", Name: "estate", Changes: []protocol.Change{
+		{Dir: "/estate/changes/x", Statement: long, State: protocol.Stopped, Reached: 2}}}}
+	m.docs["/estate/changes/x"] = protocol.ChangeDoc{Change: protocol.Change{Dir: "/estate/changes/x"},
+		Record: []protocol.Crossing{{N: 1, At: "2026-11-22", Stage: "intent", Note: long}}}
+	m = drive(m, tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = key(m, "enter", "6")
+	v := ansi.Strip(m.View())
+	if os.Getenv("IFLOW_SHOW") != "" {
+		t.Log("\n" + v)
+	}
+	if strings.Contains(v, "…") {
+		t.Errorf("something is cut:\n%s", v)
+	}
+	for _, word := range []string{"evening", "clock,", "other"} {
+		if strings.Count(v, word) < 3 { // the list, the title, the record
+			t.Errorf("%q is not shown in the list, the title and the record:\n%s", word, v)
+		}
 	}
 }

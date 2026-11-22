@@ -11,44 +11,65 @@ import (
 
 // sidebar is every project, the one on view open on its tasks.
 func (m Model) sidebar(width, height int) string {
+	lines, _ := m.sideLines(width, height)
+	return strings.Join(lines, "\n")
+}
+
+// sideLines is the list as it is drawn, every task's words whole, and what
+// each line stands for; the task chosen is kept in view.
+func (m Model) sideLines(width, height int) ([]string, []sideRow) {
 	if len(m.projects) == 0 {
-		return m.st.faint.Render("no projects yet")
+		return []string{m.st.faint.Render("no projects yet")}, []sideRow{{-1, -1}}
 	}
-	var lines []string
+	var before, after, tasks []string
+	var rowsBefore, rowsAfter, rowsTasks []sideRow
+	chosenAt := 0
 	for i, p := range m.projects {
 		ts := m.tasks(p)
 		if i != m.proj {
-			lines = append(lines, m.st.faint.Render(fmt.Sprintf("▸ %s  %d", p.Name, len(ts))))
+			line := m.st.faint.Render(fmt.Sprintf("▸ %s  %d", p.Name, len(ts)))
+			if i < m.proj {
+				before, rowsBefore = append(before, line), append(rowsBefore, sideRow{i, -1})
+			} else {
+				after, rowsAfter = append(after, line), append(rowsAfter, sideRow{i, -1})
+			}
 			continue
 		}
 		head := "▾ " + p.Name
 		if m.focus == onList {
 			head = m.st.strong.Render(head)
 		}
-		lines = append(lines, head)
-		room := max(1, height-len(m.projects))
-		first := max(0, min(m.sel-room/2, len(ts)-room))
-		for j, t := range ts[first:min(len(ts), first+room)] {
+		before, rowsBefore = append(before, head), append(rowsBefore, sideRow{i, -1})
+		for j, t := range ts {
 			what := oneLine(t.change.Statement)
 			if what == "" {
 				what = t.change.Name
 			}
-			line := ansi.Truncate(m.taskMark(t)+" "+what, width-2, "…")
-			switch {
-			case first+j == m.sel && m.focus == onList:
-				line = m.st.strong.Render("› ") + m.st.chosen.Render(ansi.Strip(line))
-			case first+j == m.sel:
-				line = m.st.strong.Render("› ") + line
-			default:
-				line = "  " + line
+			lead := "  "
+			if j == m.sel {
+				lead, chosenAt = m.st.strong.Render("› "), len(tasks)
 			}
-			lines = append(lines, line)
+			for k, l := range fold(m.taskMark(t)+" "+what, width-2, "  ") {
+				if j == m.sel && m.focus == onList {
+					l = m.st.chosen.Render(ansi.Strip(l))
+				}
+				if k > 0 {
+					lead = "  "
+				}
+				tasks, rowsTasks = append(tasks, lead+l), append(rowsTasks, sideRow{i, j})
+			}
 		}
 		if len(ts) == 0 {
-			lines = append(lines, m.st.faint.Render("  no task yet — n"))
+			tasks, rowsTasks = append(tasks, m.st.faint.Render("  no task yet — n")), append(rowsTasks, sideRow{i, -1})
 		}
 	}
-	return strings.Join(lines, "\n")
+	// The tasks scroll; the projects' lines stay where they are.
+	room := max(1, height-len(before)-len(after))
+	first := max(0, min(chosenAt-room/3, len(tasks)-room))
+	end := min(len(tasks), first+room)
+	lines := append(append(append([]string{}, before...), tasks[first:end]...), after...)
+	rows := append(append(append([]sideRow{}, rowsBefore...), rowsTasks[first:end]...), rowsAfter...)
+	return lines, rows
 }
 
 // taskMark is how a task stands, in one sign: by its run where one carries

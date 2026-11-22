@@ -8,14 +8,16 @@ import (
 // layout is where each part of the screen is: the same for drawing it and
 // for finding what the mouse points at.
 type layout struct {
-	body         int // the lines between the top line and the foot
+	top          int // the lines above the columns
+	body         int // the lines between the top and the foot
 	side, mid    int // the widths of the list and of the task
 	costs        int // the width of the costs, 0 where they do not fit
 	taskH, chatH int // the task's lines, and the conversation's below it
 }
 
 func (m Model) layout() layout {
-	l := layout{body: max(4, m.height-2)}
+	l := layout{top: len(m.top())}
+	l.body = max(4, m.height-l.top-len(m.foot()))
 	l.side = min(36, max(22, m.width/4))
 	l.mid = m.width - l.side - 3
 	if l.mid >= 110 {
@@ -30,36 +32,10 @@ func (m Model) layout() layout {
 	return l
 }
 
-// The lines of the task, counted from the top of the middle: its title is
-// drawn under a rule, two lines, and its areas are the third.
-const (
-	areasLine = 2
-	bodyLine  = 3
-)
-
 // sideRow is what a line of the list stands for: a project, or one of its
 // tasks.
 type sideRow struct {
 	proj, task int // task is -1 for the project's own line
-}
-
-// sideRows is what each line of the list stands for, in order, as sidebar
-// draws them.
-func (m Model) sideRows(height int) []sideRow {
-	var rows []sideRow
-	for i, p := range m.projects {
-		rows = append(rows, sideRow{i, -1})
-		if i != m.proj {
-			continue
-		}
-		ts := m.tasks(p)
-		room := max(1, height-len(m.projects))
-		first := max(0, min(m.sel-room/2, len(ts)-room))
-		for j := first; j < min(len(ts), first+room); j++ {
-			rows = append(rows, sideRow{i, j})
-		}
-	}
-	return rows
 }
 
 // areaAt is the area whose name is drawn at column x of the areas' line,
@@ -81,7 +57,7 @@ func (m Model) areaAt(x int, labels []string) int {
 // moves along the list or the task.
 func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	l := m.layout()
-	row, x := msg.Y-1, msg.X
+	row, x := msg.Y-l.top, msg.X
 	if row < 0 || row >= l.body {
 		return m, nil
 	}
@@ -119,8 +95,8 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case inList:
-		rows := m.sideRows(l.body)
-		if row >= len(rows) {
+		_, rows := m.sideLines(l.side, l.body)
+		if row >= len(rows) || rows[row].proj < 0 {
 			return m, nil
 		}
 		r := rows[row]
@@ -146,14 +122,15 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		mx := x - (l.side + 3)
 		switch {
-		case row == areasLine:
+		case row == len(m.head(t, l.mid))-1: // the areas' line
 			if n := m.areaAt(mx, m.areaLabels(t)); n > 0 {
 				m.focus, m.area, m.row, m.scroll = onTask, n, 0, 0
 				return m, tea.Batch(m.onView(), m.traceOnView())
 			}
-		case row >= bodyLine:
-			_, rows, _ := m.body(t, l.mid, l.taskH-bodyLine)
-			if i := row - bodyLine; i < len(rows) && rows[i] >= 0 {
+		case row >= len(m.head(t, l.mid)):
+			start := len(m.head(t, l.mid))
+			_, rows, _ := m.body(t, l.mid, l.taskH-start)
+			if i := row - start; i < len(rows) && rows[i] >= 0 {
 				m.focus, m.row = onTask, rows[i]
 				return m, m.traceOnView()
 			}

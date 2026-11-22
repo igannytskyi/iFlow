@@ -526,10 +526,6 @@ func (m Model) View() string {
 		return ""
 	}
 	l := m.layout()
-	top := m.st.strong.Render("iflow") + m.st.faint.Render(" · "+m.term.name)
-	if m.note != "" {
-		top += m.st.faint.Render("  ·  ") + ansi.Truncate(m.note, m.width-20, "…")
-	}
 	middle := box(l.mid, l.taskH, m.task(l.mid, l.taskH))
 	if m.chatOpen {
 		middle += "\n" + m.st.faint.Render(strings.Repeat("─", l.mid)) + "\n" + box(l.mid, l.chatH, m.chat(l.mid, l.chatH))
@@ -538,19 +534,48 @@ func (m Model) View() string {
 	if l.costs > 0 {
 		cols = append(cols, m.st.faint.Render(" │ "), box(l.costs, l.body, m.costs(l.costs)))
 	}
-	return top + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, cols...) + "\n" + m.foot()
+	return strings.Join(m.top(), "\n") + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, cols...) + "\n" + strings.Join(m.foot(), "\n")
 }
 
-// box is text in a box of width and height, cut where it overflows.
+// top is the screen's first lines: its name, the terminal, and what it has
+// to say, whole.
+func (m Model) top() []string {
+	head := m.st.strong.Render("iflow") + m.st.faint.Render(" · "+m.term.name)
+	if m.note == "" {
+		return []string{head}
+	}
+	return fold(head+m.st.faint.Render("  ·  ")+m.note, m.width, "  ")
+}
+
+// box is text in a box of width and height. A line too long for it goes on
+// to the next, never cut; what does not fit the height is what scrolling is
+// for.
 func box(width, height int, text string) string {
-	lines := strings.Split(text, "\n")
+	var lines []string
+	for _, l := range strings.Split(text, "\n") {
+		lines = append(lines, strings.Split(ansi.Hardwrap(l, width, true), "\n")...)
+	}
 	if len(lines) > height {
 		lines = lines[:height]
 	}
-	for i, l := range lines {
-		lines[i] = ansi.Truncate(l, width, "…")
-	}
 	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+}
+
+// fold is s broken at its words into lines of at most width cells, those
+// after the first begun with indent: what is said is shown whole.
+func fold(s string, width int, indent string) []string {
+	width = max(8, width)
+	first, rest, more := strings.Cut(ansi.Wrap(s, width, ""), "\n")
+	if !more {
+		return []string{first}
+	}
+	// What follows the first line is wrapped again, narrower by the indent.
+	rest = strings.Join(strings.Split(rest, "\n"), " ")
+	lines := strings.Split(ansi.Wrap(rest, max(8, width-ansi.StringWidth(indent)), ""), "\n")
+	for i := range lines {
+		lines[i] = indent + lines[i]
+	}
+	return append([]string{first}, lines...)
 }
 
 // mark is how a run stands, in one sign.
@@ -568,10 +593,10 @@ func (m Model) mark(s service.State) string {
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-// foot is the line the person types on, or what the keys do here.
-func (m Model) foot() string {
+// foot is the line the person types on, or what the keys do here, whole.
+func (m Model) foot() []string {
 	if m.mode != reading {
-		return m.input.View()
+		return []string{m.input.View()}
 	}
 	var keys string
 	switch m.focus {
@@ -583,5 +608,9 @@ func (m Model) foot() string {
 	if m.chatOpen {
 		keys = "c to type · esc closes the conversation · " + keys
 	}
-	return ansi.Truncate(m.st.faint.Render(keys), m.width, "…")
+	var out []string
+	for _, l := range fold(keys, m.width, "") {
+		out = append(out, m.st.faint.Render(l))
+	}
+	return out
 }

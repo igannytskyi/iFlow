@@ -25,19 +25,11 @@ func (m Model) task(width, height int) string {
 		return "\n" + m.st.faint.Render("  no task here yet — press n and say what you want")
 	}
 	s, live := m.client.Run(t.run)
-	title := oneLine(t.change.Statement)
-	if live {
-		title = oneLine(s.Statement)
-	}
-	title = ansi.Truncate(title, width-2, "…")
-	if dir := m.dirOf(t); dir != "" {
-		title = m.term.link(filepath.Join(dir, "change.md"), title)
-	}
-	out := append(strings.Split(m.st.rule.Width(width).Render(title), "\n"), strings.Join(m.areaLabels(t), "  "))
+	out := m.head(t, width)
 	var question []string
 	if live && s.Question != "" {
-		question = []string{m.st.waitBlock.Render("waiting for you") + " " + oneLine(s.Question),
-			m.st.faint.Render("[a] accept   [r] send back with why   [o] read the specification")}
+		question = append(fold(m.st.waitBlock.Render("waiting for you")+" "+oneLine(s.Question), width, ""),
+			m.st.faint.Render("[a] accept   [r] send back with why   [o] read the specification"))
 	}
 	lines, _, _ := m.body(t, width, height-len(out)-len(question))
 	out = append(out, lines...)
@@ -45,6 +37,24 @@ func (m Model) task(width, height int) string {
 		out = append(out, "")
 	}
 	return strings.Join(append(out[:max(0, height-len(question))], question...), "\n")
+}
+
+// head is the task's title, whole, under a rule, and its six areas on the
+// last line.
+func (m Model) head(t task, width int) []string {
+	s, live := m.client.Run(t.run)
+	title := oneLine(t.change.Statement)
+	if live {
+		title = oneLine(s.Statement)
+	}
+	lines := fold(title, width, "")
+	if dir := m.dirOf(t); dir != "" {
+		for i, l := range lines {
+			lines[i] = m.term.link(filepath.Join(dir, "change.md"), l)
+		}
+	}
+	out := strings.Split(m.st.rule.Width(width).Render(""), "\n")[:1] // the rule alone
+	return append(append(out, lines...), strings.Join(m.areaLabels(t), "  "))
 }
 
 // body is what the area open holds, as it fits height: its lines, the row
@@ -60,7 +70,7 @@ func (m Model) body(t task, width, height int) ([]string, []int, int) {
 	case 2:
 		lines, rows = m.plan(doc, width)
 	case 3:
-		lines = m.admission(doc)
+		lines = m.admission(doc, width)
 	case 4:
 		lines, rows = m.execution(t, doc, s, live, width, height)
 		return lines, rows, 0 // the agent's steps keep to the room left
@@ -166,13 +176,19 @@ func (m Model) plan(doc protocol.ChangeDoc, width int) ([]string, []int) {
 	for i, u := range doc.Plan.Units {
 		line := fmt.Sprintf("%s  %-8s %s", u.ID, u.Kind, u.Title)
 		if i != m.row {
-			add(i, line)
+			add(i, fold(line, width, "  ")...)
 			continue
 		}
-		add(i, m.st.chosen.Render(ansi.Truncate(line, width, "…")),
-			m.st.faint.Render("  scope: "+strings.Join(u.Scope, ", ")+"   criteria: "+strings.Join(u.Criteria, ", ")))
+		for _, l := range fold(line, width, "  ") {
+			add(i, m.st.chosen.Render(l))
+		}
+		for _, l := range fold("scope: "+strings.Join(u.Scope, ", ")+"   criteria: "+strings.Join(u.Criteria, ", "), width-2, "  ") {
+			add(i, m.st.faint.Render("  "+l))
+		}
 		for _, p := range u.Provides {
-			add(i, m.st.faint.Render("  provides: "+p.Signature+" — "+p.File))
+			for _, l := range fold("provides: "+p.Signature+" — "+p.File, width-2, "  ") {
+				add(i, m.st.faint.Render("  "+l))
+			}
 		}
 		for _, l := range strings.Split(wrap(u.Brief, width-4), "\n") {
 			add(i, "  "+l)
@@ -183,16 +199,22 @@ func (m Model) plan(doc protocol.ChangeDoc, width int) ([]string, []int) {
 }
 
 // admission is what was decided of each unit before any was carried.
-func (m Model) admission(doc protocol.ChangeDoc) []string {
+func (m Model) admission(doc protocol.ChangeDoc, width int) []string {
 	if doc.Admission == nil {
 		return []string{m.st.faint.Render("not admitted yet")}
 	}
 	var out []string
 	for _, d := range doc.Admission.Decisions {
-		out = append(out, fmt.Sprintf("%s  %s", d.Unit, d.Outcome), m.st.faint.Render("  "+oneLine(d.Condition)))
+		out = append(out, fmt.Sprintf("%s  %s", d.Unit, d.Outcome))
+		for _, l := range fold(oneLine(d.Condition), width-2, "") {
+			out = append(out, m.st.faint.Render("  "+l))
+		}
 	}
 	for _, c := range doc.Admission.Conflicts {
-		out = append(out, "", m.st.waiting.Render("meet: "+c.Units), m.st.faint.Render("  "+oneLine(c.Region)+" — "+oneLine(c.Resolution)))
+		out = append(out, "", m.st.waiting.Render("meet: "+c.Units))
+		for _, l := range fold(oneLine(c.Region)+" — "+oneLine(c.Resolution), width-2, "") {
+			out = append(out, m.st.faint.Render("  "+l))
+		}
 	}
 	return out
 }
@@ -234,11 +256,12 @@ func (m Model) execution(t task, doc protocol.ChangeDoc, s service.State, live b
 		case len(s.Agent[u.id]) > 0:
 			sign = m.st.active.Render("●")
 		}
-		line := fmt.Sprintf("%s %s  %-8s %s", sign, u.id, u.kind, u.title)
-		if i == m.row {
-			line = m.st.chosen.Render(ansi.Strip(line))
+		for _, l := range fold(fmt.Sprintf("%s %s  %-8s %s", sign, u.id, u.kind, u.title), width, "  ") {
+			if i == m.row {
+				l = m.st.chosen.Render(ansi.Strip(l))
+			}
+			out, rows = append(out, l), append(rows, i)
 		}
-		out, rows = append(out, ansi.Truncate(line, width, "…")), append(rows, i)
 	}
 	out = append(out, "")
 	chosenUnit := units[min(m.row, len(units)-1)]
@@ -249,10 +272,14 @@ func (m Model) execution(t task, doc protocol.ChangeDoc, s service.State, live b
 		where = chosenUnit.candidate
 	}
 	out = append(out, m.st.faint.Render(chosenUnit.id+" · its agent · "+cmp.Or(where, "no candidate")))
-	room := max(1, height-len(out))
-	for _, e := range events[max(0, len(events)-room):] {
-		out = append(out, ansi.Truncate(m.event(e), width, "…"))
+	// The agent's steps, whole, newest at the foot: as many of the last as
+	// the room holds.
+	var steps []string
+	for _, e := range events {
+		steps = append(steps, fold(m.event(e), width, "    ")...)
 	}
+	room := max(1, height-len(out))
+	out = append(out, steps[max(0, len(steps)-room):]...)
 	if len(events) == 0 {
 		out = append(out, m.st.faint.Render("  no steps kept"))
 	}
@@ -326,7 +353,9 @@ func (m Model) assurance(doc protocol.ChangeDoc, width int) []string {
 		}
 		out = append(out, fmt.Sprintf("%s %s  %s  %s", sign, v.Criterion, v.Outcome, m.st.faint.Render(v.Unit+" · "+string(v.State))))
 		if w := words[v.Criterion]; w != "" {
-			out = append(out, m.st.faint.Render("  "+ansi.Truncate(oneLine(w), width-4, "…")))
+			for _, l := range fold(oneLine(w), width-2, "") {
+				out = append(out, m.st.faint.Render("  "+l))
+			}
 		}
 	}
 	return out
@@ -345,7 +374,8 @@ func (m Model) landing(doc protocol.ChangeDoc, t task, width int) []string {
 	}
 	out = append(out, m.st.faint.Render("record"))
 	for _, x := range doc.Record {
-		out = append(out, ansi.Truncate(fmt.Sprintf("%2d %s %-13s %s", x.N, x.At, x.Stage, oneLine(x.Note)), width, "…"))
+		lead := fmt.Sprintf("%2d %s %-13s ", x.N, x.At, x.Stage)
+		out = append(out, fold(lead+oneLine(x.Note), width, strings.Repeat(" ", ansi.StringWidth(lead)))...)
 	}
 	if t.change.State == protocol.Stopped {
 		out = append(out, "", m.st.faint.Render("[R] resume from where it stopped"))
@@ -397,7 +427,7 @@ func (m Model) costs(width int) string {
 	}
 	lines = append(lines, "", m.st.faint.Render("by model"))
 	for _, k := range sortedByCost(byModel) {
-		lines = append(lines, ansi.Truncate(fmt.Sprintf("$%.3f %s", byModel[k], k), width, "…"))
+		lines = append(lines, fold(fmt.Sprintf("$%.3f %s", byModel[k], k), width, "       ")...)
 	}
 	if len(byUnit) > 0 {
 		lines = append(lines, "", m.st.faint.Render("dearest units"))
