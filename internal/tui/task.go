@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"maps"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -39,22 +38,10 @@ func (m Model) task(width, height int) string {
 	return strings.Join(append(out[:max(0, height-len(question))], question...), "\n")
 }
 
-// head is the task's title, whole, under a rule, and its six areas on the
-// last line.
-func (m Model) head(t task, width int) []string {
-	s, live := m.client.Run(t.run)
-	title := oneLine(t.change.Statement)
-	if live {
-		title = oneLine(s.Statement)
-	}
-	lines := fold(title, width, "")
-	if dir := m.dirOf(t); dir != "" {
-		for i, l := range lines {
-			lines[i] = m.term.link(filepath.Join(dir, "change.md"), l)
-		}
-	}
-	out := strings.Split(m.st.rule.Width(width).Render(""), "\n")[:1] // the rule alone
-	return append(append(out, lines...), strings.Join(m.areaLabels(t), "  "))
+// head is the task's six areas, on its first line: what the task is, the
+// list beside it says already.
+func (m Model) head(t task, _ int) []string {
+	return []string{strings.Join(m.areaLabels(t), "  "), ""}
 }
 
 // body is what the area open holds, as it fits height: its lines, the row
@@ -114,8 +101,8 @@ func (m Model) areaLabels(t task) []string {
 		case protocol.Failed:
 			style, name = m.st.badBlock, name+" ✗"
 		}
-		if n == m.area && m.focus == onTask {
-			style = style.Bold(true).Underline(true)
+		if n == m.area {
+			style = m.st.chosen.Bold(true).Padding(0, 1) // the area open, lit as all that is chosen is
 		}
 		out = append(out, style.Render(name))
 	}
@@ -180,7 +167,7 @@ func (m Model) plan(doc protocol.ChangeDoc, width int) ([]string, []int) {
 			continue
 		}
 		for _, l := range fold(line, width, "  ") {
-			add(i, m.st.chosen.Render(l))
+			add(i, m.lit(l, width))
 		}
 		for _, l := range fold("scope: "+strings.Join(u.Scope, ", ")+"   criteria: "+strings.Join(u.Criteria, ", "), width-2, "  ") {
 			add(i, m.st.faint.Render("  "+l))
@@ -258,7 +245,7 @@ func (m Model) execution(t task, doc protocol.ChangeDoc, s service.State, live b
 		}
 		for _, l := range fold(fmt.Sprintf("%s %s  %-8s %s", sign, u.id, u.kind, u.title), width, "  ") {
 			if i == m.row {
-				l = m.st.chosen.Render(ansi.Strip(l))
+				l = m.lit(l, width)
 			}
 			out, rows = append(out, l), append(rows, i)
 		}

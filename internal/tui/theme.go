@@ -42,7 +42,7 @@ func stylesOf(t Theme) styles {
 			goodBlock: block("#e4f0d6", "#27500a"), badBlock: block("#fbe3e3", "#791f1f"),
 			activeBlock: block("#dfebf8", "#0c447c"), waitBlock: block("#fbecd2", "#633806"),
 			idleBlock: block("#f1efe8", "#5f5e5a"),
-			chosen:    lipgloss.NewStyle().Background(lipgloss.Color("#dbe7f6")).Foreground(lipgloss.Color("#0c2f57")),
+			chosen:    lipgloss.NewStyle().Background(lipgloss.Color("#e8f0fb")).Foreground(lipgloss.Color("#0c2f57")),
 			rule: lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).BorderTop(true).
 				BorderForeground(lipgloss.Color("#d9d6cc")),
 			you: ink("#185fa5").Bold(true), model: ink("#0f6e56").Bold(true),
@@ -58,7 +58,8 @@ func stylesOf(t Theme) styles {
 		good: good, bad: bad, active: active, waiting: waiting,
 		goodBlock: good, badBlock: bad, activeBlock: active, waitBlock: waiting,
 		idleBlock: adaptive("#8a8a85", "#7a7a75"),
-		chosen:    lipgloss.NewStyle().Reverse(true),
+		chosen: lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#e8f0fb", Dark: "#26303d"}).
+			Foreground(lipgloss.AdaptiveColor{Light: "#0c2f57", Dark: "#e6f1fb"}),
 		rule: lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).BorderTop(true).
 			BorderForeground(lipgloss.AdaptiveColor{Light: "#d3d1c7", Dark: "#444441"}),
 		you: active.Bold(true), model: good.Bold(true),

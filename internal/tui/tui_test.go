@@ -276,7 +276,7 @@ func TestTheScreenOpensAChangeAreaByArea(t *testing.T) {
 	_, task0, _ := m.current()
 	labels := m.areaLabels(task0)
 	x := lay.side + 3 + ansi.StringWidth(labels[0]) + 2 + 1 // inside the second area's name
-	m = drive(m, tea.MouseMsg{X: x, Y: lay.top + len(m.head(task0, lay.mid)) - 1, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	m = drive(m, tea.MouseMsg{X: x, Y: lay.top, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
 	if m.area != 2 {
 		t.Errorf("a click on the plan's name opened area %d", m.area)
 	}
@@ -315,8 +315,8 @@ func TestNothingIsCut(t *testing.T) {
 		t.Errorf("something is cut:\n%s", v)
 	}
 	for _, word := range []string{"evening", "clock,", "other"} {
-		if strings.Count(v, word) < 3 { // the list, the title, the record
-			t.Errorf("%q is not shown in the list, the title and the record:\n%s", word, v)
+		if strings.Count(v, word) < 2 { // the list and the record; the task says no title of its own
+			t.Errorf("%q is not shown in the list and the record:\n%s", word, v)
 		}
 	}
 }

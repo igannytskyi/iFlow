@@ -122,7 +122,7 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		mx := x - (l.side + 3)
 		switch {
-		case row == len(m.head(t, l.mid))-1: // the areas' line
+		case row == 0: // the areas' line, the head's first
 			if n := m.areaAt(mx, m.areaLabels(t)); n > 0 {
 				m.focus, m.area, m.row, m.scroll = onTask, n, 0, 0
 				return m, tea.Batch(m.onView(), m.traceOnView())

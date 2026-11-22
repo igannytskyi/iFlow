@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/igannytskyi/iflow/internal/protocol"
 )
@@ -45,18 +44,18 @@ func (m Model) sideLines(width, height int) ([]string, []sideRow) {
 			if what == "" {
 				what = t.change.Name
 			}
-			lead := "  "
 			if j == m.sel {
-				lead, chosenAt = m.st.strong.Render("› "), len(tasks)
+				chosenAt = len(tasks)
 			}
-			for k, l := range fold(m.taskMark(t)+" "+what, width-2, "  ") {
-				if j == m.sel && m.focus == onList {
-					l = m.st.chosen.Render(ansi.Strip(l))
+			for _, l := range fold(m.taskMark(t)+" "+what, width-1, "  ") {
+				// The task on view is lit, whether the keys are on the list
+				// or in the task.
+				if j == m.sel {
+					l = m.lit(" "+l, width)
+				} else {
+					l = " " + l
 				}
-				if k > 0 {
-					lead = "  "
-				}
-				tasks, rowsTasks = append(tasks, lead+l), append(rowsTasks, sideRow{i, j})
+				tasks, rowsTasks = append(tasks, l), append(rowsTasks, sideRow{i, j})
 			}
 		}
 		if len(ts) == 0 {

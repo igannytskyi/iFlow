@@ -561,6 +561,12 @@ func box(width, height int, text string) string {
 	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
 
+// lit is line on the soft background of what is chosen, across width: the
+// task, the unit, the area the keys and the mouse act on.
+func (m Model) lit(line string, width int) string {
+	return m.st.chosen.Width(max(0, width)).Render(ansi.Strip(line))
+}
+
 // fold is s broken at its words into lines of at most width cells, those
 // after the first begun with indent: what is said is shown whole.
 func fold(s string, width int, indent string) []string {
