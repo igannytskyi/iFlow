@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"fmt"
 	"image"
 	"path/filepath"
@@ -128,8 +129,13 @@ func (u *UI) turn(p *project, key string, i int, m chat.Message) W {
 		if m.Usage.CostUSD > 0 {
 			meta += " · " + money(m.Usage.CostUSD)
 		}
+		var cited []W
+		for n, s := range m.Sources {
+			cited = append(cited, u.text(sizeSmall, u.p.Muted, fmt.Sprintf("[%d] %s — %s", n+1, cmp.Or(s.Title, s.URL), s.URL)))
+		}
 		return column(4,
 			column(6, u.markdown(strings.Split(m.Text, "\n"))...),
+			column(2, cited...),
 			row(10, u.text(sizeSmall, u.p.Faint, meta), func(gtx C) D {
 				return u.pressable(gtx, toIntent, false, 5, inset(2, 6, u.text(sizeSmall, u.p.Accent, "Make it an intent")))
 			}),

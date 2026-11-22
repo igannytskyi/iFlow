@@ -52,7 +52,11 @@ func state(r protocol.ChatRef, th *chat.Thread) protocol.ChatState {
 	s := protocol.ChatState{ChatRef: r, Partial: th.Partial(), Waiting: th.Waiting(), CostUSD: th.Cost(),
 		Messages: []protocol.ChatMessage{}}
 	for _, m := range th.Messages() {
-		s.Messages = append(s.Messages, protocol.ChatMessage{At: m.At, Role: m.Role, Text: m.Text, CostUSD: m.Usage.CostUSD, Err: m.Err})
+		msg := protocol.ChatMessage{At: m.At, Role: m.Role, Text: m.Text, CostUSD: m.Usage.CostUSD, Err: m.Err}
+		for _, c := range m.Sources {
+			msg.Sources = append(msg.Sources, protocol.Source{URL: c.URL, Title: c.Title})
+		}
+		s.Messages = append(s.Messages, msg)
 	}
 	return s
 }

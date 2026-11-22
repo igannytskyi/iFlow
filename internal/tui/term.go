@@ -75,3 +75,15 @@ func (t terminal) link(path, text string) string {
 	u := url.URL{Scheme: "file", Host: host, Path: abs}
 	return fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", u.String(), text)
 }
+
+// webLink is a page of the web as the terminal shows it: a link to it where
+// the terminal opens links and the address is one of the web's, the words
+// alone where not. The address came from a page the screen did not write:
+// only one that parses as http or https is linked, written as parsed.
+func (t terminal) webLink(address, text string) string {
+	u, err := url.Parse(address)
+	if !t.links || err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return text
+	}
+	return fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", u.String(), text)
+}

@@ -26,6 +26,7 @@ func (o OpenAI) Stream(ctx context.Context, msgs []Message, tools []Tool, said f
 	var (
 		text  strings.Builder
 		calls []ToolCall
+		notes []Annotation
 		use   *served
 	)
 	sc := bufio.NewScanner(resp.Body)
@@ -43,8 +44,9 @@ func (o OpenAI) Stream(ctx context.Context, msgs []Message, tools []Tool, said f
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content   string `json:"content"`
-					ToolCalls []struct {
+					Content     string       `json:"content"`
+					Annotations []Annotation `json:"annotations"`
+					ToolCalls   []struct {
 						Index    int    `json:"index"`
 						ID       string `json:"id"`
 						Type     string `json:"type"`
@@ -70,6 +72,7 @@ func (o OpenAI) Stream(ctx context.Context, msgs []Message, tools []Tool, said f
 			use = chunk.Usage
 		}
 		for _, c := range chunk.Choices {
+			notes = append(notes, c.Delta.Annotations...)
 			if c.Delta.Content != "" {
 				text.WriteString(c.Delta.Content)
 				if said != nil {
@@ -91,7 +94,7 @@ func (o OpenAI) Stream(ctx context.Context, msgs []Message, tools []Tool, said f
 		return Message{}, Usage{}, fmt.Errorf("model: %s: %w", o.BaseURL, err)
 	}
 	calls = slices.DeleteFunc(calls, func(c ToolCall) bool { return c.Function.Name == "" })
-	m := Message{Role: "assistant", Content: text.String(), ToolCalls: calls}
+	m := Message{Role: "assistant", Content: text.String(), ToolCalls: calls, Annotations: notes}
 	if use == nil {
 		if m.Content == "" && len(calls) == 0 {
 			return m, Usage{Model: o.Name()}, errors.New("model: the answer was empty")

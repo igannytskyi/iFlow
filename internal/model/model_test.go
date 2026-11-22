@@ -135,3 +135,48 @@ func TestAStreamedAnswer(t *testing.T) {
 		t.Errorf("tool calls %+v", m.ToolCalls)
 	}
 }
+
+// The web's search is offered as a tool the server runs to OpenRouter, and
+// to no other server, which would not run it; what it found comes back as
+// annotations, nested or flat, each page once.
+func TestTheWebIsSearchedByTheServer(t *testing.T) {
+	var asked map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		asked = nil // each request read afresh
+		_ = json.Unmarshal(b, &asked)
+		io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"Go 1.27 [1]","annotations":[
+ {"type":"url_citation","url_citation":{"url":"https://go.dev/doc/go1.27","title":"Go 1.27 Release Notes"}},
+ {"type":"url_citation","url":"https://go.dev/blog","title":"The Go Blog"},
+ {"type":"url_citation","url_citation":{"url":"https://go.dev/doc/go1.27","title":"again"}},
+ {"type":"file","url":"x"}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`)
+	}))
+	defer srv.Close()
+	o := OpenAI{BaseURL: srv.URL + "/openrouter.ai/v1", Model: "z-ai/glm-5.3-flash"}
+	if !o.Searches() {
+		t.Fatal("OpenRouter does not search")
+	}
+	m, _, err := o.Chat(context.Background(), []Message{{Role: "user", Content: "latest Go?"}}, []Tool{WebSearch()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, _ := asked["tools"].([]any)
+	if len(tools) != 1 || tools[0].(map[string]any)["type"] != "openrouter:web_search" || tools[0].(map[string]any)["function"] != nil {
+		t.Errorf("the search was not offered as the server's tool: %v", asked["tools"])
+	}
+	want := []Citation{{URL: "https://go.dev/doc/go1.27", Title: "Go 1.27 Release Notes"}, {URL: "https://go.dev/blog", Title: "The Go Blog"}}
+	if got := Sources(m.Annotations); !reflect.DeepEqual(got, want) {
+		t.Errorf("the pages cited are %v, want %v", got, want)
+	}
+
+	other := OpenAI{BaseURL: srv.URL + "/api.deepseek.com", Model: "deepseek-chat"}
+	if other.Searches() {
+		t.Error("a server that does not search says it does")
+	}
+	if _, _, err := other.Chat(context.Background(), []Message{{Role: "user", Content: "q"}}, []Tool{WebSearch()}); err != nil {
+		t.Fatal(err)
+	}
+	if asked["tools"] != nil {
+		t.Errorf("a server that would not run it was offered the search: %v", asked["tools"])
+	}
+}

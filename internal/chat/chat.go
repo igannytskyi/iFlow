@@ -32,6 +32,9 @@ type Message struct {
 	Text  string      `json:"text"`
 	Usage model.Usage `json:"usage,omitzero"`
 	Err   bool        `json:"err,omitempty"`
+	// Sources are the pages a search of the web found that the answer
+	// cites.
+	Sources []model.Citation `json:"sources,omitempty"`
 }
 
 // Thread is one conversation. Its methods may be called from any goroutine.
@@ -149,8 +152,8 @@ func (t *Thread) Ask(ctx context.Context, m model.Model, text string, changed fu
 				changed() // a new frame shows the piece
 			}
 		}
-		answer, u, err := ask(ctx, m, about, t.Root, history, said)
-		a := Message{At: time.Now(), Role: "model", Text: strings.TrimSpace(answer), Usage: u}
+		answer, sources, u, err := ask(ctx, m, about, t.Root, history, said)
+		a := Message{At: time.Now(), Role: "model", Text: strings.TrimSpace(answer), Usage: u, Sources: sources}
 		if err != nil {
 			a.Text, a.Err = err.Error(), true
 		}
@@ -167,10 +170,26 @@ func (t *Thread) Ask(ctx context.Context, m model.Model, text string, changed fu
 	return nil
 }
 
+// searcher is a model whose server can search the web for it.
+type searcher interface{ Searches() bool }
+
+// searches says whether m may search the web while it answers.
+func searches(m model.Model) bool {
+	s, ok := m.(searcher)
+	return ok && s.Searches()
+}
+
 // ask hands the model the subject and the conversation: as turns, to a
 // model that holds a conversation, and as one prompt to one that does not.
-func ask(ctx context.Context, m model.Model, about, root string, history []Message, said func(string)) (string, model.Usage, error) {
+// A model whose server searches the web may search it, and what it cites is
+// answered beside its words.
+func ask(ctx context.Context, m model.Model, about, root string, history []Message, said func(string)) (string, []model.Citation, model.Usage, error) {
 	sys := system
+	var web []model.Tool
+	if searches(m) {
+		sys += " You may search the web when the question asks for what the project's own documents cannot say — a library's current version, how something is done now; say which pages you rely on."
+		web = []model.Tool{model.WebSearch()}
+	}
 	if about != "" {
 		sys += "\n\n# What you are handed\n\n" + about
 	}
@@ -194,10 +213,10 @@ func ask(ctx context.Context, m model.Model, about, root string, history []Messa
 			return c.Chat(ctx, msgs, tools)
 		}
 		if root == "" {
-			r, u, err := turn(msgs, nil)
-			return r.Content, u, err
+			r, u, err := turn(msgs, web)
+			return r.Content, model.Sources(r.Annotations), u, err
 		}
-		return look(turn, harness.NewReader(ctx, root), msgs)
+		return look(turn, harness.NewReader(ctx, root), msgs, web)
 	}
 	var b strings.Builder
 	for _, h := range history[:len(history)-1] {
@@ -209,7 +228,8 @@ func ask(ctx context.Context, m model.Model, about, root string, history []Messa
 	if b.Len() > 0 {
 		prompt = "# The conversation so far\n\n" + b.String() + "# The person now\n\n" + prompt
 	}
-	return m.Ask(ctx, sys, prompt)
+	answer, u, err := m.Ask(ctx, sys, prompt)
+	return answer, nil, u, err
 }
 
 // lookRounds bounds how many times the model may read before it answers.
@@ -218,20 +238,22 @@ const lookRounds = 12
 // look lets the model read the repository before it answers: each turn
 // that calls a tool is answered and the model asked again, until it
 // answers in words or has read as much as it may.
-func look(turn func([]model.Message, []model.Tool) (model.Message, model.Usage, error), r harness.Reader, msgs []model.Message) (string, model.Usage, error) {
+func look(turn func([]model.Message, []model.Tool) (model.Message, model.Usage, error), r harness.Reader, msgs []model.Message, web []model.Tool) (string, []model.Citation, model.Usage, error) {
 	msgs[0].Content += "\n\nYou may read the repository with the tools you are given — a file, a folder, a search — before you answer; read what the question needs and no more."
 	var total model.Usage
-	tools := r.Tools()
+	var cited []model.Annotation
+	tools := append(r.Tools(), web...)
 	for round := 0; ; round++ {
 		if round == lookRounds {
 			tools = nil // enough reading: answer with what has been read
 		}
 		reply, u, err := turn(msgs, tools)
 		total = total.Add(u)
+		cited = append(cited, reply.Annotations...)
 		if err != nil || len(reply.ToolCalls) == 0 {
-			return reply.Content, total, err
+			return reply.Content, model.Sources(cited), total, err
 		}
-		reply.Role = "assistant"
+		reply.Role, reply.Annotations = "assistant", nil // what the server attached is not sent back to it
 		msgs = append(msgs, reply)
 		for _, call := range reply.ToolCalls {
 			msgs = append(msgs, model.Message{Role: "tool", ToolCallID: call.ID, Name: call.Function.Name, Content: r.Call(call)})

@@ -198,6 +198,46 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
+	// Annotations are what the server attached to the answer: the pages a
+	// search it ran found, each cited. They are read, never sent back.
+	Annotations []Annotation `json:"annotations,omitempty"`
+}
+
+// Annotation is one thing a server attached to an answer.
+type Annotation struct {
+	Type string `json:"type"` // url_citation for a page cited
+	// URLCitation is the page, as servers nest it; some write its fields
+	// beside Type instead, and Source reads either.
+	URLCitation *Citation `json:"url_citation,omitempty"`
+	Citation
+}
+
+// Citation is a page an answer cites.
+type Citation struct {
+	URL   string `json:"url,omitempty"`
+	Title string `json:"title,omitempty"`
+}
+
+// Source is the page an annotation cites, if it cites one.
+func (a Annotation) Source() (Citation, bool) {
+	if a.Type != "url_citation" {
+		return Citation{}, false
+	}
+	if a.URLCitation != nil && a.URLCitation.URL != "" {
+		return *a.URLCitation, true
+	}
+	return a.Citation, a.URL != ""
+}
+
+// Sources is every page the annotations cite, each once, in order.
+func Sources(as []Annotation) []Citation {
+	var out []Citation
+	for _, a := range as {
+		if c, ok := a.Source(); ok && !slices.ContainsFunc(out, func(o Citation) bool { return o.URL == c.URL }) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // ToolCall is a model asking for a tool to be run.
@@ -210,15 +250,31 @@ type ToolCall struct {
 	} `json:"function"`
 }
 
-// Tool describes a tool a model may call.
+// Tool describes a tool a model may call: a function the caller runs, or,
+// of a type the server names, one the server runs itself.
 type Tool struct {
 	Type     string `json:"type"`
 	Function struct {
 		Name        string          `json:"name"`
 		Description string          `json:"description"`
 		Parameters  json.RawMessage `json:"parameters"`
-	} `json:"function"`
+	} `json:"function,omitzero"`
+	// Parameters configure a tool the server runs.
+	Parameters map[string]any `json:"parameters,omitempty"`
 }
+
+// WebSearch is OpenRouter's search of the web, run by the server: native
+// search for the models that have it, Exa's for the rest. What it finds
+// comes back as the answer's annotations.
+func WebSearch() Tool {
+	return Tool{Type: "openrouter:web_search", Parameters: map[string]any{"max_results": 5}}
+}
+
+// served says whether a tool is one the server runs.
+func (t Tool) served() bool { return strings.HasPrefix(t.Type, "openrouter:") }
+
+// Searches says whether the server can search the web for this model.
+func (o OpenAI) Searches() bool { return o.openRouter() }
 
 // Ask implements Model.
 func (o OpenAI) Ask(ctx context.Context, system, prompt string) (string, Usage, error) {
@@ -293,6 +349,11 @@ func (o OpenAI) body(msgs []Message, tools []Tool, format map[string]any, stream
 	req := map[string]any{"model": o.Model, "messages": msgs, "max_tokens": cmp.Or(o.MaxTokens, 32000)}
 	if format != nil {
 		req["response_format"] = format
+	}
+	if !o.openRouter() {
+		// A tool only OpenRouter runs is not offered to a server that would
+		// not run it.
+		tools = slices.DeleteFunc(slices.Clone(tools), Tool.served)
 	}
 	if len(tools) > 0 {
 		req["tools"] = tools

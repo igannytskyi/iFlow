@@ -16,7 +16,7 @@ import (
 )
 
 // Version is the version of the protocol this side speaks.
-const Version = 3
+const Version = 4
 
 // The methods a screen calls.
 const (
@@ -302,6 +302,14 @@ type ChatMessage struct {
 	Text    string    `json:"text"`
 	CostUSD float64   `json:"cost_usd,omitempty"`
 	Err     bool      `json:"err,omitempty"`
+	// Sources are the pages of the web the answer cites.
+	Sources []Source `json:"sources,omitempty"`
+}
+
+// Source is a page of the web an answer cites.
+type Source struct {
+	URL   string `json:"url"`
+	Title string `json:"title,omitempty"`
 }
 
 // ChatState is a conversation as it stands: its turns, the answer being

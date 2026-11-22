@@ -320,3 +320,20 @@ func TestNothingIsCut(t *testing.T) {
 		}
 	}
 }
+
+// What a model or a page wrote reaches the terminal as text: no escape
+// sequence of its own, and a link only to a page of the web.
+func TestWhatTheWebWroteIsShownAsText(t *testing.T) {
+	if got := printable("ok\x1b]0;owned\x07 done\n"); got != "ok]0;owned done\n" {
+		t.Errorf("an escape reached the terminal: %q", got)
+	}
+	term := terminal{links: true}
+	for _, address := range []string{"javascript:alert(1)", "file:///etc/passwd", "https://", "not a url"} {
+		if got := term.webLink(address, "words"); got != "words" {
+			t.Errorf("%q was linked: %q", address, got)
+		}
+	}
+	if got := term.webLink("https://go.dev/doc", "words"); !strings.Contains(got, "\x1b]8;;https://go.dev/doc\x1b\\") {
+		t.Errorf("a page of the web was not linked: %q", got)
+	}
+}

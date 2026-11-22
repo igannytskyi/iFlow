@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
@@ -38,14 +39,24 @@ func (m Model) chat(width, height int) string {
 			who = m.st.bad.Render("failed")
 		}
 		lines = append(lines, who)
-		for _, l := range strings.Split(wrap(msg.Text, width-2), "\n") {
+		for _, l := range strings.Split(wrap(printable(msg.Text), width-2), "\n") {
 			lines = append(lines, "  "+l)
+		}
+		// The pages it cites, each a link where the terminal opens links.
+		for i, src := range msg.Sources {
+			what := printable(cmp.Or(src.Title, src.URL))
+			for k, l := range fold(fmt.Sprintf("[%d] %s — %s", i+1, what, printable(src.URL)), width-2, "    ") {
+				if k == 0 {
+					l = m.term.webLink(src.URL, l)
+				}
+				lines = append(lines, "  "+m.st.faint.Render(l))
+			}
 		}
 		lines = append(lines, "")
 	}
 	if s.Waiting {
 		lines = append(lines, m.st.model.Render("model"))
-		for _, l := range strings.Split(wrap(s.Partial+" …", width-2), "\n") {
+		for _, l := range strings.Split(wrap(printable(s.Partial)+" …", width-2), "\n") {
 			lines = append(lines, "  "+l)
 		}
 	}
@@ -60,4 +71,19 @@ func (m Model) chat(width, height int) string {
 		head += "\n"
 	}
 	return head + "\n" + strings.Join(lines, "\n")
+}
+
+// printable is text a model or a page wrote, without what a terminal would
+// read as an instruction to it rather than as text: control characters,
+// the escape sequences among them, leaving the lines as they are.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\t':
+			return r
+		case r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0):
+			return -1
+		}
+		return r
+	}, s)
 }

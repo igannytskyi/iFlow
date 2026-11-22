@@ -156,3 +156,40 @@ func TestAnAnswerIsShownAsItIsWritten(t *testing.T) {
 		t.Errorf("kept %+v, partial %q", got, th.Partial())
 	}
 }
+
+// searching is a model whose server searches the web: it says what it was
+// offered, and cites a page.
+type searching struct{ offered *[]model.Tool }
+
+func (s searching) Name() string   { return "searching" }
+func (s searching) Searches() bool { return true }
+func (s searching) Ask(context.Context, string, string) (string, model.Usage, error) {
+	panic("asked in turns")
+}
+func (s searching) Chat(_ context.Context, _ []model.Message, tools []model.Tool) (model.Message, model.Usage, error) {
+	*s.offered = tools
+	return model.Message{Content: "Go 1.27 is the latest [1].", Annotations: []model.Annotation{
+		{Type: "url_citation", URLCitation: &model.Citation{URL: "https://go.dev/doc/go1.27", Title: "Go 1.27"}}}}, model.Usage{}, nil
+}
+
+// A model whose server searches the web is offered the search, and the
+// pages its answer cites are kept with the answer.
+func TestAnAnswerKeepsThePagesItCites(t *testing.T) {
+	var offered []model.Tool
+	th := Open(filepath.Join(t.TempDir(), File), nil)
+	askAndWait(t, th, searching{&offered}, "what is the latest Go?")
+	if len(offered) != 1 || offered[0].Type != "openrouter:web_search" {
+		t.Errorf("the search was not offered: %+v", offered)
+	}
+	msgs := th.Messages()
+	if a := msgs[len(msgs)-1]; len(a.Sources) != 1 || a.Sources[0].URL != "https://go.dev/doc/go1.27" {
+		t.Errorf("the page cited was not kept: %+v", a)
+	}
+	again := Open(th.Path, nil)
+	if a := again.Messages()[1]; len(a.Sources) != 1 {
+		t.Error("the pages cited were not kept on disk")
+	}
+	if searches(chatting{new([]model.Message)}) {
+		t.Error("a model that cannot search would be offered the search")
+	}
+}
