@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -116,7 +118,13 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 		}
 		sent := compact(msgs)
 		if res.Turns >= 2 {
+			// What the estate says is an index by now; what the unit is
+			// writing is never cut — the files it may change, as they stand,
+			// so that it does not read its own work again and again.
 			sent[1] = slim
+			if mine := yours(ws.dir, t.Scope, yoursTokens); mine != "" {
+				sent[1].Content += mine
+			}
 		}
 		msg, u, err := l.Model.Chat(ctx, sent, specs())
 		res.Usage = res.Usage.Add(u)
@@ -340,4 +348,37 @@ func firstFaults(fs []Fault, n int) string {
 		got = append(got, f.Text)
 	}
 	return strings.Join(got, "\n")
+}
+
+// yoursTokens bounds the files a unit may change, as they stand, in every
+// turn: past it a file is shown by its outline, to be read by parts.
+const yoursTokens = 12_000
+
+// yours is the files of scope as they stand in the workspace at dir, whole
+// while they fit within budget tokens, by their first lines past it; ""
+// while none is written.
+func yours(dir string, scope []string, budget int) string {
+	var b strings.Builder
+	for _, rel := range scope {
+		src, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			continue
+		}
+		text := string(src)
+		if (len(text)+3)/4 > budget {
+			var heads []string
+			for i, line := range strings.Split(text, "\n") {
+				if t := strings.TrimSpace(line); line != "" && line[0] != ' ' && line[0] != '\t' && t != "}" && t != ")" {
+					heads = append(heads, fmt.Sprintf("%d: %s", i+1, line))
+				}
+			}
+			text = strings.Join(heads, "\n") + "\n(too long to show whole in every turn: its top-level lines, each with its number — read it by parts)"
+		}
+		budget -= (len(text) + 3) / 4
+		fmt.Fprintf(&b, "\n## %s, as it stands now\n\n```\n%s\n```\n", rel, strings.TrimRight(text, "\n"))
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\n# The files you may change, as they stand now — never cut; do not read them again\n" + b.String()
 }

@@ -639,7 +639,13 @@ func (r *Run) reliesProblem(relies []meta.Provision) string {
 		if p.Name == "" || p.File == "" || p.Signature == "" || !meta.Allowed("DeclKind", string(p.Kind)) || p.Kind == meta.Described {
 			return fmt.Sprintf("relies_on holds %q without its file, name, kind and signature", p.Name+p.Signature)
 		}
-		places, _ := repo.WhereDefined(p.Name)
+		// A method or field may be named by its type, Config.Model, or its
+		// package, models.Config: the estate knows it by its own name.
+		name := p.Name
+		if _, base, ok := cutLast(name, "."); ok {
+			name = base
+		}
+		places, _ := repo.WhereDefined(name)
 		var lines []string
 		for _, pl := range places {
 			if pl.File != p.File {

@@ -1893,6 +1893,11 @@ func TestWhatTheSpecificationReliesOnIsAsDeclared(t *testing.T) {
 	if !strings.Contains(why, `declares it "func Greet(n string) string"`) {
 		t.Errorf("a made-up signature was not sent back with the declaration: %q", why)
 	}
+	for _, name := range []string{"greet.Greet", "Greeter.Greet"} {
+		if why := r.reliesProblem([]meta.Provision{{File: "greet.go", Name: name, Kind: meta.Function, Signature: "func Greet(n string) string"}}); why != "" {
+			t.Errorf("%s, named by its package or its type, was refused: %s", name, why)
+		}
+	}
 	if why := r.reliesProblem([]meta.Provision{{File: "greet.go", Name: "Shout", Kind: meta.Function, Signature: "func Shout(n string) string"}}); !strings.Contains(why, "does not declare") {
 		t.Errorf("a name the estate does not declare was relied on: %q", why)
 	}
