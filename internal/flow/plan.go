@@ -59,7 +59,7 @@ Rules you must follow:
 - "provides" of a code unit is the contract: every name it declares that another unit or the tests use, each as {"file": where it is declared, "name": the name it is called by, "kind": one of "function", "method", "type", "field", "variable", "constant", "of": for a field or a method, the type it belongs to, "signature": its declaration in the estate's language, without a body} — for Go, {"file": "server.go", "name": "NewServer", "kind": "function", "signature": "func NewServer(c *Catalog, clock Clock) *Server"}. A field added to a type is a "field" whose signature is the field as the type declares it — in Python and JavaScript, "name: type" and "name" — and whose "of" is the type. The framework declares every provision itself, before the tests, from exactly what you write here. Provides lists only names the unit adds: a name that exists already, whose body or type the unit changes, is not provided — what it changes belongs in its tasks. Every agent is handed every unit's provides, and the tests call exactly these.
 - "uses" of a unit is the names, from other units' provides, that it builds on — exactly as they are named there. A unit uses only what an earlier unit provides.
 - "reads" of a unit is the files outside its scope that it builds on — a helper it calls, a test whose setup it follows — each a file that exists, or one another unit of the plan writes. Its agent is handed each whole: what exists as it is, what another unit writes as that unit left it.
-- A unit fits what one agent is handed: its brief, the specification's decisions, and the files it changes and reads, whole, within the budget you are told, with each file's weight. An agent does its best work on the least it needs: a unit whose files do not fit is two units, and a file is read only when the unit builds on it.
+- A unit fits what one agent is handed: its brief, the specification's decisions, and the files it changes, whole, within the budget you are told, with each file's weight. An agent does its best work on the least it needs: a unit whose files to change do not fit is two units. A file it reads is handed whole where it fits beside them, by its outline where not; read a file only when the unit builds on it.
 - Every criterion is assigned to at least one code unit; the last code unit carries the criterion that nothing else moves. A tests unit carries the criteria its tests judge. A criterion the person decides needs no test: assign it to the code unit that makes it true.
 - A unit relies only on what exists — as the estate you are shown says — or on what an earlier unit provides. Never on a helper, method or ability you assume is there: if it is not in what you are shown, a unit provides it first, or the unit does without it.
 - Each unit is written as a ticket complete for someone who has read nothing else: its objective; the requirements (FR-n) and criteria it serves; what it relies on that exists or that earlier units provide; its tasks in order; the names and signatures it provides, exactly — the same in the tests units and the code units; its constraints (what not to touch or change); its edge cases; and when it is done.
@@ -537,11 +537,13 @@ func cutLast(s, sep string) (before, after string, found bool) {
 	return s, "", false
 }
 
-// handedWhole is the files of the estate a unit's agent is handed whole:
-// those it may change and those it reads. The code tests exercise is handed
-// to them by its declarations, not whole.
+// handedWhole is the files of the estate a unit's agent must be handed
+// whole: those it may change, for it edits what it sees. What it reads is
+// handed whole where it fits beside them, by its outline where not, and
+// does not decide whether a unit fits; the code tests exercise is handed
+// them by its declarations.
 func (r *Run) handedWhole(u unit) []string {
-	files := slices.Concat(u.scope, u.reads)
+	files := slices.Clone(u.scope)
 	slices.Sort(files)
 	return slices.Compact(files)
 }
@@ -578,7 +580,7 @@ func (r *Run) oversized(u unit) string {
 	if total <= r.cfg.packBudget() || len(files) <= 1 {
 		return ""
 	}
-	return fmt.Sprintf("would be handed %d tokens — its brief, the specification's decisions and %s whole — more than the %d one agent is handed; divide it, or read fewer files",
+	return fmt.Sprintf("would be handed %d tokens — its brief, the specification's decisions and %s, the files it changes, whole — more than the %d one agent is handed; divide it, so that each unit changes fewer files",
 		total, strings.Join(r.weighed(files), ", "), r.cfg.packBudget())
 }
 

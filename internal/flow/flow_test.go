@@ -1827,8 +1827,11 @@ func TestAUnitTooLargeForOneAgentIsSentBack(t *testing.T) {
 		}
 	}
 	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal(), PackTokens: 3000}}
-	if why := r.oversized(unit{kind: meta.CodeUnit, scope: []string{"a.go"}, reads: []string{"b.go"}}); !strings.Contains(why, "divide it") {
-		t.Errorf("a unit of two files over the budget was let be: %q", why)
+	if why := r.oversized(unit{kind: meta.CodeUnit, scope: []string{"a.go", "b.go"}}); !strings.Contains(why, "divide it") {
+		t.Errorf("a unit changing two files over the budget was let be: %q", why)
+	}
+	if why := r.oversized(unit{kind: meta.CodeUnit, scope: []string{"greet.go"}, reads: []string{"a.go", "b.go"}}); why != "" {
+		t.Errorf("a unit was sent back for what it only reads, which is outlined where it does not fit: %q", why)
 	}
 	if why := r.oversized(unit{kind: meta.CodeUnit, scope: []string{"a.go"}}); why != "" {
 		t.Errorf("a unit of one file was sent back, though no plan can divide it: %q", why)

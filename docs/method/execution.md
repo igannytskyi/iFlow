@@ -53,7 +53,7 @@ A plan that breaks any of the rules below goes back to its planner, told which r
 | P10 | A unit uses only names the estate defines or an earlier unit provides | R24; against the estate: `orderOf` |
 | P11 | A unit reads only files that exist or another unit writes | at planning, against the estate: `unitsOf` |
 | P12 | No unit's scope holds what judges the change | R24 |
-| P13 | A unit fits one agent: its brief, the specification's decisions and its files whole, within the budget | `oversized`, at planning; a unit of one file too long for it is let be, and is read by parts |
+| P13 | A unit fits one agent: its brief, the specification's decisions and the files it changes whole, within the budget; what it reads is outlined where it does not fit | `oversized`, at planning; a unit of one file too long for it is let be, and is read by parts |
 
 ## Carrying a unit
 
