@@ -112,6 +112,8 @@ func (s *Service) shutdown(keep bool) protocol.ShutdownResult {
 		res.Kept = nil
 	}
 	go func() {
+		// The answer is written before the service stops listening.
+		time.Sleep(100 * time.Millisecond)
 		for _, e := range live {
 			e.mu.Lock()
 			e.stopped = true

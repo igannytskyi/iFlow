@@ -53,11 +53,16 @@ func Start(ctx context.Context, socket, client string, changed func(run string))
 // Replace asks the service c speaks to to end, keeping its runs, and waits
 // until it no longer listens at socket.
 func Replace(ctx context.Context, c *Client, socket string) error {
-	if _, err := c.Shutdown(ctx, true); err != nil {
-		_ = c.Close()
+	_, err := c.Shutdown(ctx, true)
+	_ = c.Close()
+	if err != nil {
+		// A service that ends at once may close before its answer is read:
+		// that it is gone is the answer.
+		if Gone(ctx, socket, 5*time.Second) == nil {
+			return nil
+		}
 		return fmt.Errorf("the service at %s would not end: %w", socket, err)
 	}
-	_ = c.Close()
 	return Gone(ctx, socket, 90*time.Second)
 }
 
