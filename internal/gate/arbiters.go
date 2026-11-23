@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/igannytskyi/iflow/internal/meta"
+	"github.com/igannytskyi/iflow/internal/sandbox"
 )
 
 // The framework's own arbiters are its Go tests. Running them is one action,
@@ -42,7 +43,7 @@ func Arbiters(ctx context.Context, home string) (ArbiterRun, error) {
 		defer os.Remove(marker)
 	}
 	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "./...")
-	cmd.Dir = home
+	cmd.Dir, cmd.Env = home, sandbox.Env()
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err := cmd.Run()
@@ -90,7 +91,7 @@ func Mutate(ctx context.Context, home string) ([]Mutation, error) {
 	for _, rule := range Rules() {
 		cmd := exec.CommandContext(ctx, "go", "test", "-count=1",
 			"-ldflags=-X github.com/igannytskyi/iflow/internal/gate.suppressed="+rule, "./internal/gate/")
-		cmd.Dir = home
+		cmd.Dir, cmd.Env = home, sandbox.Env()
 		err := cmd.Run()
 		if _, ok := err.(*exec.ExitError); err != nil && !ok {
 			return out, err

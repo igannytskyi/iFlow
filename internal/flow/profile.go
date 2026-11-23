@@ -2,6 +2,7 @@ package flow
 
 import (
 	"github.com/igannytskyi/iflow/internal/artifact"
+	"github.com/igannytskyi/iflow/internal/sandbox"
 
 	"context"
 	"fmt"
@@ -74,7 +75,7 @@ func shown(cmd []string) string {
 // and how long it took.
 func runIn(ctx context.Context, dir string, cmd []string) (bool, string, time.Duration) {
 	c := exec.CommandContext(ctx, cmd[0], cmd[1:]...)
-	c.Dir = dir
+	c.Dir, c.Env = dir, sandbox.Env()
 	began := time.Now()
 	out, err := c.CombinedOutput()
 	return err == nil, string(out), time.Since(began)

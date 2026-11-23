@@ -82,8 +82,9 @@ func File() string {
 	return filepath.Join(dir, "iflow", "models.json")
 }
 
-// Default is what a first start writes: every role on GLM 5.3 Flash
-// through OpenRouter, and DeepSeek beside it to compare, both by one key.
+// Default is what a first start writes: the author and the planner on GLM
+// 5.3, the rest on GLM 5.3 Flash, through OpenRouter, and DeepSeek beside it
+// to compare, both by one key.
 func Default() Config {
 	return Config{
 		Providers: map[string]Provider{
@@ -91,8 +92,12 @@ func Default() Config {
 			"deepseek": {Base: "https://api.deepseek.com/v1", KeyEnv: "DEEPSEEK_API_KEY", Keychain: "iflow.deepseek",
 				Prices: map[string]model.Price{"deepseek-chat": {In: 0.30, Cached: 0.03, Out: 1.20}}},
 		},
-		Roles: Roles{Author: "openrouter:z-ai/glm-5.3-flash", Reviewer: "openrouter:z-ai/glm-5.3-flash",
-			Planner: "openrouter:z-ai/glm-5.3-flash", Executor: "openrouter:z-ai/glm-5.3-flash", Stronger: "openrouter:z-ai/glm-5.3"},
+		// The author and the planner decide what every later step builds
+		// on, reading the code first: on GLM 5.3, which wrote specifications
+		// of real size at once where Flash wrote none usable (bench, 11-23).
+		// The units are carried by Flash, with GLM 5.3 as the agent.
+		Roles: Roles{Author: "openrouter:z-ai/glm-5.3", Reviewer: "openrouter:z-ai/glm-5.3-flash",
+			Planner: "openrouter:z-ai/glm-5.3", Executor: "openrouter:z-ai/glm-5.3-flash", Stronger: "openrouter:z-ai/glm-5.3"},
 		Effort: Roles{Author: "medium", Reviewer: "medium", Planner: "medium", Executor: "low"},
 	}
 }

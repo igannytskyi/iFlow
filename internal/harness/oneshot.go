@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/igannytskyi/iflow/internal/model"
+	"github.com/igannytskyi/iflow/internal/sandbox"
 )
 
 // Oneshot carries out a task the way the method wants every agent to work:
@@ -364,6 +365,7 @@ func check(ctx context.Context, dir string, cmd []string) (bool, string) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	c := exec.CommandContext(ctx, cmd[0], cmd[1:]...)
+	c.Env = sandbox.Env()
 	c.Dir = dir
 	out, err := c.CombinedOutput()
 	return err == nil, string(out)
