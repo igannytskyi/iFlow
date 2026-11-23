@@ -173,6 +173,8 @@ type OpenAI struct {
 	// in the middle of its JSON.
 	MaxTokens int
 	Client    *http.Client
+
+	Floor bool
 }
 
 // Price is the cost of a million tokens: read fresh, read from cache, and
@@ -346,7 +348,14 @@ func (o OpenAI) usage(s served) Usage {
 
 // body is a request for the model's next turn.
 func (o OpenAI) body(msgs []Message, tools []Tool, format map[string]any, stream bool) ([]byte, error) {
-	req := map[string]any{"model": o.Model, "messages": msgs, "max_tokens": cmp.Or(o.MaxTokens, 32000)}
+	// The floor switch asks OpenRouter for the least expensive provider of
+	// the same model; a name already carrying a colon is sent as given, and
+	// only the request carries the suffix — the recorded name stays bare.
+	name := o.Model
+	if o.Floor && o.openRouter() && !strings.Contains(o.Model, ":") {
+		name += ":floor"
+	}
+	req := map[string]any{"model": name, "messages": msgs, "max_tokens": cmp.Or(o.MaxTokens, 32000)}
 	if format != nil {
 		req["response_format"] = format
 	}

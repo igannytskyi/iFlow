@@ -83,7 +83,12 @@ func (u *UI) modelFacts() []W {
 		{"planner", "divides the work", &m.Roles.Planner, &m.Effort.Planner},
 		{"executor", "carries out each unit", &m.Roles.Executor, &m.Effort.Executor},
 	}
-	var out []W
+	// The floor switch, at the top of the Models section: whether an
+	// OpenRouter-served request asks for the least expensive provider of
+	// the same model.
+	out := []W{row(10, u.strong(sizeBody, u.p.Text, "Provider for the same model:"),
+		u.choice("floor/on", "Cheapest provider", m.FloorPricing, func() { u.setFloor(true) }),
+		u.choice("floor/off", "OpenRouter decides", !m.FloorPricing, func() { u.setFloor(false) }))}
 	for _, r := range roles {
 		var picks []W
 		for _, c := range models.Catalogue {
@@ -184,4 +189,18 @@ func (u *UI) forget(p *project) {
 		}
 	}
 	u.settings.save()
+}
+
+// setFloor turns the floor-pricing switch on or off: it loads the choice of
+// models, sets the switch on it, and applies it through applyModels — saved
+// to models.json at once, and the flow configuration rebuilt — the same
+// path a model choice takes.
+func (u *UI) setFloor(on bool) {
+	m, err := models.Load()
+	if err != nil {
+		u.modelsNote = err.Error()
+		return
+	}
+	m.FloorPricing = on
+	u.applyModels(m)
 }

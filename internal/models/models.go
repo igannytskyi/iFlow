@@ -33,6 +33,8 @@ type Config struct {
 	Roles Roles `json:"roles"`
 	// Effort is how hard each role's model thinks: low, medium or high.
 	Effort Roles `json:"effort"`
+
+	FloorPricing bool `json:"floor_pricing"`
 }
 
 // Roles is one value for each kind of work.
@@ -59,8 +61,20 @@ type Provider struct {
 	Prices map[string]model.Price `json:"prices,omitempty"`
 }
 
+// fileOverride is where SetFile points File(); empty, the default.
+var fileOverride string
+
+// SetFile points the choice of models at a path of the caller's choosing —
+// the seam the tests read and write models.json through. SetFile("")
+// restores the default behaviour, the path in the user's configuration
+// directory.
+func SetFile(path string) { fileOverride = path }
+
 // ModelsFile is where the choice of models is kept.
 func File() string {
+	if fileOverride != "" {
+		return fileOverride
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return ""
@@ -119,7 +133,8 @@ func (m Config) Model(spec, effort string) (model.Model, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", provider, err)
 	}
-	return model.OpenAI{BaseURL: p.Base, Key: key, Model: name, Provider: provider, Effort: effort, Price: p.Prices[name]}, nil
+	return model.OpenAI{BaseURL: p.Base, Key: key, Model: name, Provider: provider, Effort: effort,
+		Price: p.Prices[name], Floor: m.FloorPricing}, nil
 }
 
 // key is the provider's key, from the environment or the keychain.
