@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
@@ -43,6 +44,10 @@ func (r *Run) assure(ctx context.Context) error {
 	doc := meta.Assurance{Schema: meta.SchemaVersion, Name: r.slug}
 	passed := map[string]bool{} // evidence id → passed
 	byCriterion := map[string]string{}
+	// critHolds is, for each criterion the ledger has tests of, whether
+	// every one of them passed, as the runner's report says: one failing
+	// test fails its own criterion, and no other.
+	critHolds := map[string]bool{}
 	for i, prep := range r.units {
 		if !prep.isTests() {
 			continue
@@ -56,12 +61,18 @@ func (r *Run) assure(ctx context.Context) error {
 		r.cost(artifact.Cost{Area: 5, Unit: prep.id, What: ev + ": the tests written first", Actor: prof.name}, model.Usage{}, took)
 		passed[ev] = ok
 		r.keepOutput(ev, out)
+		how := "written by " + prep.id + " and failed against the unchanged estate before the change existed — candidates/" + ca + "/failing-before.txt"
+		if !run.Reported {
+			how += "; " + run.Why
+		}
 		doc.Evidence = append(doc.Evidence, meta.Evidence{ID: ev, Subject: meta.OfCandidate, Kind: meta.TestRun, Producer: shown(cmd),
-			Independence: meta.ByPrecommitment,
-			How:          "written by " + prep.id + " and failed against the unchanged estate before the change existed — candidates/" + ca + "/failing-before.txt",
-			Repeatable:   meta.Yes, ObtainedAt: today(), ValidUntil: "next change to " + strings.Join(r.spec.Scope, ", ")})
-		for _, c := range prep.criteria {
-			byCriterion[c] = ev
+			Independence: meta.ByPrecommitment, How: how,
+			Repeatable: meta.Yes, ObtainedAt: today(), ValidUntil: "next change to " + strings.Join(r.spec.Scope, ", ")})
+		failed := run.failed(names)
+		for _, t := range r.ledgerOf(prep.id) {
+			byCriterion[t.Criterion] = ev
+			holds, seen := critHolds[t.Criterion]
+			critHolds[t.Criterion] = (holds || !seen) && !slices.Contains(failed, t.Test)
 		}
 		r.say(5, ev, "%s: %s %s", ev, shown(cmd), verdictWord(ok))
 	}
@@ -105,6 +116,12 @@ func (r *Run) assure(ctx context.Context) error {
 	}
 	n := 0
 	allMet := true
+	judgedByNew := map[string]bool{}
+	for i, c := range r.spec.Criteria {
+		if c.New && c.Procedure != "human" {
+			judgedByNew[r.id("CR", i+1)] = true
+		}
+	}
 	for _, u := range r.units {
 		for _, c := range u.criteria {
 			ev, ok := byCriterion[c]
@@ -112,9 +129,12 @@ func (r *Run) assure(ctx context.Context) error {
 				ev = suite
 			}
 			n++
-			outcome := meta.Met
-			if !passed[ev] {
-				outcome, allMet = meta.Failed, false
+			outcome, why := verdictOn(c, critHolds, passed[ev], judgedByNew[c])
+			if outcome != meta.Met {
+				allMet = false
+			}
+			if why != "" {
+				r.say(5, c, "%s", why)
 			}
 			ve := r.id("VE", n)
 			doc.Verdicts = append(doc.Verdicts, meta.Verdict{ID: ve, Unit: u.id, Criterion: c, Outcome: outcome, Evidence: []string{ev}, State: meta.Settled})
@@ -159,4 +179,23 @@ func (r *Run) keepOutput(ev, out string) {
 	dir := filepath.Join(r.dir, "evidence")
 	_ = os.MkdirAll(dir, 0o755)
 	_ = os.WriteFile(filepath.Join(dir, ev+".txt"), []byte(out), 0o644)
+}
+
+// verdictOn is how criterion c stands: by its own tests, where the ledger
+// has any — met only if every one passed; by the evidence it is judged on
+// otherwise, which passed or did not; and, where new tests were to judge
+// it and the ledger holds none, not met, with why.
+func verdictOn(c string, critHolds map[string]bool, evidencePassed, judgedByNew bool) (meta.VerdictOutcome, string) {
+	holds, tested := critHolds[c]
+	switch {
+	case tested && holds:
+		return meta.Met, ""
+	case tested:
+		return meta.Failed, ""
+	case judgedByNew:
+		return meta.Failed, c + " was to be judged by new tests, and the test ledger holds none of it"
+	case evidencePassed:
+		return meta.Met, ""
+	}
+	return meta.Failed, ""
 }

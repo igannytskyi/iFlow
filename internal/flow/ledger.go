@@ -171,3 +171,16 @@ func (r *Run) ledgerTests(units ...string) []string {
 	slices.Sort(names)
 	return slices.Compact(names)
 }
+
+// ledgerOf is the records of the ledger the tests unit named wrote.
+func (r *Run) ledgerOf(unit string) []meta.TestRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []meta.TestRecord
+	for _, t := range r.ledger {
+		if t.Unit == unit {
+			out = append(out, t)
+		}
+	}
+	return out
+}

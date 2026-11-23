@@ -59,7 +59,7 @@ ledger: test name · file · criterion · written by T
 2. Machine-readable test reports, Go first, the others by the report each runner already writes. (8) — done 11-23: `go test -json` (a build that fails is read as such, not as tests missing), JUnit XML for pytest and node; the patterns over the runners' prose (`--- FAIL`, `_test.go:61`) are gone; cargo and a script of the estate's own report no test by test, and their run is judged as a whole.
 3. A code unit's check: the tests of the criteria it is last to serve. (7) — done 11-23: it builds first, then runs those tests; it waits for every other unit serving them; it is handed whole the test files of the criteria it serves, the tests that must pass after it named.
 4. Failures in the ledger's terms: the blame by test name, mapped through the ledger. (9) — done 11-23: `cannot` takes the tests held wrong by name, from those the unit must pass, and the files by path from the repository's root, each checked when said and refused otherwise; a blame reaches a tests unit through the ledger exactly, by name or path, never by a file of a like name.
-5. Assurance per criterion. (10)
+5. Assurance per criterion. (10) — done 11-23: a criterion with tests in the ledger is met only if every one of them passed, by the report; one failing test fails its own criterion and no other; a criterion new tests were to judge, with none in the ledger, is not met.
 6. The planner's criteria as an enumeration of the specification's. (4)
 
 Each step removes a reconstruction; none adds one. When all six stand, no step of the flow reads another step's text to find out what it did.

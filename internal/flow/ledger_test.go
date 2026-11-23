@@ -110,3 +110,25 @@ func TestBlameGoesThroughTheLedger(t *testing.T) {
 		}
 	}
 }
+
+// Each criterion stands by its own tests: one failing fails it and no
+// other; one that new tests were to judge, with none in the ledger, is not
+// met whatever else passed.
+func TestEachCriterionStandsByItsOwnTests(t *testing.T) {
+	holds := map[string]bool{"CR-1": true, "CR-2": false}
+	for _, c := range []struct {
+		crit          string
+		passed, byNew bool
+		want          meta.VerdictOutcome
+	}{
+		{"CR-1", false, true, meta.Met},   // its tests passed, though another of its unit failed
+		{"CR-2", true, true, meta.Failed}, // one of its tests failed, though the run's others passed
+		{"CR-3", true, true, meta.Failed}, // new tests were to judge it; the ledger has none
+		{"CR-4", true, false, meta.Met},   // judged by the suite, which passed
+		{"CR-5", false, false, meta.Failed},
+	} {
+		if got, _ := verdictOn(c.crit, holds, c.passed, c.byNew); got != c.want {
+			t.Errorf("%s: %s, want %s", c.crit, got, c.want)
+		}
+	}
+}
