@@ -287,13 +287,18 @@ func vary(cfg *flow.Config, set map[string]string) error {
 				return fmt.Errorf("attempts=%s: a number of answers, one or more", v)
 			}
 			cfg.Attempts = n
+		case "division":
+			if v != "units" && v != "whole" {
+				return fmt.Errorf("division=%s: units, or whole — one tests unit and one code unit", v)
+			}
+			cfg.Whole = v == "whole"
 		case "repeat":
 			if v != "once" && v != "twice" {
 				return fmt.Errorf("repeat=%s: once or twice", v)
 			}
 			cfg.RepeatOnce = v == "once"
 		default:
-			return fmt.Errorf("--set %s: not something the bench varies (review, attempts, repeat, author, reviewer, planner)", k)
+			return fmt.Errorf("--set %s: not something the bench varies (review, attempts, repeat, division, author, reviewer, planner)", k)
 		}
 	}
 	return nil

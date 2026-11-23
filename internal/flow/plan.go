@@ -320,6 +320,9 @@ func (r *Run) planned(ctx context.Context, byTests []string, feedback string) ([
 	fmt.Fprintf(&b, "What one agent is handed: at most %d tokens — the specification's decisions weigh %d of them; the rest is its brief and its files.\n",
 		r.cfg.packBudget(), estate.Tokens(specDecisions(r.dir, true)))
 	b.WriteString("Criteria judged by the new tests: " + strings.Join(byTests, ", ") + "\n")
+	if r.cfg.Whole {
+		b.WriteString("\nThis change is carried whole: exactly one tests unit, writing every new test file and judging every criterion the new tests judge, and exactly one code unit, whose scope is every file the change may touch and which serves every criterion.\n")
+	}
 	b.WriteString("\n# The estate, as names — no code\n\n" + repo.Map(r.cfg.packBudget()/4))
 	b.WriteString("\n# What exists where the change works — every definition by its first line, tests and their helpers among them. A unit relies on these, or on what an earlier unit provides, and on nothing else.\n\n" + r.signatures())
 	prompt := b.String() + feedback
@@ -408,6 +411,9 @@ func (r *Run) unitsOf(p planDraft) ([]unit, string) {
 		default:
 			return nil, fmt.Sprintf("unit %q is of kind %q, which is neither tests nor code", pu.Title, pu.Kind)
 		}
+	}
+	if r.cfg.Whole && (len(tests) != 1 || len(code) != 1) {
+		return nil, fmt.Sprintf("the change is carried whole: one tests unit and one code unit, not %d and %d", len(tests), len(code))
 	}
 	if problem := r.canonical(tests, code); problem != "" {
 		return nil, problem
@@ -760,7 +766,134 @@ func splitIDs(s string) []string {
 // reviewer: the scope's directories and the new tests', every definition by
 // its first line.
 func (r *Run) signatures() string {
-	return r.cfg.Estate.Repo(r.repo).Signatures(append(slices.Clone(r.spec.Scope), r.spec.NewTests...), r.cfg.packBudget()/2)
+	paths := append(slices.Clone(r.spec.Scope), r.spec.NewTests...)
+	repo := r.cfg.Estate.Repo(r.repo)
+	budget := r.cfg.packBudget() / 2
+	// Go is outlined by its own parser: a struct with its fields, an
+	// interface with its methods, a function with what it calls — what a
+	// plan of code it has not read is otherwise made blind to.
+	dirs := map[string]bool{}
+	for _, p := range paths {
+		if strings.HasSuffix(p, "/") {
+			dirs[strings.TrimSuffix(p, "/")] = true
+		} else {
+			dirs[path.Dir(p)] = true
+		}
+	}
+	var b strings.Builder
+	others := false
+	// The files the change names come first; the rest of their packages
+	// after, as far as the budget goes.
+	sources := slices.Clone(repo.Sources())
+	named := func(s string) bool { return slices.Contains(paths, s) }
+	slices.SortStableFunc(sources, func(a, c string) int {
+		switch {
+		case named(a) && !named(c):
+			return -1
+		case named(c) && !named(a):
+			return 1
+		}
+		return 0
+	})
+	for _, s := range sources {
+		if !dirs[path.Dir(s)] || strings.HasSuffix(s, "_test.go") && !named(s) {
+			continue
+		}
+		if filepath.Ext(s) != ".go" {
+			others = true
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(r.repo, filepath.FromSlash(s)))
+		if err != nil {
+			continue
+		}
+		b.WriteString(s + ":\n" + goOutline(src))
+		if estate.Tokens(b.String()) > budget {
+			b.WriteString("[cut: more than the budget]\n")
+			return b.String()
+		}
+	}
+	if others {
+		b.WriteString(repo.Signatures(paths, budget-estate.Tokens(b.String())))
+	}
+	return b.String()
+}
+
+// goOutline is the Go file src as a plan needs it: each type with its
+// fields or methods, each function with its signature and the functions and
+// methods it calls — no bodies.
+func goOutline(src []byte) string {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
+	if err != nil {
+		return ""
+	}
+	text := func(n ast.Node) string {
+		t := string(src[fset.Position(n.Pos()).Offset:fset.Position(n.End()).Offset])
+		return strings.Join(strings.Fields(t), " ")
+	}
+	var b strings.Builder
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			sig := string(src[fset.Position(d.Pos()).Offset:fset.Position(d.Type.End()).Offset])
+			b.WriteString("  " + strings.Join(strings.Fields(sig), " "))
+			var calls []string
+			if d.Body != nil {
+				ast.Inspect(d.Body, func(n ast.Node) bool {
+					c, ok := n.(*ast.CallExpr)
+					if !ok {
+						return true
+					}
+					name := ""
+					switch fn := c.Fun.(type) {
+					case *ast.Ident:
+						name = fn.Name
+					case *ast.SelectorExpr:
+						name = fn.Sel.Name
+						if x, ok := fn.X.(*ast.Ident); ok {
+							name = x.Name + "." + fn.Sel.Name
+						}
+					}
+					if name != "" && !slices.Contains(calls, name) && len(calls) < 12 {
+						calls = append(calls, name)
+					}
+					return true
+				})
+			}
+			if len(calls) > 0 {
+				b.WriteString("   — calls " + strings.Join(calls, ", "))
+			}
+			b.WriteString("\n")
+		case *ast.GenDecl:
+			for _, sp := range d.Specs {
+				switch sp := sp.(type) {
+				case *ast.TypeSpec:
+					var members *ast.FieldList
+					kind := "type " + sp.Name.Name
+					switch t := sp.Type.(type) {
+					case *ast.StructType:
+						members, kind = t.Fields, kind+" struct"
+					case *ast.InterfaceType:
+						members, kind = t.Methods, kind+" interface"
+					default:
+						kind += " " + text(sp.Type)
+					}
+					b.WriteString("  " + kind + "\n")
+					if members != nil {
+						for _, m := range members.List {
+							b.WriteString("    " + text(m) + "\n")
+						}
+					}
+				case *ast.ValueSpec:
+					for _, id := range sp.Names {
+						b.WriteString("  " + map[bool]string{true: "const ", false: "var "}[d.Tok == token.CONST] + id.Name + "\n")
+					}
+				}
+			}
+		}
+	}
+	return b.String()
 }
 
 // provisionName is a provision's name as its package knows it: a field or

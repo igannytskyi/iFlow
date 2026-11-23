@@ -207,3 +207,15 @@ func TestAUnitIsGivenWhatThePlanMissed(t *testing.T) {
 		}
 	}
 }
+
+// A planner is handed Go as it is: a struct with its fields, an interface
+// with its methods, a function with what it calls.
+func TestThePlannerSeesFieldsMethodsAndCalls(t *testing.T) {
+	src := []byte("package model\n\ntype Model interface {\n\tName() string\n}\n\ntype UI struct {\n\trunOf func() int\n}\n\nfunc (o OpenAI) Stream(n int) error {\n\treq := o.body(n)\n\treturn send(req)\n}\n")
+	got := goOutline(src)
+	for _, want := range []string{"type Model interface", "    Name() string", "type UI struct", "    runOf func() int", "func (o OpenAI) Stream(n int) error   — calls o.body, send"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the outline lacks %q:\n%s", want, got)
+		}
+	}
+}

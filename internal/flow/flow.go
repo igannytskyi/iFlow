@@ -76,6 +76,10 @@ type Config struct {
 	ReviewRounds int
 	Attempts     int
 	RepeatOnce   bool
+	// Whole carries a change as one tests unit and one code unit, whatever
+	// its size: what the bench sets against dividing it, to learn which
+	// lands more often.
+	Whole bool
 }
 
 func (c Config) reviewer() model.Model { return orModel(c.Reviewer, c.Model) }
