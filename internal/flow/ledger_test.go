@@ -3,6 +3,7 @@ package flow
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,5 +48,35 @@ func TestTheLedgerIsHeldToWhatWasWritten(t *testing.T) {
 	}
 	if _, breaks := (&Run{}).readLedger(ws, u); len(breaks) != 1 || !strings.Contains(breaks[0], "there is no "+LedgerFile) {
 		t.Errorf("a missing ledger was not said: %q", breaks)
+	}
+}
+
+// A criterion is judged at the code unit that serves it last, by the tests
+// the ledger says judge it; that unit waits for every other that serves it.
+func TestACriterionIsJudgedWhereItIsServedLast(t *testing.T) {
+	r := &Run{units: []unit{
+		{id: "C", kind: meta.ContractUnit, scope: []string{"greet.go"}},
+		{id: "T", kind: meta.TestsUnit, scope: []string{"greet_test.go"}, criteria: []string{"CR-1", "CR-2", "CR-3"}},
+		{id: "A", kind: meta.CodeUnit, scope: []string{"a.go"}, criteria: []string{"CR-1", "CR-2"}},
+		{id: "B", kind: meta.CodeUnit, scope: []string{"b.go"}, criteria: []string{"CR-2"}},
+		{id: "L", kind: meta.CodeUnit, scope: []string{"l.go"}, criteria: []string{"CR-3"}},
+	}, ledger: []meta.TestRecord{
+		{Test: "TestOne", File: "greet_test.go", Criterion: "CR-1", Unit: "T"},
+		{Test: "TestTwo", File: "greet_test.go", Criterion: "CR-2", Unit: "T"},
+		{Test: "TestThree", File: "greet_test.go", Criterion: "CR-3", Unit: "T"},
+	}}
+	for i, want := range map[int][]string{2: {"CR-1"}, 3: {"CR-2"}, 1: nil} {
+		if got := r.judgedAt(i); !slices.Equal(got, want) {
+			t.Errorf("unit %s judges %v, want %v", r.units[i].id, got, want)
+		}
+	}
+	if got := r.criterionTests(2); !slices.Equal(got, []string{"TestOne"}) {
+		t.Errorf("A must pass %v", got)
+	}
+	if got := r.criterionTests(3); !slices.Equal(got, []string{"TestTwo"}) {
+		t.Errorf("B must pass %v", got)
+	}
+	if deps := r.dependencies(); !slices.Contains(deps[3], 2) {
+		t.Errorf("B, judging CR-2, does not wait for A, which serves it too: %v", deps[3])
 	}
 }

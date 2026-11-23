@@ -292,6 +292,11 @@ func (r *Run) byAgent(ctx context.Context, i int, ws string, on []onto, scope []
 		if names := r.newTestNames(prof); len(names) > 0 {
 			task.First = resolve(ws, prof.only(names))
 		}
+	case len(r.criterionTests(i)) > 0:
+		// The criteria it serves last are judged after it, by their own
+		// tests: the estate builds, and those tests pass.
+		task.First = resolve(ws, prof.build)
+		task.Check = resolve(ws, prof.only(r.criterionTests(i)))
 	case len(prof.build) > 0:
 		task.Check = resolve(ws, prof.build) // an earlier one leaves the estate building
 	}
@@ -337,7 +342,11 @@ func (r *Run) byAgent(ctx context.Context, i int, ws string, on []onto, scope []
 		// A code unit that spent its steps while the change's own tests still
 		// fail may be failing tests that ask for what cannot be: where they
 		// fail is said, so that the tests are carried again with it, once.
-		if names := r.newTestNames(prof); len(names) > 0 {
+		names := r.criterionTests(i)
+		if i == len(r.units)-1 {
+			names = r.newTestNames(prof)
+		}
+		if len(names) > 0 {
 			run := runTests(ctx, ws, prof, names)
 			if failed := run.failed(names); len(failed) > 0 && run.Reported {
 				// The report names the tests that fail; the ledger, the files
@@ -374,9 +383,15 @@ func (r *Run) pack(u unit, here *estate.Repo, on []onto, budget int) estate.Pack
 			rel, _ := filepath.Rel(o.files, p)
 			rel = filepath.ToSlash(rel)
 			switch {
-			case prev.isTests() && !u.isTests():
+			case prev.isTests() && !u.isTests() && r.judges(u, prev.id, rel):
+				// The tests of the criteria it serves, whole: the ledger says
+				// which they are, and which of them must pass after it.
 				if b, err := os.ReadFile(p); err == nil {
-					mustPass = append(mustPass, estate.Section{Title: "Must pass, written by " + prev.id + ": " + rel, Body: "```\n" + string(b) + "```"})
+					title := "Judges the criteria you serve, written by " + prev.id + ": " + rel
+					if must := r.mustPassIn(u, rel); len(must) > 0 {
+						title = "Must pass after you — " + strings.Join(must, ", ") + " — written by " + prev.id + ": " + rel
+					}
+					mustPass = append(mustPass, estate.Section{Title: title, Body: "```\n" + string(b) + "```"})
 					budget -= estate.Tokens(string(b))
 				}
 			case !slices.Contains(u.scope, rel) && !slices.Contains(read, rel):
@@ -467,6 +482,53 @@ func (r *Run) goal(u unit) string {
 			"No test waits longer than five seconds for anything: wait on a channel or poll a condition with a short deadline, so that a failing test fails in seconds, not minutes."
 	}
 	return brief + "\n\nTests that decide the criteria were written first; do not change them."
+}
+
+// judges says whether file, written by the tests unit named, holds a test
+// of a criterion u serves — for the last unit, any test.
+func (r *Run) judges(u unit, by, file string) bool {
+	last := len(r.units) > 0 && r.units[len(r.units)-1].id == u.id
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.ContainsFunc(r.ledger, func(t meta.TestRecord) bool {
+		return t.Unit == by && t.File == file && (last || slices.Contains(u.criteria, t.Criterion))
+	})
+}
+
+// mustPassIn is the tests in file that must pass after u: of the criteria
+// it serves last — for the last unit, all of them.
+func (r *Run) mustPassIn(u unit, file string) []string {
+	i := slices.IndexFunc(r.units, func(x unit) bool { return x.id == u.id })
+	last := i == len(r.units)-1
+	crit := r.judgedAt(i)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, t := range r.ledger {
+		if t.File == file && (last || slices.Contains(crit, t.Criterion)) {
+			out = append(out, t.Test)
+		}
+	}
+	return out
+}
+
+// criterionTests is the tests the ledger says judge the criteria the code
+// unit i serves last: what must pass after it.
+func (r *Run) criterionTests(i int) []string {
+	crit := r.judgedAt(i)
+	if len(crit) == 0 {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var names []string
+	for _, t := range r.ledger {
+		if slices.Contains(crit, t.Criterion) {
+			names = append(names, t.Test)
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 // ledgerFiles is the files the ledger says the tests named are in.

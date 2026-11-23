@@ -58,8 +58,9 @@ const (
 
 // dependencies is, for every unit, the units it waits for: the contract
 // first; the tests on the contract; a code unit on the contract, the
-// tests, the unit before it in its chain, and every earlier code unit
-// whose files it reads or whose names it calls; the last unit on all.
+// tests, the unit before it in its chain, every earlier code unit whose
+// files it reads or whose names it calls, and, for a criterion it serves
+// last, every other unit that serves it; the last unit on all.
 func (r *Run) dependencies() [][]int {
 	deps := make([][]int, len(r.units))
 	var contract, tests []int
@@ -100,12 +101,42 @@ func (r *Run) dependencies() [][]int {
 			}
 		}
 	}
+	// A criterion is judged at the code unit that serves it last: that unit
+	// waits for every other that serves it, so that its tests judge the
+	// criterion whole.
+	for i := first; i < last; i++ {
+		for _, c := range r.judgedAt(i) {
+			for j := first; j < i; j++ {
+				if slices.Contains(r.units[j].criteria, c) && !slices.Contains(deps[i], j) {
+					deps[i] = append(deps[i], j)
+				}
+			}
+		}
+	}
 	if last >= first {
 		for i := range last {
 			deps[last] = append(deps[last], i)
 		}
 	}
 	return deps
+}
+
+// judgedAt is the criteria the code unit i is the last in the plan to
+// serve: those its tests must pass after it.
+func (r *Run) judgedAt(i int) []string {
+	if i < 0 || i >= len(r.units) || r.units[i].isTests() || r.units[i].isContract() {
+		return nil
+	}
+	var out []string
+	for _, c := range r.units[i].criteria {
+		later := slices.ContainsFunc(r.units[i+1:], func(u unit) bool {
+			return !u.isTests() && !u.isContract() && slices.Contains(u.criteria, c)
+		})
+		if !later {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // finished is one carrying ended: which unit, in which of its carryings.

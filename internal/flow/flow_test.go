@@ -223,7 +223,7 @@ func TestATaskTravelsThePath(t *testing.T) {
 		if len(packs) != 2 {
 			t.Fatalf("%d packs handed", len(packs))
 		}
-		for i, want := range [][]string{{"May change: shout_test.go", "The code these tests exercise, as declared", "func Shout(n string) string"}, {"Must pass, written by WU-001-02", "TestShout", "May change: greet.go"}} {
+		for i, want := range [][]string{{"May change: shout_test.go", "The code these tests exercise, as declared", "func Shout(n string) string"}, {"Must pass after you — TestShout — written by WU-001-02", "May change: greet.go"}} {
 			for _, w := range want {
 				if !strings.Contains(packs[i], w) {
 					t.Errorf("unit %d was not handed %q:\n%s", i+1, w, packs[i])
@@ -1275,7 +1275,7 @@ func TestAUnitIsHandedWhatItIsCarriedOn(t *testing.T) {
 		{id: "WU-2", kind: meta.CodeUnit, scope: []string{"upper.go"}},
 		{id: "WU-3", kind: meta.CodeUnit, scope: []string{"other.go"}},
 		{id: "WU-4", kind: meta.CodeUnit, scope: []string{"shout.go"}},
-	}}
+	}, ledger: []meta.TestRecord{{Test: "TestShout", File: "shout_test.go", Criterion: "CR-1", Unit: "WU-1"}}}
 	on := []onto{{0, tests}, {1, upper}}
 	ws, err := harness.Snapshot(repo, tests, upper)
 	if err != nil {
@@ -1283,7 +1283,7 @@ func TestAUnitIsHandedWhatItIsCarriedOn(t *testing.T) {
 	}
 	defer os.RemoveAll(ws)
 	got := r.pack(r.units[3], est.Repo(repo).Over(ws), on, 16000).String()
-	for _, want := range []string{"Must pass, written by WU-1: shout_test.go", "func TestShout", "upper.go   (WU-2)"} {
+	for _, want := range []string{"Must pass after you — TestShout — written by WU-1: shout_test.go", "func TestShout", "upper.go   (WU-2)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the pack lacks %q:\n%s", want, got)
 		}
