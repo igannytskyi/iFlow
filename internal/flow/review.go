@@ -131,7 +131,7 @@ func (r *Run) reviewed(ctx context.Context, area int, kind, system, prompt strin
 	began := time.Now()
 	var v review
 	kept, handed := r.handed("reviewer of the "+kind, system, prompt)
-	_, u, err := model.AskJSON(ctx, m, system, prompt, &v)
+	_, u, err := model.AskJSON(model.Within(ctx, "reviewer of the "+kind), m, system, prompt, &v)
 	r.spend(u)
 	r.cost(artifact.Cost{Area: area, What: fmt.Sprintf("review of the %s, round %d", kind, round), Actor: m.Name(), Turns: 1,
 		Handed: handed, Kept: kept}, u, time.Since(began))

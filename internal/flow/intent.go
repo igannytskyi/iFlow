@@ -348,7 +348,7 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 		var d draft
 		began := time.Now()
 		kept, handed := r.handed("author", intentSystem, prompt+feedback+note)
-		answer, u, err := model.AskJSON(ctx, r.cfg.Model, intentSystem, prompt+feedback+note, &d)
+		answer, u, err := model.AskJSON(model.Within(ctx, "author"), r.cfg.Model, intentSystem, prompt+feedback+note, &d)
 		r.spend(u)
 		r.cost(artifact.Cost{Area: 1, What: fmt.Sprintf("the specification, attempt %d", attempt),
 			Actor: r.cfg.Model.Name(), Turns: 1, Handed: handed, Kept: kept}, u, time.Since(began))
