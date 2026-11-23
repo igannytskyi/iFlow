@@ -1979,3 +1979,66 @@ func TestNewBehaviourIsJudgedByNewTests(t *testing.T) {
 		t.Errorf("new behaviour with no new test file was let be: %q", why)
 	}
 }
+
+// A tests unit is handed the code it exercises by its declarations, not
+// whole: what it costs to hand is what it changes and reads, and a long
+// file of the scope does not keep it from fitting one agent.
+func TestTestsAreHandedTheCodeByItsDeclarations(t *testing.T) {
+	repo := estateFixture(t)
+	long := "package greet\n\n" + strings.Repeat("// a line of the long file, to give it weight\n", 2000) + "func Long() int { return 1 }\n"
+	if err := os.WriteFile(filepath.Join(repo, "long.go"), []byte(long), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	est := estate.NewLocal()
+	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: est}, spec: draft{Scope: []string{"greet.go", "long.go"}}}
+	u := unit{kind: meta.TestsUnit, scope: []string{"long_test.go"}}
+	if why := r.oversized(u); why != "" {
+		t.Errorf("a tests unit was weighed with the code it exercises: %s", why)
+	}
+	p := r.pack(u, est.Repo(repo), nil, 16000).String()
+	if strings.Contains(p, "a line of the long file") || !strings.Contains(p, "func Long() int") || !strings.Contains(p, "func Greet(n string) string") {
+		t.Errorf("the tests were not handed the code by its declarations:\n%s", p)
+	}
+}
+
+// A name the planner qualified by the package it is declared in is that
+// package's own: a type a field is given to, a name a unit uses, a name a
+// unit provides. A field given to a type of another package is sent back.
+func TestNamesQualifiedByTheirPackageAreTheirPackagesOwn(t *testing.T) {
+	repo := estateFixture(t)
+	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal()}}
+	plan := func(of string) planDraft {
+		var p planDraft
+		js := `{"units":[
+ {"title":"tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"o","tasks":["t"],"uses":["greet.Shout"]},
+ {"title":"types","kind":"code","scope":["types.go"],"criteria":["CR-001-01"],"objective":"o","tasks":["t"],
+  "provides":[{"file":"types.go","name":"greet.Options","kind":"type","signature":"type Options struct{}"},
+              {"file":"types.go","name":"Loud","kind":"field","of":"` + of + `","signature":"Loud bool"}]},
+ {"title":"shout","kind":"code","scope":["greet.go"],"criteria":["CR-001-01"],"objective":"o","tasks":["t"],
+  "uses":["greet.Options","greet.Greet"],
+  "provides":[{"file":"greet.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}]}]}`
+		if err := json.Unmarshal([]byte(js), &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	units, why := r.unitsOf(plan("greet.Options"))
+	if why != "" {
+		t.Fatalf("names qualified by their own package were refused: %s", why)
+	}
+	for _, u := range units {
+		for _, n := range u.uses {
+			if strings.Contains(n, ".") {
+				t.Errorf("%s still uses %s", u.title, n)
+			}
+		}
+		for _, p := range u.provides {
+			if strings.Contains(p.Name, ".") || strings.Contains(p.Of, ".") {
+				t.Errorf("%s still provides %s of %s", u.title, p.Name, p.Of)
+			}
+		}
+	}
+	if _, why := r.unitsOf(plan("http.Request")); !strings.Contains(why, "a type of another package") {
+		t.Errorf("a field given to another package's type was let be: %q", why)
+	}
+}

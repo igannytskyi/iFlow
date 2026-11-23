@@ -164,3 +164,33 @@ func TestPythonDeclaresAreReadByPython(t *testing.T) {
 		}
 	}
 }
+
+// A declaration that names a type of another package of the module brings
+// its import with it: the contract builds.
+func TestGoDeclarationsImportWhatTheyName(t *testing.T) {
+	dir := t.TempDir()
+	for f, body := range map[string]string{
+		"go.mod":         "module example.com/shop\n\ngo 1.22\n",
+		"proto/proto.go": "package proto\n\n// Step is one step.\ntype Step struct{ Text string }\n",
+		"ui/ui.go":       "package ui\n\n// UI is the window.\ntype UI struct{}\n",
+	} {
+		if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, f), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(dir, "ui", "feed.go")
+	out, err := goDeclare(path, nil, []meta.Provision{{File: "ui/feed.go", Name: "feedLines", Kind: meta.Function, Signature: "func feedLines(steps []proto.Step, limit int) []string"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"example.com/shop/proto"`) {
+		t.Fatalf("the import was not brought:\n%s", out)
+	}
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, dir, "go", "build", "./...")
+}

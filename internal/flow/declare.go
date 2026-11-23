@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,11 +9,15 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+
+	"golang.org/x/tools/go/ast/astutil"
+	"golang.org/x/tools/imports"
 
 	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/meta"
@@ -177,11 +182,128 @@ func goDeclare(path string, src []byte, ps []meta.Provision) ([]byte, error) {
 			text = text[:in.at] + in.line + text[in.at:]
 		}
 	}
-	out, err := format.Source([]byte(text))
+	// What the declarations name of other packages is imported: a package
+	// of the module where its files say which, the standard library's by
+	// goimports' own table.
+	withModule, err := importModule(path, []byte(text))
+	if err != nil {
+		return nil, err
+	}
+	out, err := imports.Process(path, withModule, &imports.Options{Comments: true, TabIndent: true, TabWidth: 8})
 	if err != nil {
 		return nil, fmt.Errorf("declared, it is not Go: %v", err)
 	}
 	return out, nil
+}
+
+// importModule adds to src, the Go file at path, the import of every
+// package of its module that src names and does not import: the import its
+// package's other files make of that name, or the one directory of the
+// module whose package has the name.
+func importModule(path string, src []byte) ([]byte, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, src, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		return nil, fmt.Errorf("declared, it does not parse: %v", err)
+	}
+	have := map[string]bool{}
+	for _, im := range f.Imports {
+		have[importName(im)] = true
+	}
+	named := map[string]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok {
+			if id, ok := sel.X.(*ast.Ident); ok && !have[id.Name] {
+				named[id.Name] = true
+			}
+		}
+		return true
+	})
+	added := false
+	for _, name := range slices.Sorted(maps.Keys(named)) {
+		if p := moduleImport(filepath.Dir(path), name); p != "" {
+			astutil.AddImport(fset, f, p)
+			added = true
+		}
+	}
+	if !added {
+		return src, nil
+	}
+	var b bytes.Buffer
+	if err := format.Node(&b, fset, f); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+// importName is the name an import is used by in the file.
+func importName(im *ast.ImportSpec) string {
+	if im.Name != nil {
+		return im.Name.Name
+	}
+	p := strings.Trim(im.Path.Value, `"`)
+	return p[strings.LastIndex(p, "/")+1:]
+}
+
+// moduleImport is the import path of the package named name, as the files
+// of dir import it, or as the one directory of the module whose package is
+// so named; "" where neither says.
+func moduleImport(dir, name string) string {
+	files, _ := filepath.Glob(filepath.Join(dir, "*.go"))
+	for _, file := range files {
+		f, err := parser.ParseFile(token.NewFileSet(), file, nil, parser.ImportsOnly)
+		if err != nil {
+			continue
+		}
+		for _, im := range f.Imports {
+			if importName(im) == name {
+				return strings.Trim(im.Path.Value, `"`)
+			}
+		}
+	}
+	root, module := moduleOf(dir)
+	if root == "" {
+		return ""
+	}
+	var found []string
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return err
+		}
+		if b := d.Name(); p != root && (strings.HasPrefix(b, ".") || b == "vendor" || b == "testdata" || b == "node_modules") {
+			return filepath.SkipDir
+		}
+		if gos, _ := filepath.Glob(filepath.Join(p, "*.go")); len(gos) == 0 {
+			return nil // a folder without Go is no package
+		}
+		if pkg, err := goPackageOf(p); err == nil && pkg == name && p != dir {
+			if rel, err := filepath.Rel(root, p); err == nil {
+				found = append(found, module+"/"+filepath.ToSlash(rel))
+			}
+		}
+		return nil
+	})
+	if len(found) == 1 {
+		return found[0]
+	}
+	return ""
+}
+
+// moduleOf is the folder of the go.mod above dir, and the module it names.
+func moduleOf(dir string) (root, module string) {
+	for d := dir; ; d = filepath.Dir(d) {
+		if b, err := os.ReadFile(filepath.Join(d, "go.mod")); err == nil {
+			for _, line := range strings.Split(string(b), "\n") {
+				if m, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+					return d, strings.TrimSpace(m)
+				}
+			}
+			return "", ""
+		}
+		if filepath.Dir(d) == d {
+			return "", ""
+		}
+	}
 }
 
 func prefixed(s, prefix string) string {

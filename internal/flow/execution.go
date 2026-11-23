@@ -323,9 +323,6 @@ func (r *Run) byAgent(ctx context.Context, i int, ws string, on []onto, scope []
 // the units before it wrote, which it can read for itself.
 func (r *Run) pack(u unit, here *estate.Repo, on []onto, budget int) estate.Pack {
 	var read []string
-	if u.isTests() {
-		read = r.spec.Scope // the code the tests will exercise, as the contract leaves it
-	}
 	for _, f := range u.reads {
 		if !slices.Contains(read, f) && !slices.Contains(u.scope, f) {
 			read = append(read, f)
@@ -355,6 +352,14 @@ func (r *Run) pack(u unit, here *estate.Repo, on []onto, budget int) estate.Pack
 	}
 	p := here.PackFor(u.scope, read, budget)
 	p.Sections = append(mustPass, p.Sections...)
+	if u.isTests() {
+		// The code the tests exercise, as the contract leaves it: how it is
+		// called, by its declarations. Its bodies are not what a test is
+		// written from; a file the plan says the unit reads is read whole.
+		if d := here.Declarations(r.spec.Scope, budget/4); d != "" {
+			p.Sections = append(p.Sections, estate.Section{Title: "The code these tests exercise, as declared — read a file whole where its body matters", Body: d})
+		}
+	}
 	if len(before) > 0 {
 		p.Sections = append(p.Sections, estate.Section{Title: "Written by the units before you — in your copy; read what you need",
 			Body: strings.Join(before, "\n")})

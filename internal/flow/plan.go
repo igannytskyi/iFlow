@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -388,12 +389,17 @@ func (r *Run) unitsOf(p planDraft) ([]unit, string) {
 			tests = append(tests, u)
 		case meta.CodeUnit:
 			u.provides = pu.Provides
-			if why := r.providedAlready(u); why != "" {
-				return nil, fmt.Sprintf("unit %q: %s", pu.Title, why)
-			}
 			code = append(code, u)
 		default:
 			return nil, fmt.Sprintf("unit %q is of kind %q, which is neither tests nor code", pu.Title, pu.Kind)
+		}
+	}
+	if problem := r.canonical(tests, code); problem != "" {
+		return nil, problem
+	}
+	for _, u := range code {
+		if why := r.providedAlready(u); why != "" {
+			return nil, fmt.Sprintf("unit %q: %s", u.title, why)
 		}
 	}
 	if problem := r.orderOf(code); problem != "" {
@@ -402,14 +408,93 @@ func (r *Run) unitsOf(p planDraft) ([]unit, string) {
 	return r.number(append(tests, code...)), ""
 }
 
+// qualifiers is what a name declared in file may be qualified by: its
+// package — the folder's name and, in Go, the name its files declare — and,
+// in a language whose modules are files, the file's own name.
+func (r *Run) qualifiers(file string) []string {
+	dir := path.Dir(file)
+	q := []string{path.Base(dir), strings.TrimSuffix(path.Base(file), path.Ext(file))}
+	if strings.HasSuffix(file, ".go") {
+		if pkg, err := goPackageOf(filepath.Join(r.repo, filepath.FromSlash(dir))); err == nil {
+			q = append(q, pkg)
+		}
+	}
+	return q
+}
+
+// canonical writes every name of the plan as the package it is declared in
+// writes it: a name the planner qualified by that package — model.Step,
+// models.Config — is the package's own Step or Config. A field or method
+// said to belong to a type of another package is what no unit can add.
+func (r *Run) canonical(tests, code []unit) string {
+	// What the units provide first: the names the others use are matched
+	// against them as their packages write them.
+	var provided []meta.Provision
+	for i := range code {
+		for j := range code[i].provides {
+			p := &code[i].provides[j]
+			if q, base, ok := cutLast(p.Name, "."); ok && slices.Contains(r.qualifiers(p.File), q) {
+				p.Name = base
+			}
+			q, base, ok := cutLast(p.Of, ".")
+			switch {
+			case !ok:
+			case slices.Contains(r.qualifiers(p.File), q):
+				p.Of = base
+			default:
+				return fmt.Sprintf("unit %q gives %s to %s, a type of another package than %s's: a unit adds fields and methods only to the types of the package it writes in",
+					code[i].title, p.Name, p.Of, p.File)
+			}
+		}
+		provided = append(provided, code[i].provides...)
+	}
+	repo := r.cfg.Estate.Repo(r.repo)
+	declaredIn := func(base string) []string {
+		var files []string
+		for _, p := range provided {
+			if p.Name == base {
+				files = append(files, p.File)
+			}
+		}
+		if places, err := repo.WhereDefined(base); err == nil {
+			for _, pl := range places {
+				files = append(files, pl.File)
+			}
+		}
+		return files
+	}
+	for _, units := range [][]unit{tests, code} {
+		for i := range units {
+			for j, n := range units[i].uses {
+				q, base, ok := cutLast(n, ".")
+				if !ok {
+					continue
+				}
+				for _, file := range declaredIn(base) {
+					if slices.Contains(r.qualifiers(file), q) {
+						units[i].uses[j] = base
+						break
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// cutLast is s cut around its last sep.
+func cutLast(s, sep string) (before, after string, found bool) {
+	if i := strings.LastIndex(s, sep); i >= 0 {
+		return s[:i], s[i+len(sep):], true
+	}
+	return s, "", false
+}
+
 // handedWhole is the files of the estate a unit's agent is handed whole:
-// those it may change, those it reads, and, for tests, the code they
-// exercise.
+// those it may change and those it reads. The code tests exercise is handed
+// to them by its declarations, not whole.
 func (r *Run) handedWhole(u unit) []string {
 	files := slices.Concat(u.scope, u.reads)
-	if u.isTests() {
-		files = append(files, r.spec.Scope...)
-	}
 	slices.Sort(files)
 	return slices.Compact(files)
 }

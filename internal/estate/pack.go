@@ -252,10 +252,22 @@ func (r *Repo) Signatures(paths []string, budget int) string {
 	for _, f := range paths {
 		dirs[path.Dir(f)] = true
 	}
+	return r.declared(func(s string) bool { return dirs[path.Dir(s)] }, budget)
+}
+
+// Declarations is every definition in the files named, by its first line,
+// within budget tokens: how the code is called, without its bodies.
+func (r *Repo) Declarations(files []string, budget int) string {
+	return r.declared(func(s string) bool { return slices.Contains(files, s) }, budget)
+}
+
+// declared is every definition of the sources that is chosen, by its first
+// line, within budget tokens.
+func (r *Repo) declared(is func(string) bool, budget int) string {
 	ix, err := r.Index()
 	var b strings.Builder
 	for _, s := range r.Sources() {
-		if !dirs[path.Dir(s)] {
+		if !is(s) {
 			continue
 		}
 		b.WriteString(s + ":\n")
