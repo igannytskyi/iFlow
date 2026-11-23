@@ -1263,24 +1263,35 @@ func TestWhatIsDeclaredIsReadFromTheCode(t *testing.T) {
 	}
 }
 
-// A plan whose code unit uses a name only a later unit provides, or one no
-// unit provides and the estate does not define, is sent back; one ordered
-// right, using what exists or what comes before, is not.
-func TestAPlanUsesOnlyWhatComesBefore(t *testing.T) {
+// The code units are carried in an order derived from what they use: a
+// unit after the one that provides its names, whatever order the planner
+// wrote; a circle of uses, and a name nothing provides, are sent back.
+func TestCodeUnitsAreOrderedByWhatTheyUse(t *testing.T) {
 	repo := estateFixture(t)
 	r := &Run{repo: repo, cfg: Config{Estate: estate.NewLocal()}}
 	fn := func(file, name string) meta.Provision {
 		return meta.Provision{File: file, Name: name, Kind: meta.Function, Signature: "func " + name + "()"}
 	}
 	helper := unit{title: "the helper", scope: []string{"project.go"}, provides: []meta.Provision{fn("project.go", "notifyStates")}, uses: []string{"notify", "Greet"}}
-	fields := unit{title: "the fields", scope: []string{"app.go"}, provides: []meta.Provision{{File: "app.go", Name: "notify", Kind: meta.Field, Signature: "notify notify.Sender"}}}
-	if got := r.orderOf([]unit{helper, fields}); !strings.Contains(got, "uses notify, which \"the fields\" provides after it") {
-		t.Errorf("a plan out of order passed: %q", got)
+	fields := unit{title: "the fields", scope: []string{"app.go"}, provides: []meta.Provision{{File: "app.go", Name: "notify", Kind: meta.Field, Of: "App", Signature: "notify notify.Sender"}}}
+	wire := unit{title: "the wiring", scope: []string{"main.go"}, uses: []string{"notifyStates"}}
+	got, why := orderByUse([]unit{wire, helper, fields})
+	if why != "" {
+		t.Fatal(why)
 	}
-	if got := r.orderOf([]unit{fields, helper}); got != "" {
-		t.Errorf("a plan in order was sent back: %q", got)
+	var order []string
+	for _, u := range got {
+		order = append(order, u.title)
+	}
+	if want := []string{"the fields", "the helper", "the wiring"}; !slices.Equal(order, want) {
+		t.Errorf("ordered %v, want %v", order, want)
+	}
+	fields.uses = []string{"notifyStates"}
+	if _, why := orderByUse([]unit{helper, fields}); !strings.Contains(why, "in a circle") {
+		t.Errorf("a circle of uses was ordered: %q", why)
 	}
 	helper.uses = append(helper.uses, "Nowhere")
+	fields.uses = nil
 	if got := r.orderOf([]unit{fields, helper}); !strings.Contains(got, "no unit provides and the estate does not define") {
 		t.Errorf("a name nothing provides passed: %q", got)
 	}

@@ -55,7 +55,7 @@ const plannerSystem = `You divide a specified change into units of work. Each un
 
 Rules you must follow:
 - Tests come first: one or more units of kind "tests", whose scope is only among the new test files you are given. They judge the change from outside, calling the code by the names the code units will give it; they never define what the change itself provides — only fakes of what it depends on.
-- Then units of kind "code", in the order they are carried out, whose scope is only among the files the change may touch. Each later unit can read what the earlier ones wrote, and nothing a later one will write — so order them by what they provide: the types and interfaces first, then what uses them, then what wires them into the entry point. A unit never defines what another unit provides. Keep a unit to one coherent piece; wiring something into what exists is a unit of its own when it touches another file.
+- Then units of kind "code", whose scope is only among the files the change may touch. Their order is derived from what each provides and uses: a unit is carried after every unit whose names it uses. Say in "uses" every name of another unit's provides a unit builds on, and nothing more. A unit never defines what another unit provides. Keep a unit to one coherent piece; wiring something into what exists is a unit of its own when it touches another file.
 - "provides" of a code unit is the contract: every name it declares that another unit or the tests use, each as {"file": where it is declared, "name": the name it is called by, "kind": one of "function", "method", "type", "field", "variable", "constant", "of": for a field or a method, the type it belongs to, "signature": its declaration in the estate's language, without a body} — for Go, {"file": "server.go", "name": "NewServer", "kind": "function", "signature": "func NewServer(c *Catalog, clock Clock) *Server"}. A field added to a type is a "field" whose signature is the field as the type declares it — in Python and JavaScript, "name: type" and "name" — and whose "of" is the type. The framework declares every provision itself, before the tests, from exactly what you write here. Provides lists only names the unit adds: a name that exists already, whose body or type the unit changes, is not provided — what it changes belongs in its tasks. Every agent is handed every unit's provides, and the tests call exactly these.
 - "uses" of a unit is the names, from other units' provides, that it builds on — exactly as they are named there. A unit uses only what an earlier unit provides.
 - "reads" of a unit is the files outside its scope that it builds on — a helper it calls, a test whose setup it follows — each a file that exists, or one another unit of the plan writes. Its agent is handed each whole: what exists as it is, what another unit writes as that unit left it.
@@ -402,6 +402,10 @@ func (r *Run) unitsOf(p planDraft) ([]unit, string) {
 			return nil, fmt.Sprintf("unit %q: %s", u.title, why)
 		}
 	}
+	code, problem := orderByUse(code)
+	if problem != "" {
+		return nil, problem
+	}
 	if problem := r.orderOf(code); problem != "" {
 		return nil, problem
 	}
@@ -482,6 +486,49 @@ func (r *Run) canonical(tests, code []unit) string {
 	return ""
 }
 
+// orderByUse is the code units in an order in which every unit comes after
+// those that provide what it uses: of the units free to go next, always the
+// one the planner put first. The order is derived, not asked of the
+// planner; a circle of uses is the one thing it cannot derive.
+func orderByUse(code []unit) ([]unit, string) {
+	needs := make([][]int, len(code))
+	for i, u := range code {
+		for _, name := range u.uses {
+			for j, o := range code {
+				if j != i && slices.Contains(o.names(), name) && !slices.Contains(needs[i], j) {
+					needs[i] = append(needs[i], j)
+				}
+			}
+		}
+	}
+	placed := make([]bool, len(code))
+	out := make([]unit, 0, len(code))
+	for len(out) < len(code) {
+		found := -1
+		for i := range code {
+			if placed[i] {
+				continue
+			}
+			if !slices.ContainsFunc(needs[i], func(j int) bool { return !placed[j] }) {
+				found = i
+				break
+			}
+		}
+		if found < 0 {
+			var circle []string
+			for i, u := range code {
+				if !placed[i] {
+					circle = append(circle, fmt.Sprintf("%q", u.title))
+				}
+			}
+			return nil, "the units " + strings.Join(circle, ", ") + " use one another's names in a circle: one of them provides what the others use, and uses none of theirs"
+		}
+		placed[found] = true
+		out = append(out, code[found])
+	}
+	return out, ""
+}
+
 // cutLast is s cut around its last sep.
 func cutLast(s, sep string) (before, after string, found bool) {
 	if i := strings.LastIndex(s, sep); i >= 0 {
@@ -540,16 +587,15 @@ func (r *Run) oversized(u unit) string {
 // define.
 func (r *Run) orderOf(code []unit) string {
 	repo := r.cfg.Estate.Repo(r.repo)
-	for i, u := range code {
+	for _, u := range code {
 		for _, name := range u.uses {
-			by := slices.IndexFunc(code, func(o unit) bool { return slices.Contains(o.names(), name) })
-			switch {
-			case by > i:
-				return fmt.Sprintf("unit %q uses %s, which %q provides after it — order the code units so that what one provides comes before every unit that uses it", u.title, name, code[by].title)
-			case by < 0:
-				if places, err := repo.WhereDefined(name); err == nil && len(places) == 0 {
-					return fmt.Sprintf("unit %q uses %s, which no unit provides and the estate does not define — a unit provides it first, or the unit does without it", u.title, name)
-				}
+			// Code units are in the order of their uses already (orderByUse):
+			// what is left to say is a name nothing provides.
+			if slices.ContainsFunc(code, func(o unit) bool { return slices.Contains(o.names(), name) }) {
+				continue
+			}
+			if places, err := repo.WhereDefined(name); err == nil && len(places) == 0 {
+				return fmt.Sprintf("unit %q uses %s, which no unit provides and the estate does not define — a unit provides it first, or the unit does without it", u.title, name)
 			}
 		}
 	}
