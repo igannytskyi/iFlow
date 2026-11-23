@@ -21,7 +21,7 @@ From 11-21 to 11-23 the real-size bench (two tasks on this repository) was run a
 ## What is done
 
 1. **Close each class, not each instance.** For each class, every place of that kind in the code is listed below and brought to the sound form at once.
-2. **Replay.** Every model answer of a bench run is recorded, by role, unit and attempt. `iflow bench --replay <run>` carries the task again against the framework as it now stands, with those answers, on the real repository and the real tests: free, deterministic, in a minute. Every run that ever failed becomes a test, run in CI. A paid run is made only once every recorded run replays; it is then a measure of the models, not a search for the framework's defects.
+2. **Replay** (done 11-23, `iflow bench --replay`). Every model answer of a bench run is recorded, by role, unit and attempt. `iflow bench --replay <run>` carries the task again against the framework as it now stands, with those answers, on the real repository and the real tests: free, deterministic, in a minute. Every run that ever failed becomes a test, run in CI. A paid run is made only once every recorded run replays; it is then a measure of the models, not a search for the framework's defects.
 3. **The author is handed declarations as data.** What it may rely on is handed as `{file, name, kind, of, signature}`, the shape `relies_on` is written in, never as lines to transcribe.
 
 ## What is left of each class
@@ -30,8 +30,8 @@ From 11-21 to 11-23 the real-size bench (two tasks on this repository) was run a
 |---|---|---|
 | A | `estate.Signature`, `declares`, `chosen`: a declaration by its first line, for languages other than Go | the estate's own syntax trees (tree-sitter), which it already holds for every language it reads |
 | A | `testsIn`: tests found by a pattern for Python, JavaScript, Rust, Java | the same trees; Python by its own ast, as its declarations are |
-| A | `goMissing`, `goUndefined`, `goNoMember`: the compiler's messages read by patterns | `go build -json`, `go vet -json` |
-| B | `fault` per language: where a build fails, by `file:line:col` | Go: `go build -json`; others keep the compiler's documented `file:line` form, the one form every compiler shares |
+| A | `goMissing`, `goUndefined`, `goNoMember`: the compiler's messages read by patterns | kept: `go build -json` carries the same `file:line:col: message` lines, and the message is the compiler's documented diagnostic, the only form it gives |
+| B | `fault` per language: where a build fails, by `file:line:col` | kept: the one form every compiler shares |
 | B | `noneRan`: a runner that writes no report says it ran nothing | kept, for cargo and a script of the estate's own, which report nothing else |
 | B | `failing` in the harness: which lines of a check to show an agent | presentation to a model, not a fact the framework acts on; kept |
-| E | the author's hint lists declarations as `file:line  signature` | handed as `relies_on` entries, to copy |
+| E | the author's hint lists declarations as `file:line  signature` | done 11-23: handed as `relies_on` entries, read by go/ast |
