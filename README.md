@@ -11,8 +11,11 @@ A framework for software development and maintenance carried out at scale by aut
 Go 1.27 or later, and a C compiler for the language grammars and the window.
 
 ```bash
-go install ./cmd/iflow
+make install      # builds bin/iflow, puts it in ~/Applications/iFlow.app if there is one, and replaces
+                  # the running service with this build, carrying its runs on
 ```
+
+`make` builds only, `make test` checks everything. Put `bin/` on your PATH, or run `./bin/iflow`.
 
 Each piece of work is one agent, asked once: the author of the specification, a reviewer of it, the planner, a reviewer of the plan, and one executor per unit. Which model each role uses is kept in `models.json` in the user's configuration directory (on a Mac, `~/Library/Application Support/iflow/models.json`), written on the first start, as `provider:model`:
 
@@ -36,18 +39,24 @@ security add-generic-password -s iflow.openrouter -a iflow -w
 | `IFLOW_BUDGET_USD` | the most one unit of work may spend; 2 when unset |
 | `IFLOW_PACK_TOKENS` | the most one agent is handed — its goal, the tests it must pass, its files and what surrounds them; 16000 when unset |
 
+Runs are carried by the service, so these are read when it starts: after changing one, `iflow service restart`.
+
 ## Use
 
 ```bash
-iflow desk <project>...                 # the workbench: type a task, watch it carried area by area
-iflow run [--accept] <project> <task>   # the same without a window
+iflow tui [project]                     # the path in a terminal: tasks, areas, the conversation beside them
+iflow desk <project>...                 # the same in a window
+iflow run [--accept|--ask] <project> <task>  # carry a task, printing each step
 iflow models                            # which model does each piece of work
-iflow stop <change>                     # ask the run carrying a change to stop, wherever it runs
+iflow stop <change>                     # stop the run carrying a change, wherever it was started
 iflow resume [--ask] <change>           # carry a stopped change on from where it stopped
 iflow reopen [--ask] <change> <1|2> <what is to change>  # carry a change again in its own folder,
                                         # from its specification (1) or its plan (2)
 iflow settle <change> <n> <decision>    # close an escalation the change raised by your decision
+iflow service status                    # the service: which build, since when, how many runs
 ```
+
+Every run is carried by one service, whichever screen started it: the window, the terminal and `iflow run` see the same runs, and a run goes on when its screen closes. The first screen opened starts the service; a screen of a later build replaces it, stopping its runs where they can be carried on and carrying them on in the new one — so a new build never needs the service killed by hand. `iflow service status|start|stop|restart|log` does the same by hand.
 
 The workbench shows each area as the task passes through it, every object it hands on, what the gate said at each boundary, what the agent did step by step, and what each step cost — model, tokens and money.
 
@@ -56,12 +65,12 @@ The workbench shows each area as the task passes through it, every object it han
 From a clone of this repository:
 
 ```bash
-go install ./cmd/iflow                  # puts iflow in $(go env GOPATH)/bin, which must be on PATH
+make install                            # bin/iflow, the app, the service
 iflow models                            # every role should say "ready"; if not, add the key as above
 iflow desk ~/code/my-project            # opens the window with that project in it
 ```
 
-`iflow desk` with no project opens the projects it remembers from last time, or the examples that come with the framework when there are none. More projects are added with **+** beside *Projects* in the window, and are remembered. If `iflow` is not found, run it as `$(go env GOPATH)/bin/iflow desk`.
+`iflow desk` with no project opens the projects it remembers from last time, or the examples that come with the framework when there are none. More projects are added with **+** beside *Projects* in the window, and are remembered. If `iflow` is not found, run it as `./bin/iflow desk`.
 
 In the window:
 

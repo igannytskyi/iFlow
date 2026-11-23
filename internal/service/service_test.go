@@ -180,8 +180,8 @@ func TestARefusalIsCarriedWithItsGround(t *testing.T) {
 	}
 }
 
-// A second screen sees the same run from its start, and a screen that
-// speaks another version is refused before anything else.
+// A second screen sees the same run from its start, and a screen of any
+// version is told who the service is.
 func TestScreensShareRunsAndAgreeOnAVersion(t *testing.T) {
 	c, moved, socket := serve(t)
 	ctx := context.Background()
@@ -209,8 +209,14 @@ func TestScreensShareRunsAndAgreeOnAVersion(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if err := c.conn.Call(ctx, protocol.Initialize, protocol.InitializeParams{Version: protocol.Version + 1, Client: "a later screen"}, nil); err == nil {
-		t.Error("a screen of another version was let speak")
+	// A screen of another version is told who the service is, so that it
+	// can replace it: it is never refused that.
+	var who protocol.InitializeResult
+	if err := c.conn.Call(ctx, protocol.Initialize, protocol.InitializeParams{Version: protocol.Version + 1, Client: "a later screen"}, &who); err != nil {
+		t.Fatalf("a screen of another version was not told who the service is: %v", err)
+	}
+	if who.Version != protocol.Version || who.PID != os.Getpid() || who.Build == "" || who.Running != 1 {
+		t.Errorf("the service did not say who it is: %+v", who)
 	}
 	if err := c.Watch(ctx, "run-99"); err == nil {
 		t.Error("a run not carried here was watched")
@@ -311,5 +317,77 @@ func TestAConversationIsHadThroughTheService(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(task, "chat.jsonl")); err != nil {
 		t.Error("the conversation is not kept beside the task")
+	}
+}
+
+// A service asked to end, keeping its runs, stops them and leaves them for
+// the next, which carries them on; a screen of a later build replaces it.
+func TestAServiceIsReplacedAndItsRunsCarriedOn(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := shortTemp(t)
+	socket, keep := filepath.Join(dir, "s.sock"), filepath.Join(dir, "kept.json")
+	begin := func() chan error {
+		l, err := Listen(ctx, socket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ended := make(chan error, 1)
+		go func() { ended <- New(ctx, Config{Maker: fakeMaker{}, Person: "a test", KeepFile: keep}).Serve(ctx, l) }()
+		return ended
+	}
+	ended := begin()
+	c, err := Dial(ctx, socket, "a test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Start(ctx, protocol.StartParams{Project: "/estate", Statement: "shout"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Replace(ctx, c, socket); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-ended:
+		if err != nil {
+			t.Fatalf("the service ended with %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the service did not end")
+	}
+	begin()
+	next, err := Dial(ctx, socket, "a test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Close()
+	runs, err := next.Runs(ctx)
+	if err != nil || len(runs) != 1 || runs[0].Statement != "shout" || runs[0].Project != "/estate" {
+		t.Fatalf("the next service did not carry the run on: %+v %v", runs, err)
+	}
+	if _, err := os.Stat(keep); err == nil {
+		t.Error("the runs kept are kept still, to be carried on twice")
+	}
+}
+
+// A screen replaces only a service older than itself: another version of
+// the protocol, or another build written before its own.
+func TestOnlyAnOlderServiceIsReplaced(t *testing.T) {
+	id, at := Build()
+	if id == "" {
+		t.Skip("this program's executable cannot be read")
+	}
+	for _, c := range []struct {
+		res  protocol.InitializeResult
+		want bool
+	}{
+		{protocol.InitializeResult{Version: protocol.Version, Build: id, BuiltAt: at}, false},
+		{protocol.InitializeResult{Version: protocol.Version - 1, Build: id, BuiltAt: at}, true},
+		{protocol.InitializeResult{Version: protocol.Version, Build: "other", BuiltAt: at.Add(-time.Hour)}, true},
+		{protocol.InitializeResult{Version: protocol.Version, Build: "other", BuiltAt: at.Add(time.Hour)}, false},
+	} {
+		if got := Older(c.res); got != c.want {
+			t.Errorf("%+v is older: %v, want %v", c.res, got, c.want)
+		}
 	}
 }

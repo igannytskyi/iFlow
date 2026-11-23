@@ -276,7 +276,7 @@ func (r *Run) intent(ctx context.Context) error {
 			return err
 		}
 		if got.ok {
-			r.say(1, r.id("SPEC"), "%s accepted the criteria", r.cfg.Person)
+			r.say(1, r.id("SPEC"), "%s accepted the criteria", r.who(got))
 			r.set(1, Done)
 			return nil
 		}

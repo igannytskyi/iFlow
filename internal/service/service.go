@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/model"
@@ -48,6 +49,9 @@ type Config struct {
 	// Model is who a conversation beside the work talks with; nil leaves
 	// the service without conversations.
 	Model func() model.Model
+	// KeepFile is where a service asked to shut down keeping its runs
+	// leaves them, and where the next one finds them to carry on.
+	KeepFile string
 }
 
 // Service is the runs being carried, and who watches each, and the
@@ -60,6 +64,10 @@ type Service struct {
 	model    func() model.Model
 	talk     talk
 
+	since    time.Time
+	keepFile string
+	quit     context.CancelFunc
+
 	mu   sync.Mutex
 	n    int
 	runs map[string]*entry
@@ -69,7 +77,8 @@ type Service struct {
 
 // New is a service made with cfg. Its runs end when ctx does.
 func New(ctx context.Context, cfg Config) *Service {
-	return &Service{maker: cfg.Maker, person: cfg.Person, projects: cfg.Projects, model: cfg.Model, ctx: ctx, runs: map[string]*entry{}}
+	return &Service{maker: cfg.Maker, person: cfg.Person, projects: cfg.Projects, model: cfg.Model, ctx: ctx, runs: map[string]*entry{},
+		since: time.Now(), keepFile: cfg.KeepFile}
 }
 
 // entry is one run, and the screens watching it.
@@ -81,6 +90,7 @@ type entry struct {
 	mu       sync.Mutex
 	started  bool
 	finished bool
+	stopped  bool // asked to stop: by a screen, or by the service ending
 	err      error
 	watchers map[*protocol.Conn]*watcher
 }
@@ -155,11 +165,15 @@ func (s *Service) Handle(ctx context.Context, c *protocol.Conn, method string, p
 		if err := protocol.Decode(params, &p); err != nil {
 			return nil, err
 		}
-		if p.Version != protocol.Version {
-			return nil, &protocol.Error{Code: protocol.Refused,
-				Message: fmt.Sprintf("this service speaks version %d of the protocol, and %s version %d: stop the service (pkill -f 'iflow serve') and open the screen again, which starts the one it speaks with", protocol.Version, p.Client, p.Version)}
+		// Answered in every version: a screen of another version reads who
+		// the service is, and replaces it where it is the older.
+		return s.identity(), nil
+	case protocol.Shutdown:
+		var p protocol.ShutdownParams
+		if err := protocol.Decode(params, &p); err != nil {
+			return nil, err
 		}
-		return protocol.InitializeResult{Version: protocol.Version, Server: "iflow"}, nil
+		return s.shutdown(p.Keep), nil
 	case protocol.Runs:
 		return s.summaries(), nil
 	case protocol.Projects:
@@ -245,7 +259,9 @@ func (s *Service) Handle(ctx context.Context, c *protocol.Conn, method string, p
 		if e.run.View().Question == "" {
 			return nil, &protocol.Error{Code: protocol.Refused, Message: p.Run + " is not waiting for an answer"}
 		}
-		if p.Accept {
+		if as, ok := e.run.(interface{ AcceptAs(string) }); ok && p.Accept && p.By != "" {
+			as.AcceptAs(p.By)
+		} else if p.Accept {
 			e.run.Accept()
 		} else {
 			e.run.Refuse(p.Why)
@@ -263,6 +279,9 @@ func (s *Service) Handle(ctx context.Context, c *protocol.Conn, method string, p
 		// A run that has a folder is stopped as any run is, by the file the
 		// run watches, so that its record says who stopped it; one that has
 		// none yet has nothing to record.
+		e.mu.Lock()
+		e.stopped = true
+		e.mu.Unlock()
 		if dir := e.run.View().Dir; dir != "" && flow.Running(dir) {
 			return nil, flow.Stop(dir, s.person)
 		}
@@ -341,7 +360,7 @@ func (e *entry) unwatch(c *protocol.Conn) {
 func (e *entry) delta(w *watcher) (protocol.RunDelta, bool) {
 	v := e.run.View()
 	e.mu.Lock()
-	finished, err := e.finished, e.err
+	finished, err, stopped := e.finished, e.err, e.stopped
 	e.mu.Unlock()
 	d := protocol.RunDelta{Run: e.id, Project: e.project, Statement: v.Statement, Slug: v.Slug, Dir: v.Dir,
 		StepsFrom: w.steps, Question: v.Question, Reviewed: v.Reviewed, Spent: usage(v),
@@ -351,6 +370,9 @@ func (e *entry) delta(w *watcher) (protocol.RunDelta, bool) {
 	}
 	for i, a := range v.Areas {
 		d.Areas[i] = protocol.Status(a)
+	}
+	if finished {
+		d.Outcome = outcomeOf(d.Areas, err, stopped)
 	}
 	for _, st := range v.Steps[min(w.steps, len(v.Steps)):] {
 		d.Steps = append(d.Steps, protocol.Step{At: st.At, Area: st.Area, Text: st.Text, Object: st.Object, Bad: st.Bad})
@@ -437,6 +459,8 @@ func Listen(ctx context.Context, socket string) (net.Listener, error) {
 // Serve speaks the protocol with every screen that connects to l, until ctx
 // ends.
 func (s *Service) Serve(ctx context.Context, l net.Listener) error {
+	ctx = s.serveUntil(ctx)
+	s.carryOnKept()
 	go func() {
 		<-ctx.Done()
 		_ = l.Close()
@@ -458,4 +482,17 @@ func (s *Service) Serve(ctx context.Context, l net.Listener) error {
 			}
 		}()
 	}
+}
+
+// outcomeOf is how a run that ended, with err, came out.
+func outcomeOf(areas [7]protocol.Status, err error, stopped bool) protocol.Outcome {
+	switch {
+	case errors.Is(err, flow.ErrHolds):
+		return protocol.EndHolds
+	case err == nil && areas[6] == protocol.Done:
+		return protocol.EndLanded
+	case stopped || errors.Is(err, context.Canceled):
+		return protocol.EndStopped
+	}
+	return protocol.EndFailed
 }

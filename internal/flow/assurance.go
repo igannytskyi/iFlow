@@ -103,13 +103,13 @@ func (r *Run) assure(ctx context.Context) error {
 			return err
 		}
 		passed[ev] = got.ok
-		how := "affirmed by " + r.cfg.Person + ", who did not write the candidate, reading it before it landed"
+		how := "affirmed by " + r.who(got) + ", who did not write the candidate, reading it before it landed"
 		if !got.ok {
 			how = "refused by " + r.cfg.Person + ": " + got.ground
 		}
 		doc.Evidence = append(doc.Evidence, meta.Evidence{ID: ev, Subject: meta.OfCandidate, Kind: meta.HumanAffirmation,
 			Producer: r.cfg.Person, Independence: meta.ByExecutor, How: how, Repeatable: meta.No, ObtainedAt: today()})
-		r.say(5, ev, "%s: %s %s", ev, r.cfg.Person, map[bool]string{true: "affirmed it", false: "did not affirm it: " + got.ground}[got.ok])
+		r.say(5, ev, "%s: %s %s", ev, r.who(got), map[bool]string{true: "affirmed it", false: "did not affirm it: " + got.ground}[got.ok])
 		if !got.ok {
 			refusal = got.ground
 		}

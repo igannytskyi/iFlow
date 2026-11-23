@@ -39,6 +39,7 @@ type Client struct {
 	mu      sync.Mutex
 	runs    map[string]*State
 	chats   map[string]protocol.ChatState
+	server  protocol.InitializeResult
 	changed func(what string)
 }
 
@@ -56,12 +57,22 @@ func Dial(ctx context.Context, socket, client string, changed func(run string)) 
 		return nil, err
 	}
 	c.conn = conn
-	var res protocol.InitializeResult
-	if err := conn.Call(ctx, protocol.Initialize, protocol.InitializeParams{Version: protocol.Version, Client: client}, &res); err != nil {
+	if err := conn.Call(ctx, protocol.Initialize, protocol.InitializeParams{Version: protocol.Version, Client: client}, &c.server); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("the service at %s: %w", socket, err)
 	}
 	return c, nil
+}
+
+// Server is who the service said it is when the client connected.
+func (c *Client) Server() protocol.InitializeResult { return c.server }
+
+// Shutdown asks the service to end; with keep, the runs it carries are
+// stopped to be carried on by the next service.
+func (c *Client) Shutdown(ctx context.Context, keep bool) (protocol.ShutdownResult, error) {
+	var res protocol.ShutdownResult
+	err := c.conn.Call(ctx, protocol.Shutdown, protocol.ShutdownParams{Keep: keep}, &res)
+	return res, err
 }
 
 // Close ends the connection; the runs go on in the service.
@@ -163,6 +174,11 @@ func (c *Client) Watch(ctx context.Context, run string) error {
 // Accept answers the question a run waits on, yes.
 func (c *Client) Accept(ctx context.Context, run string) error {
 	return c.conn.Call(ctx, protocol.Answer, protocol.AnswerParams{Run: run, Accept: true}, nil)
+}
+
+// AcceptAs answers the run's question yes, saying who answered and how.
+func (c *Client) AcceptAs(ctx context.Context, run, by string) error {
+	return c.conn.Call(ctx, protocol.Answer, protocol.AnswerParams{Run: run, Accept: true, By: by}, nil)
 }
 
 // Refuse answers it no, with why.

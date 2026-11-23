@@ -167,6 +167,15 @@ type Run struct {
 type decision struct {
 	ok     bool
 	ground string
+	by     string // who answered, and how, where not the person reading it
+}
+
+// who is who gave d: as the answer says, or the person.
+func (r *Run) who(d decision) string {
+	if d.by != "" {
+		return d.by
+	}
+	return r.cfg.Person
 }
 
 // New prepares a run of a task against the estate at repo. changed is called
@@ -226,6 +235,10 @@ func (r *Run) Settles(refs ...string) { r.settles = append(r.settles, refs...) }
 
 // Accept answers the question the run is waiting on, yes.
 func (r *Run) Accept() { r.reply(decision{ok: true}) }
+
+// AcceptAs answers the question yes, as by says it was given: "accepted
+// with --accept, without reading", which the record then says.
+func (r *Run) AcceptAs(by string) { r.reply(decision{ok: true, by: by}) }
 
 // Refuse answers it no, with the ground. A refusal is the producer's
 // failure, not a request to try again.

@@ -15,8 +15,10 @@ import (
 	"github.com/igannytskyi/iflow/internal/meta"
 )
 
-// Version is the version of the protocol this side speaks.
-const Version = 4
+// Version is the version of the protocol this side speaks. A service
+// answers initialize and shutdown in every version, whatever the screen's,
+// so that a screen newer than the service can always replace it.
+const Version = 5
 
 // The methods a screen calls.
 const (
@@ -29,12 +31,13 @@ const (
 	Stop       = "run.stop"   // RunRef → nothing
 	Watch      = "run.watch"  // RunRef → nothing; Changed follows
 	Unwatch    = "run.unwatch"
-	Projects   = "projects"      // ProjectsParams → []Project
-	Record     = "change.record" // ChangeRef → []Crossing
-	Get        = "change.get"    // ChangeRef → ChangeDoc
-	Trace      = "unit.trace"    // TraceParams → []Event
-	Ask        = "chat.ask"      // AskParams → nothing; ChatChanged follows for who watches
-	Listen     = "chat.watch"    // ChatRef → nothing; ChatChanged follows
+	Projects   = "projects"         // ProjectsParams → []Project
+	Record     = "change.record"    // ChangeRef → []Crossing
+	Get        = "change.get"       // ChangeRef → ChangeDoc
+	Trace      = "unit.trace"       // TraceParams → []Event
+	Ask        = "chat.ask"         // AskParams → nothing; ChatChanged follows for who watches
+	Listen     = "chat.watch"       // ChatRef → nothing; ChatChanged follows
+	Shutdown   = "service.shutdown" // ShutdownParams → ShutdownResult; the service then ends
 )
 
 // ChatChanged is what the service sends a screen watching a conversation,
@@ -51,10 +54,37 @@ type InitializeParams struct {
 	Client  string `json:"client"`
 }
 
-// InitializeResult is the service's version, and who it is.
+// InitializeResult is the service's version, and who it is: the program it
+// runs, by the hash of its executable and when that was built, its process,
+// since when, and how many runs it carries.
 type InitializeResult struct {
-	Version int    `json:"version"`
-	Server  string `json:"server"`
+	Version int       `json:"version"`
+	Server  string    `json:"server"`
+	Build   string    `json:"build,omitempty"`
+	BuiltAt time.Time `json:"built_at,omitzero"`
+	PID     int       `json:"pid,omitempty"`
+	Since   time.Time `json:"since,omitzero"`
+	Running int       `json:"running"`
+}
+
+// ShutdownParams asks the service to end: Keep, to stop the runs it
+// carries where a run can be carried on from — and carry them on when the
+// next service starts.
+type ShutdownParams struct {
+	Keep bool `json:"keep"`
+}
+
+// ShutdownResult is the runs the service stopped, by their folders or, for
+// a run that has none yet, its project and its statement.
+type ShutdownResult struct {
+	Kept []Kept `json:"kept"`
+}
+
+// Kept is a run stopped to be carried on by the next service.
+type Kept struct {
+	Dir       string `json:"dir,omitempty"`
+	Project   string `json:"project,omitempty"`
+	Statement string `json:"statement,omitempty"`
 }
 
 // StartParams starts a task on a project: the estate's folder, the
@@ -86,6 +116,9 @@ type AnswerParams struct {
 	Run    string `json:"run"`
 	Accept bool   `json:"accept"`
 	Why    string `json:"why,omitempty"`
+	// By is who answered, and how, where not the person reading the
+	// change: what the record then says.
+	By string `json:"by,omitempty"`
 }
 
 // RunRef names a run the service carries.
@@ -160,8 +193,20 @@ type RunDelta struct {
 	Reviewed  string             `json:"reviewed,omitempty"`
 	Spent     Usage              `json:"spent"`
 	Finished  bool               `json:"finished"`
+	Outcome   Outcome            `json:"outcome,omitempty"`
 	Error     string             `json:"error,omitempty"`
 }
+
+// Outcome is how a finished run ended.
+type Outcome string
+
+// The ways a run ends.
+const (
+	EndLanded  Outcome = "landed"  // the change landed
+	EndHolds   Outcome = "holds"   // what was asked holds already; nothing changed
+	EndStopped Outcome = "stopped" // stopped, by a person or by the service ending; it can be carried on
+	EndFailed  Outcome = "failed"  // it could not go on; Error says why
+)
 
 // Message is one JSON-RPC 2.0 message: a call (Method and ID), a
 // notification (Method alone), or an answer (ID, and Result or Error).
