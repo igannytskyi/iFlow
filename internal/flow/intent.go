@@ -124,7 +124,7 @@ func (r *Run) overview() string {
 			names = append(names, l.Names...)
 		}
 		if decl := r.declarations(names, 40); len(decl) > 0 {
-			b.WriteString("\nHow those names are declared:\n\n" + strings.Join(decl, "\n") + "\n")
+			b.WriteString("\nHow those names are declared, as relies_on lists them — copy an entry whole to rely on it:\n\n" + strings.Join(decl, "\n") + "\n")
 		}
 		b.WriteString("\n")
 	}
@@ -637,12 +637,104 @@ func (r *Run) declarations(names []string, n int) []string {
 			if len(out) == n {
 				return out
 			}
-			if ex := repo.Excerpt(p.File, p.Start, p.Start, 1); len(ex) == 1 {
-				out = append(out, fmt.Sprintf("%s:%d  %s", p.File, p.Start, estate.Signature(ex[0].Text)))
+			if strings.HasSuffix(p.File, "_test.go") {
+				continue // a test is relied on by nothing the change does
+			}
+			// Handed in the shape relies_on is written in, so that what is
+			// relied on is copied as data, never transcribed from a line.
+			entry := meta.Provision{File: p.File, Name: name}
+			if filepath.Ext(p.File) == ".go" {
+				src, err := os.ReadFile(filepath.Join(r.repo, filepath.FromSlash(p.File)))
+				if err != nil {
+					continue
+				}
+				d, ok := goDeclarationAt(src, name, p.Start)
+				if !ok {
+					continue
+				}
+				entry.Kind, entry.Of, entry.Signature = d.Kind, d.Of, d.Signature
+			} else if ex := repo.Excerpt(p.File, p.Start, p.Start, 1); len(ex) == 1 {
+				entry.Signature = estate.Signature(ex[0].Text)
+			}
+			if b, err := json.Marshal(entry); err == nil {
+				out = append(out, string(b))
 			}
 		}
 	}
 	return out
+}
+
+// goDeclarationAt is the declaration of name the Go file src holds at line:
+// its kind, the type it belongs to, and its declaration's first line.
+func goDeclarationAt(src []byte, name string, line int) (meta.Provision, bool) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
+	if err != nil {
+		return meta.Provision{}, false
+	}
+	at := func(n ast.Node) bool {
+		from, to := fset.Position(n.Pos()).Line, fset.Position(n.End()).Line
+		return line >= from && line <= to
+	}
+	var found meta.Provision
+	ok := false
+	for _, d := range f.Decls {
+		if !at(d) {
+			continue
+		}
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			if d.Name.Name != name {
+				continue
+			}
+			found, ok = meta.Provision{Kind: meta.Function}, true
+			if d.Recv != nil && len(d.Recv.List) == 1 {
+				found = meta.Provision{Kind: meta.Method, Of: receiverType(d.Recv.List[0].Type)}
+			}
+		case *ast.GenDecl:
+			for _, sp := range d.Specs {
+				switch sp := sp.(type) {
+				case *ast.TypeSpec:
+					if sp.Name.Name == name {
+						found, ok = meta.Provision{Kind: meta.TypeDecl}, true
+						continue
+					}
+					var fields *ast.FieldList
+					kind := meta.Field
+					switch t := sp.Type.(type) {
+					case *ast.StructType:
+						fields = t.Fields
+					case *ast.InterfaceType:
+						fields, kind = t.Methods, meta.Method
+					}
+					if fields == nil {
+						continue
+					}
+					for _, fd := range fields.List {
+						for _, id := range fd.Names {
+							if id.Name == name && at(fd) {
+								found, ok = meta.Provision{Kind: kind, Of: sp.Name.Name}, true
+							}
+						}
+					}
+				case *ast.ValueSpec:
+					for _, id := range sp.Names {
+						if id.Name == name {
+							found, ok = meta.Provision{Kind: meta.Variable}, true
+							if d.Tok == token.CONST {
+								found.Kind = meta.Constant
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if !ok {
+		return found, false
+	}
+	found.Signature, _ = goDeclarationOf(src, name, found.Of)
+	return found, found.Signature != ""
 }
 
 // relied is what a specification relies on, each name with the declaration
