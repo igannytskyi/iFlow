@@ -191,6 +191,11 @@ func (r *Run) plan(ctx context.Context) error {
 	}
 	for round := 1; ; round++ {
 		units, approach, planner = r.planned(ctx, byTests, feedback)
+		if r.scopeFault != nil {
+			sb := r.scopeFault
+			r.scopeFault = nil
+			return sb
+		}
 		if units == nil || round > r.cfg.reviewRounds() {
 			break
 		}
@@ -346,6 +351,16 @@ func (r *Run) planned(ctx context.Context, byTests []string, feedback string) ([
 		}
 		if err != nil {
 			return nil, nil, "the planner could not be asked: " + err.Error()
+		}
+		// A plan that must write outside the specification's scope says the
+		// scope is wrong, not the plan: the planner read the code and found
+		// what the change touches. It goes back to the specification's
+		// author, with what and why, and to the person — never round the
+		// planner, who may not widen what the person accepted.
+		if outside := r.planOutsideScope(p); len(outside) > 0 && !r.back[1] {
+			r.scopeFault = &sentBack{area: 1, unit: "the plan", why: "the planner, reading the code, found the change must touch " +
+				strings.Join(outside, ", ") + ", which the specification's scope does not hold; the plan it made: " + p.Approach.Summary}
+			return nil, nil, "the specification's scope is too narrow for the change"
 		}
 		units, problem := r.unitsOf(p)
 		if problem == "" {
@@ -1022,4 +1037,24 @@ func (r *Run) study(ctx context.Context, area int, m model.Model, system, prompt
 		return answer, u, turns, fmt.Errorf("%w: %v", model.ErrUnreadable, err)
 	}
 	return answer, u, turns, nil
+}
+
+// planOutsideScope is the files the planner's code units would write that
+// lie outside the specification's scope and judge nothing: what the change
+// must touch, by the planner's reading of the code, and was not given.
+func (r *Run) planOutsideScope(p planDraft) []string {
+	var out []string
+	for _, pu := range p.Units {
+		if meta.UnitKind(pu.Kind) != meta.CodeUnit {
+			continue
+		}
+		for _, f := range pu.Scope {
+			f = path.Clean(strings.TrimPrefix(filepath.ToSlash(f), "./"))
+			if inScope(f, r.spec.Scope) || slices.Contains(r.spec.NewTests, f) || slices.Contains(r.spec.SuiteTests, f) || r.declaresTests(f) || slices.Contains(out, f) {
+				continue
+			}
+			out = append(out, f)
+		}
+	}
+	return out
 }

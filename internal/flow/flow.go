@@ -150,6 +150,7 @@ type Run struct {
 	cands      map[string]string   // unit → candidate folder
 	ledger     []meta.TestRecord   // the test ledger: every test kept, the criterion it judges, the unit that wrote it
 	widened    map[string][]string // by unit, the files it was given beyond its plan
+	scopeFault *sentBack           // the planner found the specification's scope too narrow
 	// again is, for a tests unit carried again, what the code that could
 	// not pass its tests found wrong with them.
 	again map[string]string

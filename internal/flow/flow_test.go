@@ -2128,3 +2128,58 @@ func TestNamesQualifiedByTheirPackageAreTheirPackagesOwn(t *testing.T) {
 		t.Errorf("a field given to another package's type was let be: %q", why)
 	}
 }
+
+// widePlanner plans, the first time it is asked, a code unit that writes a
+// file outside the specification's scope — what it found the change must
+// touch — and the plan as written after that.
+type widePlanner struct {
+	stubModel
+	asked *int
+}
+
+func (w widePlanner) Ask(ctx context.Context, system, prompt string) (string, model.Usage, error) {
+	if system == plannerSystem {
+		*w.asked++
+		if *w.asked == 1 {
+			return strings.Replace(plan, `"scope":["greet.go"]`, `"scope":["greet.go","main.go"]`, 1), model.Usage{Model: "stub"}, nil
+		}
+	}
+	return w.stubModel.Ask(ctx, system, prompt)
+}
+
+// A plan that must write outside the specification's scope sends the
+// specification back to its author, with what and why — not round its
+// planner, who may not widen what the person accepted.
+func TestAPlanOutsideTheScopeSendsTheSpecificationBack(t *testing.T) {
+	repo := estateFixture(t)
+	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package greet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	est := estate.NewLocal()
+	var prompts []string
+	asked := 0
+	cfg := Config{Model: stubModel{spec, &prompts}, Planner: widePlanner{stubModel{spec, &prompts}, &asked}, Estate: est, Gate: gate.New(est), Person: "a test",
+		Executor: stubExecutor{files: map[string]string{
+			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+		}}}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	_ = run.Start(context.Background())
+	back := slices.ContainsFunc(prompts, func(p string) bool {
+		return strings.Contains(p, "# Your previous specification") && strings.Contains(p, "must touch main.go, which the specification's scope does not hold")
+	})
+	if !back {
+		for _, s := range run.View().Steps {
+			t.Logf("%d %s", s.Area, s.Text)
+		}
+		t.Fatal("the author was not handed the file the plan found outside the scope")
+	}
+	if asked < 2 {
+		t.Errorf("the planner was asked %d times: the specification sent back is planned again", asked)
+	}
+}
