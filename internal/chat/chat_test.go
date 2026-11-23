@@ -159,15 +159,21 @@ func TestAnAnswerIsShownAsItIsWritten(t *testing.T) {
 
 // searching is a model whose server searches the web: it says what it was
 // offered, and cites a page.
-type searching struct{ offered *[]model.Tool }
+type searching struct {
+	offered *[]model.Tool
+	system  *string
+}
 
 func (s searching) Name() string   { return "searching" }
 func (s searching) Searches() bool { return true }
 func (s searching) Ask(context.Context, string, string) (string, model.Usage, error) {
 	panic("asked in turns")
 }
-func (s searching) Chat(_ context.Context, _ []model.Message, tools []model.Tool) (model.Message, model.Usage, error) {
+func (s searching) Chat(_ context.Context, msgs []model.Message, tools []model.Tool) (model.Message, model.Usage, error) {
 	*s.offered = tools
+	if s.system != nil {
+		*s.system = msgs[0].Content
+	}
 	return model.Message{Content: "Go 1.27 is the latest [1].", Annotations: []model.Annotation{
 		{Type: "url_citation", URLCitation: &model.Citation{URL: "https://go.dev/doc/go1.27", Title: "Go 1.27"}}}}, model.Usage{}, nil
 }
@@ -176,8 +182,12 @@ func (s searching) Chat(_ context.Context, _ []model.Message, tools []model.Tool
 // pages its answer cites are kept with the answer.
 func TestAnAnswerKeepsThePagesItCites(t *testing.T) {
 	var offered []model.Tool
+	var system string
 	th := Open(filepath.Join(t.TempDir(), File), nil)
-	askAndWait(t, th, searching{&offered}, "what is the latest Go?")
+	askAndWait(t, th, searching{&offered, &system}, "what is the latest Go?")
+	if !strings.Contains(system, "You have a tool that searches the web") || !strings.Contains(system, "no longer so") {
+		t.Errorf("the model is not told, firmly, that it can search:\n%s", system)
+	}
 	if len(offered) != 1 || offered[0].Type != "openrouter:web_search" {
 		t.Errorf("the search was not offered: %+v", offered)
 	}

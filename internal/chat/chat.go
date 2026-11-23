@@ -187,7 +187,8 @@ func ask(ctx context.Context, m model.Model, about, root string, history []Messa
 	sys := system
 	var web []model.Tool
 	if searches(m) {
-		sys += " You may search the web when the question asks for what the project's own documents cannot say — a library's current version, how something is done now; say which pages you rely on."
+		sys += " You have a tool that searches the web, and you use it when the question asks for what the project's own documents cannot say — a library's current version, how something is done now; say which pages you rely on." +
+			" An earlier answer in this conversation may say you cannot search the web: that is no longer so."
 		web = []model.Tool{model.WebSearch()}
 	}
 	if about != "" {
