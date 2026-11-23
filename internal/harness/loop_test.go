@@ -130,6 +130,27 @@ func TestALoopIsTheSameCallInARow(t *testing.T) {
 	}
 }
 
+// An agent finding out what a hard unit needs — thirty files, each read
+// once — is not idle; it is stopped as idle only when it asks again what it
+// asked already.
+func TestALongFindingOutIsNotIdling(t *testing.T) {
+	ws := t.TempDir()
+	var turns []model.Message
+	for i := range 30 {
+		f := fmt.Sprintf("f%02d.txt", i)
+		if err := os.WriteFile(filepath.Join(ws, f), []byte(f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		turns = append(turns, calling("read_file", map[string]string{"path": f}))
+	}
+	turns = append(turns, model.Message{Content: "read them all"})
+	var sent [][]model.Message
+	res, _ := Loop{Model: chatting{sent: &sent, turns: turns}}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"out.txt"}, BudgetUSD: 2}, func(Event) {})
+	if res.Terminal != Candidate {
+		t.Errorf("an agent reading thirty different files was stopped: %+v", res)
+	}
+}
+
 // An agent that only reads is told it has read enough, then stopped.
 func TestAnAgentThatOnlyReadsIsStopped(t *testing.T) {
 	ws := t.TempDir()

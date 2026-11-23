@@ -51,14 +51,14 @@ How to work:
 - If the unit cannot be done as it is asked — what it relies on does not exist, what it must change is outside its scope — call cannot with why, at once; do not search on for what is not there.
 - When the check passes, answer without calling a tool, in two sentences: what you changed and why. The harness runs the check once more; if it fails, you are told and go on.`
 
-// idleNudge and idleStop are how many steps without a change an agent is
-// told it has read enough, and stopped; maxFresh is how many calls that ask
-// something new — a file not read, a test not run — count as finding out
-// rather than idling, in a whole run.
+// idleNudge and idleStop are how many steps an agent may ask again what it
+// asked already since it last changed anything before it is told it has
+// read enough, and stopped. Asking something new — a file not read, a
+// definition not looked up — is finding out, however long the finding out
+// of a hard unit takes; the unit's budget bounds it, not a count.
 const (
 	idleNudge = 6
 	idleStop  = 12
-	maxFresh  = 15
 )
 
 // maxRead is the most a unit's agent may read, all its turns together;
@@ -95,9 +95,14 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	// needs again, so that every turn does not carry every file.
 	slim := msgs[1]
 	slim.Content = prompt(Task{Goal: t.Goal, Scope: t.Scope, Check: t.Check, Context: index(t.Context)}) + libraryNote(t.Libraries)
+	// Steps bound a run only where no budget does: spending is what a run
+	// is held to (BudgetUSD), and a hard unit takes the steps it takes.
 	maxSteps := t.MaxSteps
 	if maxSteps <= 0 {
 		maxSteps = 30
+		if t.BudgetUSD > 0 {
+			maxSteps = 200
+		}
 	}
 	var res Result
 	started := time.Now()
@@ -114,7 +119,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	// anything, while the check fails, is how a weak model goes round. It is
 	// told so once, and stopped if it goes on.
 	idle, nudged := 0, false
-	asked, fresh := map[string]bool{}, 0
+	asked := map[string]bool{}
 	refusedDone := 0
 	for res.Steps < maxSteps {
 		if ctx.Err() != nil {
@@ -214,13 +219,10 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 				last = "" // the workspace changed: the same call now asks something new
 				idle, nudged = 0, false
 				asked = map[string]bool{}
-			case kind == Got && !asked[key] && fresh < maxFresh:
+			case kind == Got && !asked[key]:
 				// Something not asked before since the last change — a file
-				// not read, a test not run — is finding out, not going round:
-				// it counts against the idle steps only once enough of it has
-				// been done.
+				// not read, a test not run — is finding out, not going round.
 				asked[key] = true
-				fresh++
 			default:
 				idle++
 			}
