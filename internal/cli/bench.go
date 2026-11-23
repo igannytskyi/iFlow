@@ -16,6 +16,7 @@ import (
 
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/gate"
+	"github.com/igannytskyi/iflow/internal/models"
 )
 
 // suite is the reference tasks the framework is measured by.
@@ -170,6 +171,25 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 func vary(cfg *flow.Config, set map[string]string) error {
 	for k, v := range set {
 		switch k {
+		case "author", "reviewer", "planner":
+			// A role's model, as a role in the models' file names one:
+			// provider:model.
+			m, err := models.Load()
+			if err != nil {
+				return err
+			}
+			md, err := m.Model(v, "medium")
+			if err != nil {
+				return fmt.Errorf("%s=%s: %w", k, v, err)
+			}
+			switch k {
+			case "author":
+				cfg.Model = md
+			case "reviewer":
+				cfg.Reviewer = md
+			default:
+				cfg.Planner = md
+			}
 		case "review":
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 1 {
@@ -188,7 +208,7 @@ func vary(cfg *flow.Config, set map[string]string) error {
 			}
 			cfg.RepeatOnce = v == "once"
 		default:
-			return fmt.Errorf("--set %s: not something the bench varies (review, attempts, repeat)", k)
+			return fmt.Errorf("--set %s: not something the bench varies (review, attempts, repeat, author, reviewer, planner)", k)
 		}
 	}
 	return nil
@@ -241,6 +261,22 @@ func benchOne(ctx context.Context, cfg flow.Config, estate string, t benchTask) 
 	})
 	began := time.Now()
 	err = run.Start(ctx)
+	// What the run said, step by step, is kept beside a run that did not
+	// come to what it should: a run stopped before its change was written
+	// leaves no other word of why.
+	defer func() {
+		if !res.OK {
+			var b strings.Builder
+			for _, st := range run.View().Steps {
+				mark := " "
+				if st.Bad {
+					mark = "!"
+				}
+				fmt.Fprintf(&b, "%s %d  %s\n", mark, st.Area, st.Text)
+			}
+			_ = os.WriteFile(filepath.Join(dir, "steps.txt"), []byte(b.String()), 0o644)
+		}
+	}()
 	res.Seconds = time.Since(began).Seconds()
 	v := run.View()
 	res.USD, res.In, res.Out, res.Calls = v.Spent.CostUSD, v.Spent.In(), v.Spent.Output, len(v.Costs)

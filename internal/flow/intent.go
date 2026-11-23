@@ -361,7 +361,11 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 			why = r.reliesProblem(d.Relies)
 		}
 		if why != "" {
-			note = "\n\nYour last answer cannot be used: " + why + ". Answer again."
+			// The author is handed what it wrote and exactly what breaks, to
+			// mend that and keep the rest: asked afresh, it would write afresh,
+			// and break something else.
+			note = "\n\n# Your last answer\n\n```json\n" + strings.TrimSpace(answer) + "\n```\n\nIt cannot be used: " + why +
+				".\n\nAnswer with that answer, mended exactly where it breaks, and the rest as it was."
 			r.say(1, "", "the draft is sent back: %s", why)
 			continue
 		}
@@ -382,7 +386,7 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 				fixes = append(fixes, fix)
 			}
 		}
-		note = "\n\nThe gate refused your last specification: " + strings.Join(found, "; ") + "."
+		note = "\n\n# Your last answer\n\n```json\n" + strings.TrimSpace(answer) + "\n```\n\nThe gate refused it: " + strings.Join(found, "; ") + "."
 		if len(fixes) > 0 {
 			note += "\n\nHow to mend it:\n- " + strings.Join(fixes, "\n- ")
 		}
