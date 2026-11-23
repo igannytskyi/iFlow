@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -148,6 +149,29 @@ func TestALongFindingOutIsNotIdling(t *testing.T) {
 	res, _ := Loop{Model: chatting{sent: &sent, turns: turns}}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"out.txt"}, BudgetUSD: 2}, func(Event) {})
 	if res.Terminal != Candidate {
 		t.Errorf("an agent reading thirty different files was stopped: %+v", res)
+	}
+}
+
+// But finding out has an end: forty things read, each new, and nothing
+// written, and the agent is stopped — told first, at twenty.
+func TestReadingWithoutWritingHasAnEnd(t *testing.T) {
+	ws := t.TempDir()
+	var turns []model.Message
+	for i := range readStop + 5 {
+		f := fmt.Sprintf("f%02d.txt", i)
+		if err := os.WriteFile(filepath.Join(ws, f), []byte(f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		turns = append(turns, calling("read_file", map[string]string{"path": f}))
+	}
+	var sent [][]model.Message
+	res, _ := Loop{Model: chatting{sent: &sent, turns: turns}}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"out.txt"}, BudgetUSD: 2}, func(Event) {})
+	if res.Terminal != Exhausted || res.Steps != readStop {
+		t.Errorf("an agent reading %d things and writing none ended %s after %d steps", readStop+5, res.Terminal, res.Steps)
+	}
+	told := slices.ContainsFunc(sent[len(sent)-1], func(m model.Message) bool { return m.Role == "user" && strings.Contains(m.Content, "read enough") })
+	if !told {
+		t.Error("it was not told it had read enough before it was stopped")
 	}
 }
 

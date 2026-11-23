@@ -56,9 +56,17 @@ How to work:
 // read enough, and stopped. Asking something new — a file not read, a
 // definition not looked up — is finding out, however long the finding out
 // of a hard unit takes; the unit's budget bounds it, not a count.
+//
+// readNudge and readStop bound finding out itself: steps without a change
+// of any kind, new questions among them. A hard unit may read a while — the
+// window's code, a library's — but an agent that has read forty things and
+// written nothing is not about to: on 11-23 one read 155 times, wrote
+// nothing, and spent its whole budget doing it.
 const (
 	idleNudge = 6
 	idleStop  = 12
+	readNudge = 20
+	readStop  = 40
 )
 
 // maxRead is the most a unit's agent may read, all its turns together;
@@ -101,7 +109,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	if maxSteps <= 0 {
 		maxSteps = 30
 		if t.BudgetUSD > 0 {
-			maxSteps = 200
+			maxSteps = 80
 		}
 	}
 	var res Result
@@ -120,6 +128,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	// told so once, and stopped if it goes on.
 	idle, nudged := 0, false
 	asked := map[string]bool{}
+	unchanged, readNudged := 0, false
 	refusedDone := 0
 	for res.Steps < maxSteps {
 		if ctx.Err() != nil {
@@ -217,7 +226,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			switch {
 			case changed:
 				last = "" // the workspace changed: the same call now asks something new
-				idle, nudged = 0, false
+				idle, nudged, unchanged, readNudged = 0, false, 0, false
 				asked = map[string]bool{}
 			case kind == Got && !asked[key]:
 				// Something not asked before since the last change — a file
@@ -228,8 +237,11 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			}
 			emit(Event{At: time.Now(), Kind: kind, Tool: call.Function.Name, Detail: clip(answer, 2000)})
 			msgs = append(msgs, model.Message{Role: "tool", ToolCallID: call.ID, Name: call.Function.Name, Content: answer})
-			if idle >= idleStop {
-				return end(Exhausted, fmt.Sprintf("read for %d steps without changing anything", idle))
+			if !changed {
+				unchanged++
+			}
+			if idle >= idleStop || unchanged >= readStop {
+				return end(Exhausted, fmt.Sprintf("read for %d steps without changing anything", max(idle, unchanged)))
 			}
 			// What fails only in files this unit may not change, no agent of
 			// this unit can mend: the run says so now, so that what wrote
@@ -243,9 +255,9 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 		}
 		// After the turn's answers, never between them: the protocol wants
 		// each call answered before anything else is said.
-		if idle >= idleNudge && !nudged {
-			nudged = true
-			nudge := fmt.Sprintf("You have taken %d steps without changing anything. You have read enough: change the file that makes the check pass now, or say in one sentence why no change in your scope can.", idle)
+		if (idle >= idleNudge && !nudged) || (unchanged >= readNudge && !readNudged) {
+			nudged, readNudged = nudged || idle >= idleNudge, readNudged || unchanged >= readNudge
+			nudge := fmt.Sprintf("You have taken %d steps without changing anything. You have read enough: change the file that makes the check pass now, or say in one sentence why no change in your scope can.", max(idle, unchanged))
 			if f := firstFaults(faults(t, ws.last.out), 3); !ws.last.ok && f != "" { // the check as it last ran
 				nudge += "\n\nThe check fails here — change these lines first:\n" + f
 			}
