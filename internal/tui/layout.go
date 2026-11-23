@@ -143,9 +143,11 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		r := rows[row]
 		if r.task < 0 {
+			// The project itself: its list, and its own conversation.
 			if r.proj != m.proj {
-				m.proj, m.sel, m.focus = r.proj, 0, onList
+				m.proj, m.sel = r.proj, 0
 			}
+			m.focus = onList
 			return m, m.onView()
 		}
 		m.proj, m.sel = r.proj, r.task

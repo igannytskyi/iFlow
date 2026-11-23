@@ -63,8 +63,12 @@ func (c *Conn) Close() error {
 }
 
 // Call calls method with params on the other side and decodes its answer
-// into result, which may be nil.
+// into result, which may be nil. A Conn never dialled answers that it is
+// not connected.
 func (c *Conn) Call(ctx context.Context, method string, params, result any) error {
+	if c == nil {
+		return errors.New("not connected to the service")
+	}
 	raw, err := json.Marshal(params)
 	if err != nil {
 		return err

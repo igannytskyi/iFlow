@@ -420,3 +420,24 @@ func TestTheLineTypedOnIsAlwaysThere(t *testing.T) {
 		}
 	}
 }
+
+// The open conversation follows what is on view: a task clicked, its own;
+// the project clicked, the project's.
+func TestTheConversationFollowsTheTaskOnView(t *testing.T) {
+	m := New(context.Background(), &service.Client{}, nil, "/estate", Terminal)
+	m.projects = []protocol.Project{{Path: "/estate", Name: "estate", Changes: []protocol.Change{
+		{Dir: "/estate/changes/a", Statement: "a"}, {Dir: "/estate/changes/b", Statement: "b"}}}}
+	m = drive(m, tea.WindowSizeMsg{Width: 200, Height: 30})
+	m.chatOpen, m.talking = true, protocol.ChatRef{Project: "/estate"}
+	top := m.layout().top
+	for _, c := range []struct {
+		row  int
+		want string
+	}{{1, "/estate/changes/a"}, {2, "/estate/changes/b"}, {0, ""}} {
+		row, want := c.row, c.want
+		m = drive(m, tea.MouseMsg{X: 4, Y: top + row, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+		if m.talking.Dir != want {
+			t.Errorf("a click on row %d left the conversation on %q, not %q", row, m.talking.Dir, want)
+		}
+	}
+}

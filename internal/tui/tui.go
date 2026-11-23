@@ -309,9 +309,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case lostMsg:
 		m.note = "the service has gone; the runs it carried stopped with it"
 	case tea.KeyMsg:
-		return m.key(msg)
+		next, cmd := m.key(msg)
+		return next.(Model).followChat(cmd)
 	case tea.MouseMsg:
-		return m.mouse(msg)
+		next, cmd := m.mouse(msg)
+		return next.(Model).followChat(cmd)
 	}
 	return m, nil
 }
@@ -685,4 +687,19 @@ func (m Model) foot() []string {
 		out = append(out, m.st.faint.Render(l))
 	}
 	return out
+}
+
+// followChat keeps the open conversation on what is on view: the task
+// opened, or the project where none is — switched the moment the person
+// opens another, as they click or move.
+func (m Model) followChat(cmd tea.Cmd) (tea.Model, tea.Cmd) {
+	if !m.chatOpen || len(m.projects) == 0 {
+		return m, cmd
+	}
+	ref := m.chatRef()
+	if ref == m.talking {
+		return m, cmd
+	}
+	m.talking, m.chatScroll = ref, 0
+	return m, tea.Batch(cmd, func() tea.Msg { return result(m.client.Talk(m.ctx, ref), "") })
 }
