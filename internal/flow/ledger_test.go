@@ -132,3 +132,51 @@ func TestEachCriterionStandsByItsOwnTests(t *testing.T) {
 		}
 	}
 }
+
+// What a Go specification relies on is read by Go's own parser: a method
+// by its receiver, a field by its struct, an interface's method by its
+// interface; a name it declares more than once is chosen by "of".
+func TestGoDeclarationsAreReadByTheirOwner(t *testing.T) {
+	src := []byte("package model\n\ntype Model interface {\n\tName() string\n}\n\ntype OpenAI struct {\n\tKey string\n}\n\nfunc (o OpenAI) Name() string {\n\treturn \"x\"\n}\n\nfunc (c *ClaudeCode) Name() string { return \"y\" }\n\nfunc New() Model { return nil }\n")
+	for _, c := range []struct{ name, of, want string }{
+		{"Name", "Model", "Name() string"},
+		{"Name", "OpenAI", "func (o OpenAI) Name() string"},
+		{"Name", "ClaudeCode", "func (c *ClaudeCode) Name() string"},
+		{"Key", "OpenAI", "Key string"},
+		{"New", "", "func New() Model"},
+		{"Model", "", "Model interface"},
+	} {
+		if got, _ := goDeclarationOf(src, c.name, c.of); got != c.want {
+			t.Errorf("%s of %q: %q, want %q", c.name, c.of, got, c.want)
+		}
+	}
+	if got, all := goDeclarationOf(src, "Name", ""); got != "" || len(all) != 3 {
+		t.Errorf("a name declared thrice was chosen without its owner: %q %q", got, all)
+	}
+	if !identifier.MatchString("models.Config") || identifier.MatchString("Provider (as declared at models.go:51)") {
+		t.Error("a name is not told from a sentence")
+	}
+}
+
+// The author is handed each declaration as relies_on is written: its kind
+// and the type it belongs to, read by Go's parser at the line the estate
+// found it on.
+func TestDeclarationsAreHandedAsRelies(t *testing.T) {
+	src := []byte("package model\n\ntype Model interface {\n\tName() string\n}\n\ntype OpenAI struct {\n\tKey string\n}\n\nfunc (o OpenAI) Name() string {\n\treturn \"x\"\n}\n\nconst Limit = 3\n")
+	for _, c := range []struct {
+		name string
+		line int
+		want meta.Provision
+	}{
+		{"Name", 4, meta.Provision{Kind: meta.Method, Of: "Model", Signature: "Name() string"}},
+		{"Name", 11, meta.Provision{Kind: meta.Method, Of: "OpenAI", Signature: "func (o OpenAI) Name() string"}},
+		{"Key", 8, meta.Provision{Kind: meta.Field, Of: "OpenAI", Signature: "Key string"}},
+		{"Model", 3, meta.Provision{Kind: meta.TypeDecl, Signature: "Model interface"}},
+		{"Limit", 15, meta.Provision{Kind: meta.Constant, Signature: "Limit = 3"}},
+	} {
+		got, ok := goDeclarationAt(src, c.name, c.line)
+		if !ok || got.Kind != c.want.Kind || got.Of != c.want.Of || got.Signature != c.want.Signature {
+			t.Errorf("%s at %d: %+v, want %+v", c.name, c.line, got, c.want)
+		}
+	}
+}

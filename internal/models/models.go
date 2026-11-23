@@ -274,3 +274,70 @@ func (m Config) Try(ctx context.Context, w io.Writer) int {
 	}
 	return 0
 }
+
+// Taped is cfg with every model it asks going through t: its answers
+// recorded on the tape, or replayed from it. An executor that is not the
+// framework's own — Claude Code's agent — cannot be taped, and is said.
+func Taped(cfg flow.Config, t *model.Tape) (flow.Config, error) {
+	tape := func(m model.Model) model.Model {
+		if m == nil {
+			return nil
+		}
+		return t.Taped(m, m.Name())
+	}
+	cfg.Model, cfg.Reviewer, cfg.Planner = tape(cfg.Model), tape(cfg.Reviewer), tape(cfg.Planner)
+	var executor func(harness.Executor) (harness.Executor, error)
+	executor = func(e harness.Executor) (harness.Executor, error) {
+		switch x := e.(type) {
+		case harness.Ladder:
+			first, err := executor(x.First)
+			if err != nil {
+				return nil, err
+			}
+			then, err := executor(x.Then)
+			if err != nil {
+				return nil, err
+			}
+			return harness.Ladder{First: first, Then: then}, nil
+		case harness.Oneshot:
+			x.Model, x.Stronger = tape(x.Model), tape(x.Stronger)
+			return x, nil
+		case harness.Loop:
+			return harness.Loop{Model: t.TapedChat(x.Model)}, nil
+		case nil:
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%s cannot be taped: its model is asked outside the framework", e.Name())
+	}
+	ex, err := executor(cfg.Executor)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Executor = ex
+	return cfg, nil
+}
+
+// Replayed is base made as Flow makes it, its models stand-ins that answer
+// nothing: a run whose every answer comes from a tape asks none of them,
+// and needs no key.
+func Replayed(base flow.Config) flow.Config {
+	m := replayed{}
+	base.Model, base.Reviewer, base.Planner = m, m, m
+	attempts := base.Attempts
+	if attempts <= 0 {
+		attempts = 2
+	}
+	base.Executor = harness.Ladder{First: harness.Oneshot{Model: m, Attempts: attempts}, Then: harness.Loop{Model: m}}
+	return base
+}
+
+// replayed is a model asked nothing: in a replay, the tape answers.
+type replayed struct{}
+
+func (replayed) Name() string { return "replayed" }
+func (replayed) Ask(context.Context, string, string) (string, model.Usage, error) {
+	return "", model.Usage{}, errors.New("a replayed run asks no model")
+}
+func (replayed) Chat(context.Context, []model.Message, []model.Tool) (model.Message, model.Usage, error) {
+	return model.Message{}, model.Usage{}, errors.New("a replayed run asks no model")
+}

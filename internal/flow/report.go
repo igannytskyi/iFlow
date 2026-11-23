@@ -59,6 +59,46 @@ type report struct {
 // runTests runs the tests named in dir as the estate's profile runs them,
 // and reads how each ended from its runner's report where it writes one.
 func runTests(ctx context.Context, dir string, prof profile, names []string) testRun {
+	run := runOnce(ctx, dir, prof, names)
+	// A test that panics ends the run where it stands: the tests not
+	// reached were not run, not missing. They are run again, without the
+	// ones that ended, until each has an outcome or a run reaches none.
+	for run.Reported && run.Unbuilt == "" {
+		left := run.notRun(names)
+		if len(left) == 0 || len(left) == len(names) && len(run.Results) == 0 {
+			break
+		}
+		more := runOnce(ctx, dir, prof, left)
+		if !more.Reported || len(more.Results) == 0 {
+			// The run ended reaching none of them: a goroutine's panic, which
+			// no test is named for. Each is run alone; one whose run fails is
+			// the one that failed, one whose run passes was found nowhere.
+			for _, n := range left {
+				one := runOnce(ctx, dir, prof, []string{n})
+				switch {
+				case len(one.Results) > 0:
+					for k, o := range one.Results {
+						run.Results[k] = o
+					}
+				case !one.Passed:
+					run.Results[n] = testOutcome{Output: one.Out}
+				}
+				run.Took += one.Took
+			}
+			break
+		}
+		for n, o := range more.Results {
+			run.Results[n] = o
+		}
+		run.Out += more.Out
+		run.Took += more.Took
+		run.Passed = run.Passed && more.Passed
+	}
+	return run
+}
+
+// runOnce is one run of the tests named.
+func runOnce(ctx context.Context, dir string, prof profile, names []string) testRun {
 	if prof.report == nil {
 		ok, out, took := runIn(ctx, dir, resolve(dir, prof.only(names)))
 		return testRun{Passed: ok, Out: out, Took: took, Why: prof.name + " writes no report this framework reads; the run is judged as a whole"}

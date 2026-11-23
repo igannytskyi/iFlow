@@ -332,7 +332,7 @@ func (r *Run) planned(ctx context.Context, byTests []string, feedback string) ([
 		kept, handed := r.handed("planner", plannerSystem, prompt+why)
 		// The criteria a unit serves are the specification's: chosen among
 		// its ids, never written.
-		answer, u, err := model.AskJSONOf(ctx, m, plannerSystem, prompt+why, &p, map[string][]string{"units.criteria": r.criterionIDs()})
+		answer, u, err := model.AskJSONOf(model.Within(ctx, "planner"), m, plannerSystem, prompt+why, &p, map[string][]string{"units.criteria": r.criterionIDs()})
 		r.spend(u)
 		r.cost(artifact.Cost{Area: 2, What: fmt.Sprintf("the plan, attempt %d", attempt), Actor: m.Name(), Turns: 1,
 			Handed: handed, Kept: kept}, u, time.Since(began))

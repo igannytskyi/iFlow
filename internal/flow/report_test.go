@@ -30,6 +30,10 @@ func TestSub(t *testing.T) {
 	t.Run("inner", func(t *testing.T) {})
 }
 
+func TestPanicsFirst(t *testing.T) { panic("not yet: Shout") }
+
+func TestReachedAfterAPanic(t *testing.T) {}
+
 func TestPanicsInAGoroutine(t *testing.T) {
 	go func() { panic("boom") }()
 	time.Sleep(time.Second)
@@ -41,12 +45,14 @@ func TestPanicsInAGoroutine(t *testing.T) {
 		}
 	}
 	prof := profile{language: languages[0]}
-	names := []string{"TestPasses", "TestFails", "TestSub", "TestPanicsInAGoroutine", "TestNowhere"}
+	names := []string{"TestPanicsFirst", "TestPasses", "TestFails", "TestSub", "TestReachedAfterAPanic", "TestPanicsInAGoroutine", "TestNowhere"}
 	run := runTests(context.Background(), dir, prof, names)
 	if !run.Reported {
 		t.Fatalf("the run was not read from its report: %s\n%s", run.Why, run.Out)
 	}
-	if got := run.passing(names); !slices.Equal(got, []string{"TestPasses", "TestSub"}) {
+	// A panic ends the binary; the tests after it are run again, not taken
+	// to be missing.
+	if got := run.passing(names); !slices.Equal(got, []string{"TestPasses", "TestSub", "TestReachedAfterAPanic"}) {
 		t.Errorf("passing %q", got)
 	}
 	failed := run.failed(names)
@@ -58,7 +64,10 @@ func TestPanicsInAGoroutine(t *testing.T) {
 	if slices.Contains(run.passing(names), "TestPanicsInAGoroutine") {
 		t.Error("the test whose goroutine panicked was taken to pass")
 	}
-	if got := run.notRun([]string{"TestNowhere", "TestPasses"}); !slices.Equal(got, []string{"TestNowhere"}) {
+	if !slices.Contains(failed, "TestPanicsFirst") {
+		t.Errorf("the test that panicked is not failed: %q", failed)
+	}
+	if got := run.notRun(names); !slices.Equal(got, []string{"TestNowhere"}) {
 		t.Errorf("not run %q", got)
 	}
 	if o := run.Results["TestFails"]; o.Passed || !contains(o.Output, "wrong greeting") {

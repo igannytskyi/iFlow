@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, go-port]
+    branches: [main]
   pull_request:
 
 permissions:

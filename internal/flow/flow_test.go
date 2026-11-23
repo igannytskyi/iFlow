@@ -1986,7 +1986,6 @@ func TestWhatTheSpecificationReliesOnIsAsDeclared(t *testing.T) {
 		{File: "greet.go", Name: "Greet", Kind: meta.Function},
 		{File: "greet.go", Name: "Greet", Kind: meta.Function, Signature: "func Greet(n ...string) string"},
 		{File: "greet.go", Name: "greet.Greet", Kind: meta.Function},
-		{File: "greet.go", Name: "Greeter.Greet", Kind: meta.Function},
 	} {
 		got, why := r.relied([]meta.Provision{p})
 		if len(why) > 0 || len(got) != 1 || got[0].Signature != "func Greet(n string) string" {

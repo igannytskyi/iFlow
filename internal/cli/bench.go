@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/gate"
+	"github.com/igannytskyi/iflow/internal/model"
 	"github.com/igannytskyi/iflow/internal/models"
 )
 
@@ -58,6 +60,19 @@ type benchResult struct {
 	Seconds float64           `json:"seconds"`
 	// Kept is where a task that did not come to what it should was left.
 	Kept string `json:"kept,omitempty"`
+	// Tape is where every answer the models gave was recorded; Replayed,
+	// the tape a replayed run answered from instead.
+	Tape     string `json:"tape,omitempty"`
+	Replayed string `json:"replayed,omitempty"`
+}
+
+// tapeRun is what a run of the bench was made with, kept beside its tapes,
+// so that a replay is made the same way.
+type tapeRun struct {
+	Commit string            `json:"commit"`
+	Label  string            `json:"label,omitempty"`
+	Set    map[string]string `json:"set,omitempty"`
+	Tasks  []string          `json:"tasks"`
 }
 
 // Bench carries every reference task — or those named with --only — with
@@ -72,7 +87,7 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 	file := filepath.Join(home, "examples", "bench.json")
 	var only []string
 	set := map[string]string{}
-	label, parallel := "", 2
+	label, parallel, replay := "", 2, ""
 	for i := 0; i < len(args); i++ {
 		next := func() string {
 			if i+1 < len(args) {
@@ -90,6 +105,8 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 			label = next()
 		case "--parallel":
 			parallel, _ = strconv.Atoi(next())
+		case "--replay":
+			replay = next()
 		case "--set":
 			for _, kv := range strings.Split(next(), ",") {
 				if k, v, ok := strings.Cut(kv, "="); ok {
@@ -97,7 +114,7 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 				}
 			}
 		default:
-			fmt.Fprintln(app.Out, "usage: iflow bench [--suite file] [--only a,b] [--set review=1,attempts=1,repeat=once] [--label name] [--parallel n]")
+			fmt.Fprintln(app.Out, "usage: iflow bench [--suite file] [--only a,b] [--set review=1,attempts=1,repeat=once] [--label name] [--parallel n] [--replay <tapes>]")
 			return Misused
 		}
 	}
@@ -109,6 +126,25 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 	if err := json.Unmarshal(b, &s); err != nil {
 		return app.fatal(fmt.Errorf("%s: %w", file, err))
 	}
+	// A replay is made as the run it replays was: its tasks, its settings,
+	// and every answer from its tapes.
+	if replay != "" {
+		b, err := os.ReadFile(filepath.Join(replay, "run.json"))
+		if err != nil {
+			return app.fatal(fmt.Errorf("%s holds no recorded run: %w", replay, err))
+		}
+		var was tapeRun
+		if err := json.Unmarshal(b, &was); err != nil {
+			return app.fatal(err)
+		}
+		if len(only) == 0 {
+			only = was.Tasks
+		}
+		set = was.Set
+		if label == "" {
+			label = "replay of " + filepath.Base(replay)
+		}
+	}
 	var tasks []benchTask
 	for _, t := range s.Tasks {
 		if len(only) == 0 || slices.Contains(only, t.Name) {
@@ -119,6 +155,15 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 		}
 	}
 	cfg, problems := app.FlowConfig()
+	if replay != "" {
+		// Nothing is asked of a model: the tapes answer. No key is needed.
+		cfg, problems = models.Replayed(cfg), ""
+		for k := range set {
+			if k == "author" || k == "reviewer" || k == "planner" {
+				delete(set, k) // a model's answers are on the tape; which model gave them is not asked again
+			}
+		}
+	}
 	if problems != "" {
 		fmt.Fprintln(app.Err, problems)
 	}
@@ -127,6 +172,22 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 		return app.fatal(err)
 	}
 	commit := gitHead(home)
+	// Every answer is recorded, by task, beside what the run was made with.
+	tapes := filepath.Join(home, ".estate", "tapes", time.Now().Format("2006-01-02T15-04-05")+"-"+strings.ReplaceAll(cmp.Or(label, "run"), " ", "-"))
+	if replay == "" {
+		names := make([]string, len(tasks))
+		for i, t := range tasks {
+			names[i] = t.Name
+		}
+		if err := os.MkdirAll(tapes, 0o755); err != nil {
+			return app.fatal(err)
+		}
+		was, _ := json.MarshalIndent(tapeRun{Commit: commit, Label: label, Set: set, Tasks: names}, "", "  ")
+		if err := os.WriteFile(filepath.Join(tapes, "run.json"), was, 0o644); err != nil {
+			return app.fatal(err)
+		}
+		fmt.Fprintf(app.Out, "  every answer is recorded under %s\n", tapes)
+	}
 	results := make([]benchResult, len(tasks))
 	sem := make(chan struct{}, max(parallel, 1))
 	var wg sync.WaitGroup
@@ -138,8 +199,32 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 			if t.Commit != "" {
 				estate = home
 			}
-			results[i] = benchOne(ctx, cfg, estate, t)
+			var tape *model.Tape
+			var err error
+			path := filepath.Join(tapes, t.Name+".jsonl")
+			if replay != "" {
+				path = filepath.Join(replay, t.Name+".jsonl")
+				tape, err = model.Replay(path)
+			} else {
+				tape, err = model.Record(path)
+			}
+			if err != nil {
+				results[i] = benchResult{Task: t.Name, Outcome: "broken", Why: err.Error()}
+				return
+			}
+			defer tape.Close()
+			taped, err := models.Taped(cfg, tape)
+			if err != nil {
+				results[i] = benchResult{Task: t.Name, Outcome: "broken", Why: err.Error()}
+				return
+			}
+			results[i] = benchOne(ctx, taped, estate, t)
 			results[i].Commit, results[i].Label, results[i].Set = commit, label, set
+			if replay != "" {
+				results[i].Replayed = path
+			} else {
+				results[i].Tape = path
+			}
 			r := results[i]
 			fmt.Fprintf(app.Out, "  %-18s %-8s %-6v $%.3f  %7d in  %6d out  %4.0fs  %s\n", r.Task, r.Outcome, r.OK, r.USD, r.In, r.Out, r.Seconds, clipLine(r.Why, 90))
 			if r.Kept != "" {

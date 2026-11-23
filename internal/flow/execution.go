@@ -329,7 +329,7 @@ func (r *Run) byAgent(ctx context.Context, i int, ws string, on []onto, scope []
 		task.Focus = func(pattern, path string) []string { return resolve(ws, prof.focus(pattern, path)) }
 	}
 	r.say(4, u.id, "%s handed to %s: %d tokens, of %d an agent is handed at most", u.id, r.cfg.Executor.Name(), handed, r.cfg.packBudget())
-	res, err := r.cfg.Executor.Run(ctx, task, func(e harness.Event) {
+	res, err := r.cfg.Executor.Run(model.Within(ctx, "unit "+u.id), task, func(e harness.Event) {
 		r.mu.Lock()
 		r.agent[u.id] = append(r.agent[u.id], e)
 		r.mu.Unlock()
