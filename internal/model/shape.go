@@ -23,12 +23,24 @@ type Shaped interface {
 // any other is asked plainly and its answer read as best it can be. An
 // answer that does not read is ErrUnreadable.
 func AskJSON(ctx context.Context, m Model, system, prompt string, into any) (string, Usage, error) {
+	return AskJSONOf(ctx, m, system, prompt, into, nil)
+}
+
+// AskJSONOf is AskJSON with some of the answer's strings held to the values
+// given: by the path of their field, its JSON names joined by dots through
+// lists and objects ("units.criteria"). What the asker knows the only
+// answers to be, the model chooses among rather than writes.
+func AskJSONOf(ctx context.Context, m Model, system, prompt string, into any, among map[string][]string) (string, Usage, error) {
 	var answer string
 	var u Usage
 	var err error
 	if s, ok := m.(Shaped); ok {
 		t := reflect.TypeOf(into).Elem()
-		answer, u, err = s.AskShaped(ctx, system, prompt, strings.ToLower(t.Name()), Schema(t))
+		schema := Schema(t)
+		for path, values := range among {
+			restrict(schema, strings.Split(path, "."), values)
+		}
+		answer, u, err = s.AskShaped(ctx, system, prompt, strings.ToLower(t.Name()), schema)
 	} else {
 		answer, u, err = m.Ask(ctx, system, prompt)
 	}
@@ -78,6 +90,31 @@ func Schema(t reflect.Type) map[string]any {
 		return map[string]any{"type": "object", "properties": props, "required": required, "additionalProperties": false}
 	}
 	return map[string]any{}
+}
+
+// restrict holds the strings at path in schema to values: through an
+// object by a property's name, through a list to its items.
+func restrict(schema map[string]any, path []string, values []string) {
+	for schema["type"] == "array" {
+		items, ok := schema["items"].(map[string]any)
+		if !ok {
+			return
+		}
+		schema = items
+	}
+	if len(path) == 0 {
+		if schema["type"] == "string" && len(values) > 0 {
+			schema["enum"] = values
+		}
+		return
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return
+	}
+	if next, ok := props[path[0]].(map[string]any); ok {
+		restrict(next, path[1:], values)
+	}
 }
 
 // AskShaped implements Shaped: the schema is sent as the server's

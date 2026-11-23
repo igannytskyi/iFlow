@@ -4,20 +4,20 @@ What passes from one step to the next, in what form, and who reads it. A handoff
 
 Single-agent harnesses have no such handoffs: one agent holds the task, the code and the test output in one context, and recovers what it needs by reading. Dividing the work, which is what keeps each agent inside its effective context, is only sound if every boundary carries what the next side needs as data.
 
-## The chain, as it stood on 11-23
+## The chain
 
 | # | From → to | What passes | Form | Sound |
 |---|---|---|---|---|
 | 1 | person → author | the intent | text | yes: it is the person's words |
 | 2 | estate → author | names, declarations, project's own words | data from the estate | yes |
 | 3 | author → plan | criteria (id, when, then, judged by new tests), scope, new test files, existing tests, relies_on | typed JSON, checked | yes, since relies_on is declared by the framework (11-23) |
-| 4 | plan → units | each unit: kind, scope, criteria, provides, uses, reads | typed JSON, R24 | mostly: criteria ids are written by the planner, not chosen from the specification's |
+| 4 | plan → units | each unit: kind, scope, criteria, provides, uses, reads | typed JSON, R24; criteria chosen among the specification's ids | yes |
 | 5 | plan → scheduler | which unit waits for which | derived from scope, reads, uses | yes, since reads and uses order code units (11-23) |
-| 6 | tests unit → everyone after | **which tests it wrote, and which criterion each judges** | **not passed at all**: names recovered by a pattern over the files; the criterion of each test never stated | **no** |
-| 7 | code unit ← its check | **whether the criteria it serves now hold** | **not asked**: a code unit before the last is checked by the build only | **no** |
-| 8 | test run → framework | which tests passed, which failed, where | **a pattern over the runner's human output** (`--- FAIL`, `_test.go:61`) | **no**: a panic, a timeout, a goroutine's failure, a path as the copy holds it, all escape it |
-| 9 | agent → framework | the unit cannot be done; the tests are wrong; which files | free text, and paths the framework then guesses at (by base name, by suffix) | **no** |
-| 10 | candidates → assurance | each criterion met or not | the pass of **all** tests of a tests unit stands for every criterion it served | **no**: one failing test fails every criterion of its unit; a criterion with no test of its own is "met" by the suite |
+| 6 | tests unit → everyone after | which tests it wrote, and which criterion each judges | the test ledger, held to what was written | yes, since 11-23 |
+| 7 | code unit ← its check | whether the criteria it serves last now hold | the build, then those criteria's tests | yes, since 11-23 |
+| 8 | test run → framework | which tests passed, which failed, which did not build | the runner's report for machines | yes, since 11-23, where the runner writes one |
+| 9 | agent → framework | the unit cannot be done; the tests are wrong; which files | tests by name, files by path, checked when said; mapped through the ledger | yes, since 11-23 |
+| 10 | candidates → assurance | each criterion met or not | each criterion by its own tests | yes, since 11-23 |
 
 ## What follows from the unsound ones
 
@@ -60,6 +60,6 @@ ledger: test name · file · criterion · written by T
 3. A code unit's check: the tests of the criteria it is last to serve. (7) — done 11-23: it builds first, then runs those tests; it waits for every other unit serving them; it is handed whole the test files of the criteria it serves, the tests that must pass after it named.
 4. Failures in the ledger's terms: the blame by test name, mapped through the ledger. (9) — done 11-23: `cannot` takes the tests held wrong by name, from those the unit must pass, and the files by path from the repository's root, each checked when said and refused otherwise; a blame reaches a tests unit through the ledger exactly, by name or path, never by a file of a like name.
 5. Assurance per criterion. (10) — done 11-23: a criterion with tests in the ledger is met only if every one of them passed, by the report; one failing test fails its own criterion and no other; a criterion new tests were to judge, with none in the ledger, is not met.
-6. The planner's criteria as an enumeration of the specification's. (4)
+6. The planner's criteria as an enumeration of the specification's. (4) — done 11-23: the planner's shape holds each unit's criteria to the specification's ids, for a model the server holds to a shape; P5 checks the rest.
 
 Each step removes a reconstruction; none adds one. When all six stand, no step of the flow reads another step's text to find out what it did.

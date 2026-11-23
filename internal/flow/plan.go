@@ -330,7 +330,9 @@ func (r *Run) planned(ctx context.Context, byTests []string, feedback string) ([
 		began := time.Now()
 		var p planDraft
 		kept, handed := r.handed("planner", plannerSystem, prompt+why)
-		answer, u, err := model.AskJSON(ctx, m, plannerSystem, prompt+why, &p)
+		// The criteria a unit serves are the specification's: chosen among
+		// its ids, never written.
+		answer, u, err := model.AskJSONOf(ctx, m, plannerSystem, prompt+why, &p, map[string][]string{"units.criteria": r.criterionIDs()})
 		r.spend(u)
 		r.cost(artifact.Cost{Area: 2, What: fmt.Sprintf("the plan, attempt %d", attempt), Actor: m.Name(), Turns: 1,
 			Handed: handed, Kept: kept}, u, time.Since(began))
@@ -839,4 +841,13 @@ func receiverType(e ast.Expr) string {
 		return t.Name
 	}
 	return ""
+}
+
+// criterionIDs is the specification's criteria, by id.
+func (r *Run) criterionIDs() []string {
+	ids := make([]string, len(r.spec.Criteria))
+	for i := range r.spec.Criteria {
+		ids[i] = r.id("CR", i+1)
+	}
+	return ids
 }

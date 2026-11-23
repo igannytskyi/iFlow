@@ -180,3 +180,25 @@ func TestTheWebIsSearchedByTheServer(t *testing.T) {
 		t.Errorf("a server that would not run it was offered the search: %v", asked["tools"])
 	}
 }
+
+// What an asker knows the only answers to be is held to them in the shape:
+// a list of strings within a list of objects, by its path.
+func TestAnAnswersStringsAreHeldToTheValuesGiven(t *testing.T) {
+	type unit struct {
+		Title    string   `json:"title"`
+		Criteria []string `json:"criteria"`
+	}
+	type plan struct {
+		Units []unit `json:"units"`
+	}
+	schema := Schema(reflect.TypeOf(plan{}))
+	restrict(schema, []string{"units", "criteria"}, []string{"CR-001-01", "CR-001-02"})
+	units := schema["properties"].(map[string]any)["units"].(map[string]any)["items"].(map[string]any)
+	crit := units["properties"].(map[string]any)["criteria"].(map[string]any)["items"].(map[string]any)
+	if got, _ := crit["enum"].([]string); len(got) != 2 || got[0] != "CR-001-01" {
+		t.Errorf("the criteria are not held to the values: %v", crit)
+	}
+	if _, held := units["properties"].(map[string]any)["title"].(map[string]any)["enum"]; held {
+		t.Error("a string not named was held too")
+	}
+}
