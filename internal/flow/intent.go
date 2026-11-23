@@ -357,16 +357,17 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 		if err != nil {
 			return d, r.fail(1, "the model could not be asked: %v", err)
 		}
-		why := d.problem()
-		if why == "" {
-			d.Relies, why = r.relied(d.Relies)
+		breaks := d.problems()
+		relied, whys := r.relied(d.Relies)
+		if breaks = append(breaks, whys...); len(whys) == 0 {
+			d.Relies = relied
 		}
-		if why != "" {
-			// The author is handed what it wrote and exactly what breaks, to
-			// mend that and keep the rest: asked afresh, it would write afresh,
-			// and break something else.
-			note = "\n\n# Your last answer\n\n```json\n" + strings.TrimSpace(answer) + "\n```\n\nIt cannot be used: " + why +
-				".\n\nAnswer with that answer, mended exactly where it breaks, and the rest as it was."
+		if why := strings.Join(breaks, "; "); why != "" {
+			// The author is handed what it wrote and every way it breaks, to
+			// mend those and keep the rest: asked afresh, it would write
+			// afresh; told of one break, it would mend it and break another.
+			note = "\n\n# Your last answer\n\n```json\n" + strings.TrimSpace(answer) + "\n```\n\nIt cannot be used, for each of these reasons:\n\n- " + strings.Join(breaks, "\n- ") +
+				"\n\nAnswer with that answer, mended exactly where it breaks, and the rest as it was."
 			r.say(1, "", "the draft is sent back: %s", why)
 			continue
 		}
@@ -428,17 +429,27 @@ func (r *Run) place(given string) (slug, dir string) {
 var filePath = regexp.MustCompile(`^[\w./@+-]+$`)
 
 func (d draft) problem() string {
-	switch {
-	case d.Slug == "" || d.Statement == "":
-		return "it has no slug or no statement"
-	case len(d.Criteria) == 0:
-		return "it has no criteria"
-	case len(d.Scope) == 0:
-		return "it names no scope"
-	case d.Document.Summary == "" || len(d.Document.Flows) == 0 || len(d.Document.Requirements) == 0 || len(d.Document.Interfaces) == 0 || len(d.Document.Components) == 0:
-		return "it does not specify the change: summary, flows, requirements, interfaces or components are empty"
-	case !meta.Allowed("Class", d.Class):
-		return "class " + d.Class + " is not one of C1P, C1T, C2, C3, C4, C5"
+	return strings.Join(d.problems(), "; ")
+}
+
+// problems is every way the draft cannot be used, all at once: an author
+// told of one mends it and breaks another.
+func (d draft) problems() []string {
+	var out []string
+	if d.Slug == "" || d.Statement == "" {
+		out = append(out, "it has no slug or no statement")
+	}
+	if len(d.Criteria) == 0 {
+		out = append(out, "it has no criteria: \"criteria\" lists each as {criterion, when, then, plan, threshold, judged_by_new_tests, procedure}, and the tests and the person judge those alone")
+	}
+	if len(d.Scope) == 0 {
+		out = append(out, "it names no scope")
+	}
+	if d.Document.Summary == "" || len(d.Document.Flows) == 0 || len(d.Document.Requirements) == 0 || len(d.Document.Interfaces) == 0 || len(d.Document.Components) == 0 {
+		out = append(out, "it does not specify the change: summary, flows, requirements, interfaces or components are empty")
+	}
+	if !meta.Allowed("Class", d.Class) {
+		out = append(out, "class "+d.Class+" is not one of C1P, C1T, C2, C3, C4, C5")
 	}
 	for _, group := range []struct {
 		name  string
@@ -446,13 +457,13 @@ func (d draft) problem() string {
 	}{{"scope", d.Scope}, {"new_tests", d.NewTests}, {"existing_tests", d.SuiteTests}} {
 		for _, p := range group.paths {
 			if !filePath.MatchString(p) {
-				return fmt.Sprintf("%s holds %q, which is not the path of a file: each entry is a path alone — no test named in it, nothing said of it", group.name, p)
+				out = append(out, fmt.Sprintf("%s holds %q, which is not the path of a file: each entry is a path alone — no test named in it, nothing said of it", group.name, p))
 			}
 		}
 	}
 	for _, t := range d.NewTests {
 		if slices.Contains(d.Scope, t) {
-			return t + " is both in scope and a test that judges it"
+			out = append(out, t+" is both in scope and a test that judges it")
 		}
 	}
 	// What the change makes true that is not true now is judged by tests
@@ -460,10 +471,10 @@ func (d draft) problem() string {
 	// nothing of it.
 	for i, c := range d.Criteria {
 		if c.Plan == "required" && c.Procedure != "human" && (!c.New || len(d.NewTests) == 0) {
-			return fmt.Sprintf("criterion %d (%s) is about behaviour the change makes, and no new test judges it: the existing tests pass before the change and cannot; name a new test file in new_tests and mark the criterion judged_by_new_tests", i+1, c.Criterion)
+			out = append(out, fmt.Sprintf("criterion %d (%s) is about behaviour the change makes, and no new test judges it: the existing tests pass before the change and cannot; name a new test file in new_tests and mark the criterion judged_by_new_tests", i+1, c.Criterion))
 		}
 	}
-	return ""
+	return out
 }
 
 func (r *Run) writeIntent(d draft) error {
@@ -635,12 +646,18 @@ func (r *Run) declarations(names []string, n int) []string {
 // the estate holds for it — the framework copies it, the author only names
 // it — or why one cannot be: a name its file does not declare, or one its
 // file declares more than once and the author's words do not choose.
-func (r *Run) relied(relies []meta.Provision) ([]meta.Provision, string) {
+func (r *Run) relied(relies []meta.Provision) ([]meta.Provision, []string) {
 	repo := r.cfg.Estate.Repo(r.repo)
 	out := make([]meta.Provision, 0, len(relies))
+	var whys []string
 	for _, p := range relies {
-		if p.Name == "" || p.File == "" || !meta.Allowed("DeclKind", string(p.Kind)) || p.Kind == meta.Described {
-			return nil, fmt.Sprintf("relies_on holds %q without its file, name and kind", p.Name+p.Signature)
+		switch {
+		case p.Name == "" || p.File == "":
+			whys = append(whys, fmt.Sprintf("relies_on holds %q without its file or its name", p.Name+p.File))
+			continue
+		case !meta.Allowed("DeclKind", string(p.Kind)) || p.Kind == meta.Described:
+			whys = append(whys, fmt.Sprintf("relies_on gives %s the kind %q, which is not one of function, method, type, field, variable, constant — an interface, a struct or a class is a type", p.Name, p.Kind))
+			continue
 		}
 		// A method or field may be named by its type, Config.Model, or its
 		// package, models.Config: the estate knows it by its own name.
@@ -664,14 +681,19 @@ func (r *Run) relied(relies []meta.Provision) ([]meta.Provision, string) {
 		line, why := chosen(lines, p.Signature, of)
 		switch {
 		case len(lines) == 0:
-			return nil, fmt.Sprintf("relies_on names %s in %s, which the estate does not declare there; a name the change adds is not relied on, and one that exists is relied on where it is", p.Name, p.File)
+			whys = append(whys, fmt.Sprintf("relies_on names %s in %s, which the estate does not declare there; a name the change adds is not relied on, and one that exists is relied on where it is", p.Name, p.File))
+			continue
 		case why != "":
-			return nil, fmt.Sprintf("relies_on names %s in %s, which declares %s: %s", p.Name, p.File, strings.Join(quoted(lines), " and "), why)
+			whys = append(whys, fmt.Sprintf("relies_on names %s in %s, which declares %s: %s", p.Name, p.File, strings.Join(quoted(lines), " and "), why))
+			continue
 		}
 		p.Signature = line
 		out = append(out, p)
 	}
-	return out, ""
+	if len(whys) > 0 {
+		return nil, whys
+	}
+	return out, nil
 }
 
 // chosen is the one of lines, a file's declarations of one name, that the

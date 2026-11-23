@@ -1964,12 +1964,12 @@ func TestWhatTheSpecificationReliesOnIsAsDeclared(t *testing.T) {
 		{File: "greet.go", Name: "Greeter.Greet", Kind: meta.Function},
 	} {
 		got, why := r.relied([]meta.Provision{p})
-		if why != "" || len(got) != 1 || got[0].Signature != "func Greet(n string) string" {
+		if len(why) > 0 || len(got) != 1 || got[0].Signature != "func Greet(n string) string" {
 			t.Errorf("%s %q was not taken with the estate's declaration: %v %q", p.Name, p.Signature, got, why)
 		}
 	}
-	if _, why := r.relied([]meta.Provision{{File: "greet.go", Name: "Shout", Kind: meta.Function}}); !strings.Contains(why, "does not declare") {
-		t.Errorf("a name the estate does not declare was relied on: %q", why)
+	if _, why := r.relied([]meta.Provision{{File: "greet.go", Name: "Shout", Kind: meta.Function}, {File: "greet.go", Name: "Greet", Kind: "interface"}}); len(why) != 2 || !strings.Contains(why[0], "does not declare") || !strings.Contains(why[1], `the kind "interface"`) {
+		t.Errorf("not every name relied on wrongly was said, each with why: %q", why)
 	}
 	if c, why := chosen([]string{"func (a A) Model() int", "func (b *B) Model() string"}, "", "B"); c != "func (b *B) Model() string" || why != "" {
 		t.Errorf("of did not choose between two methods of one name: %q %q", c, why)
