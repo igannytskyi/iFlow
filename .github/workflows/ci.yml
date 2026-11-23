@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main, go-port]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # The window (Gio) and the language grammars (tree-sitter) need cgo; on
+    # macOS the runner has what both need, as the machine iFlow is made on.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - name: Format
+        run: test -z "$(gofmt -l internal cmd)" || (gofmt -l internal cmd; exit 1)
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: go build -o bin/ ./cmd/...
