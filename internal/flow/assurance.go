@@ -48,7 +48,7 @@ func (r *Run) assure(ctx context.Context) error {
 			continue
 		}
 		ca := r.id("CA", i+1)
-		names := r.testNames(filepath.Join(r.dir, "candidates", ca))
+		names := r.ledgerTests(prep.id)
 		cmd := prof.only(names)
 		ok, out, took := runIn(ctx, ws, resolve(ws, cmd))
 		ev := r.id("EV", i+1, 1)

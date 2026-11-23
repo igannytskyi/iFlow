@@ -343,6 +343,9 @@ func (s *scheduler) keep(i int) error {
 	} else {
 		s.doc.Runs, s.doc.Candidates = append(s.doc.Runs, run), append(s.doc.Candidates, cand)
 	}
+	if u.isTests() {
+		s.doc.Tests = append(slices.DeleteFunc(s.doc.Tests, func(t meta.TestRecord) bool { return t.Unit == u.id }), c.tests...)
+	}
 	if err := artifact.Save(r.dir, artifact.Execution, s.doc); err != nil {
 		return r.fail(4, "the execution could not be written: %v", err)
 	}

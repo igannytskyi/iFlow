@@ -55,7 +55,7 @@ ledger: test name · file · criterion · written by T
 
 ## The order of the work
 
-1. The test ledger: its type, the tests unit's answer, its check, kept in the execution document. (6)
+1. The test ledger: its type, the tests unit's answer, its check, kept in the execution document. (6) — done 11-23: a tests unit writes `iflow-tests.json`, held by its check to what it wrote (Go read by go/ast), kept as `meta.Execution.Tests`; the test names every later step runs are the ledger's; a run resumed from an execution without it carries its tests units again.
 2. Machine-readable test reports, Go first, the others by the report each runner already writes. (8)
 3. A code unit's check: the tests of the criteria it is last to serve. (7)
 4. Failures in the ledger's terms: the blame by test name, mapped through the ledger. (9)

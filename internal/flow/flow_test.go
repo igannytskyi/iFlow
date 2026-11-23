@@ -95,6 +95,9 @@ func (s stubExecutor) Run(_ context.Context, t harness.Task, emit func(harness.E
 		s.meanwhile()
 	}
 	for _, p := range t.Scope {
+		if p == LedgerFile {
+			continue // written last, of what was written
+		}
 		emit(harness.Event{At: time.Now(), Kind: harness.Called, Tool: "write_file", Detail: p})
 		body := s.files[p]
 		if t.Role == string(meta.ContractUnit) {
@@ -108,7 +111,30 @@ func (s stubExecutor) Run(_ context.Context, t harness.Task, emit func(harness.E
 			return harness.Result{Terminal: harness.FailedTask}, err
 		}
 	}
+	if slices.Contains(t.Scope, LedgerFile) {
+		writeLedger(t)
+	}
 	return harness.Result{Terminal: harness.Candidate, Summary: "wrote " + strings.Join(t.Scope, ", "), Steps: len(t.Scope)}, nil
+}
+
+// writeLedger states, as a tests unit's agent would, which criterion each
+// test it wrote judges: the criteria its goal names, in turn.
+func writeLedger(t harness.Task) {
+	_, rest, _ := strings.Cut(t.Goal, "The criteria are ")
+	list, _, _ := strings.Cut(rest, ";")
+	crit := strings.Split(list, ", ")
+	var entries []ledgerEntry
+	for _, p := range t.Scope {
+		src, err := os.ReadFile(filepath.Join(t.Workspace, p))
+		if p == LedgerFile || err != nil {
+			continue
+		}
+		for _, name := range declaredTests(p, src) {
+			entries = append(entries, ledgerEntry{Test: name, File: p, Criterion: crit[len(entries)%len(crit)]})
+		}
+	}
+	b, _ := json.Marshal(entries)
+	_ = os.WriteFile(filepath.Join(t.Workspace, LedgerFile), b, 0o644)
 }
 
 const spec = `{"slug":"shout","name":"shout","statement":"The greeting can be shouted.","class":"C3","prose":"A shouted greeting is in capitals.",
@@ -234,6 +260,11 @@ func TestATaskTravelsThePath(t *testing.T) {
 		t.Error("the person was never asked to accept the criteria")
 	}
 	c, err := artifact.Load(v.Dir)
+	if err == nil {
+		if e := c.Meta.Execution; e == nil || len(e.Tests) != 1 || e.Tests[0] != (meta.TestRecord{Test: "TestShout", File: "shout_test.go", Criterion: "CR-001-01", Unit: "WU-001-02"}) {
+			t.Errorf("the execution does not keep the test ledger: %+v", e)
+		}
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,6 +501,9 @@ func (s secondTry) Run(_ context.Context, t harness.Task, _ func(harness.Event))
 	}
 	if err := os.WriteFile(filepath.Join(t.Workspace, scope), []byte(files[scope]), 0o644); err != nil {
 		return harness.Result{}, err
+	}
+	if slices.Contains(t.Scope, LedgerFile) {
+		writeLedger(t)
 	}
 	return harness.Result{Terminal: harness.Candidate, Summary: "wrote " + scope}, nil
 }
@@ -1376,6 +1410,9 @@ func (s tiring) Run(_ context.Context, t harness.Task, _ func(harness.Event)) (h
 	}
 	if err := os.WriteFile(filepath.Join(t.Workspace, scope), []byte(body), 0o644); err != nil {
 		return harness.Result{}, err
+	}
+	if slices.Contains(t.Scope, LedgerFile) {
+		writeLedger(t)
 	}
 	if scope != "shout_test.go" && s.calls["shout_test.go"] == 1 {
 		return harness.Result{Terminal: harness.Exhausted, Summary: "stopped after 30 steps without finishing"}, nil

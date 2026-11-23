@@ -86,9 +86,11 @@ Everything below fits one budget: 16000 tokens unless `IFLOW_PACK_TOKENS` says o
 | its decisions and the unit's criteria | | | ✓ | ✓ | ✓ |
 | the contract | | | ✓ | ✓ | ✓ |
 | its files and what it reads, whole | | | ✓ | ✓ | ✓ |
-| the tests it must pass, whole | | | | | ✓ |
+| the tests it must pass, whole, by the test ledger | | | | | ✓ |
 | what earlier units wrote, by path | | | | ✓ | ✓ |
 | around them: signatures and names only | | | ✓ | ✓ | ✓ |
+
+A tests unit answers, besides its tests, with its part of the **test ledger**: each test it wrote, its file, and the criterion it judges. Its check holds the ledger to what it wrote; the ledger is kept in the execution document, and every later step that needs to know which test judges what reads it there ([handoffs.md](handoffs.md)).
 
 What else it needs, the agent reads with its tools: files by parts, where a name is defined, who uses it.
 

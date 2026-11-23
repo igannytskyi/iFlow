@@ -26,6 +26,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/gate"
 	"github.com/igannytskyi/iflow/internal/harness"
+	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
@@ -143,6 +144,7 @@ type Run struct {
 	reviewLeft review
 	units      []unit
 	cands      map[string]string // unit → candidate folder
+	ledger     []meta.TestRecord // the test ledger: every test kept, the criterion it judges, the unit that wrote it
 	// again is, for a tests unit carried again, what the code that could
 	// not pass its tests found wrong with them.
 	again map[string]string

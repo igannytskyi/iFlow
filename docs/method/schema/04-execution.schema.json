@@ -128,6 +128,38 @@
       "description": "the version of the data model this was written in",
       "minimum": 0,
       "type": "integer"
+    },
+    "tests": {
+      "description": "the test ledger: every test written first, its file, the criterion it judges and the unit that wrote it",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "criterion": {
+            "description": "the criterion it judges, CR-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          },
+          "file": {
+            "description": "the file it is declared in",
+            "type": "string"
+          },
+          "test": {
+            "description": "the test's name, as its runner names it",
+            "type": "string"
+          },
+          "unit": {
+            "description": "the tests unit that wrote it, WU-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          }
+        },
+        "required": [
+          "test",
+          "file",
+          "criterion",
+          "unit"
+        ],
+        "type": "object"
+      },
+      "type": "array"
     }
   },
   "required": [

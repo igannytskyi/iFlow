@@ -12,6 +12,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/harness"
+	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
@@ -103,6 +104,7 @@ type carried struct {
 	ca, store string
 	res       harness.Result
 	paths     []string
+	tests     []meta.TestRecord // a tests unit's part of the ledger
 }
 
 // carry hands one unit to its agent in a copy of the estate holding the
@@ -150,6 +152,13 @@ func (r *Run) carry(ctx context.Context, i int, on []onto, prof profile, ok bool
 		}
 	}
 	res := c.res
+	var breaks []string
+	if u.isTests() {
+		// The ledger is the unit's answer, not part of the change: read,
+		// held to what was written, and taken out of the copy.
+		c.tests, breaks = r.readLedger(ws, u)
+		_ = os.Remove(filepath.Join(ws, LedgerFile))
+	}
 	changes, err := harness.Since(ws, before)
 	if err != nil {
 		return c, fmt.Errorf("%s: what changed could not be read: %v", u.id, err)
@@ -170,6 +179,9 @@ func (r *Run) carry(ctx context.Context, i int, on []onto, prof profile, ok bool
 	// that change nothing are no tests.
 	if res.Terminal != harness.Candidate || (len(changes) == 0 && u.isTests()) {
 		return c, fmt.Errorf("%s ended %s with %d change(s): %s", u.id, res.Terminal, len(changes), res.Summary)
+	}
+	if len(breaks) > 0 {
+		return c, fmt.Errorf("%s wrote tests whose ledger does not hold: %s", u.id, strings.Join(breaks, "; "))
 	}
 	if prof.format != nil {
 		// Form is not the agent's to spend turns on: what it wrote is put in
@@ -192,7 +204,12 @@ func (r *Run) carry(ctx context.Context, i int, on []onto, prof profile, ok bool
 	if u.preparatoryFor != "" && ok {
 		// What judges the change must fail before it, and fail for the stated
 		// reason: otherwise it judges nothing.
-		names := r.testNames(c.store)
+		var names []string
+		for _, t := range c.tests {
+			names = append(names, t.Test)
+		}
+		slices.Sort(names)
+		names = slices.Compact(names)
 		if len(names) == 0 {
 			return c, fmt.Errorf("%s wrote no test this estate's runner can name", u.id)
 		}
@@ -224,6 +241,9 @@ func (r *Run) carry(ctx context.Context, i int, on []onto, prof profile, ok bool
 	}
 	r.mu.Lock()
 	r.cands[u.id] = filepath.Join(c.store, "files")
+	if u.isTests() {
+		r.ledger = append(slices.DeleteFunc(r.ledger, func(t meta.TestRecord) bool { return t.Unit == u.id }), c.tests...)
+	}
 	r.mu.Unlock()
 	r.say(4, c.ca, "%s: %s — %s", c.ca, strings.Join(c.paths, ", "), res.Summary)
 	return c, nil
@@ -238,6 +258,10 @@ func (r *Run) byAgent(ctx context.Context, i int, ws string, on []onto, scope []
 	// carried on, and no others.
 	here := r.cfg.Estate.Repo(r.repo).Over(ws)
 	goal := r.goal(u)
+	if u.isTests() {
+		goal += ledgerAsk(u)
+		scope = append(slices.Clone(scope), LedgerFile)
+	}
 	pack := r.pack(u, here, on, r.cfg.packBudget()-estate.Tokens(goal))
 	handed := estate.Tokens(goal) + pack.Tokens()
 	_ = os.WriteFile(filepath.Join(c.store, "pack.md"), []byte("# Goal\n\n"+goal+"\n\n"+pack.String()), 0o644)
@@ -246,8 +270,10 @@ func (r *Run) byAgent(ctx context.Context, i int, ws string, on []onto, scope []
 	case ok && u.isTests() && prof.vet != nil:
 		// Tests written first build against the contract, declared before
 		// them: what they call is there, without its behaviour. They are
-		// vetted — built, run none — and must build.
+		// vetted — built, run none — and must build; and their ledger must
+		// hold.
 		task.Check = resolve(ws, prof.vet(u.scope))
+		task.Judge = r.ledgerJudge(ws, u)
 	case !ok || u.isTests():
 		// Without a runner to vet with, tests written first are judged
 		// afterwards, by failing against the estate as it stands.
@@ -444,29 +470,13 @@ func (r *Run) failingTestFiles(out string) []string {
 	var files []string
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, u := range r.units {
-		dir, ok := r.cands[u.id]
-		if !u.isTests() || !ok {
-			continue
-		}
-		for _, n := range r.testNames(filepath.Dir(dir)) {
-			if failed[n] {
-				files = append(files, u.scope...)
-				break
-			}
-		}
-		// A test that panics, or a goroutine it started, may fail with no
-		// test named; its trace names the file, as the copy it ran in
-		// holds it: by its path in the estate, at the end of that.
-		if !slices.ContainsFunc(u.scope, func(f string) bool { return slices.Contains(files, f) }) {
-			for _, f := range u.scope {
-				if namesFile(out, f) {
-					files = append(files, f)
-				}
-			}
+	for _, t := range r.ledger {
+		if failed[t.Test] || namesFile(out, t.File) {
+			files = append(files, t.File)
 		}
 	}
-	return files
+	slices.Sort(files)
+	return slices.Compact(files)
 }
 
 // namesFile says whether out names file, a path in the estate, at a line:
@@ -555,32 +565,10 @@ func (r *Run) chains(from, to int) [][]int {
 	return out
 }
 
-// newTestNames is every test the tests units of the change wrote.
+// newTestNames is every test the tests units of the change wrote, as the
+// test ledger holds them.
 func (r *Run) newTestNames(prof profile) []string {
-	var names []string
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, u := range r.units {
-		if dir, ok := r.cands[u.id]; ok && u.isTests() {
-			names = append(names, r.testNames(filepath.Dir(dir))...)
-		}
-	}
-	slices.Sort(names)
-	return slices.Compact(names)
-}
-
-func (r *Run) testNames(store string) []string {
-	var names []string
-	_ = filepath.WalkDir(filepath.Join(store, "files"), func(p string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() {
-			if b, err := os.ReadFile(p); err == nil {
-				names = append(names, testsIn(p, string(b))...)
-			}
-		}
-		return nil
-	})
-	slices.Sort(names)
-	return slices.Compact(names)
+	return r.ledgerTests()
 }
 
 // writeTrace keeps every step the executor took, with what each model turn

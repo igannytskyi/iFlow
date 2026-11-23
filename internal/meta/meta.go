@@ -276,9 +276,23 @@ type Execution struct {
 	Name       string      `json:"name" doc:"the change's folder name, its slug"`
 	Runs       []Run       `json:"runs" doc:"each unit's run by its executor"`
 	Candidates []Candidate `json:"candidates" doc:"what each unit proposes, kept apart from the estate"`
+	// Tests is the test ledger: every test the tests units wrote, with the
+	// criterion it judges, as each unit stated it and the framework checked
+	// it against what was written.
+	Tests []TestRecord `json:"tests,omitempty" doc:"the test ledger: every test written first, its file, the criterion it judges and the unit that wrote it"`
 	// Reproductions are, for a repair, how each criterion stood before it.
 	Reproductions []Reproduction `json:"reproductions,omitempty" doc:"for a repair, how each criterion stood before it"`
 	Prose         string         `json:"prose,omitempty" doc:"what the document says besides its fields, for one written before the model held it"`
+}
+
+// TestRecord is one test of the ledger: what judges a criterion, by name,
+// where, and who wrote it. Every later step that needs to know which test
+// judges what reads it here, never from the tests' text or a run's output.
+type TestRecord struct {
+	Test      string `json:"test" doc:"the test's name, as its runner names it"`
+	File      string `json:"file" doc:"the file it is declared in"`
+	Criterion string `json:"criterion" doc:"the criterion it judges, CR-<nnn>-<nn>"`
+	Unit      string `json:"unit" doc:"the tests unit that wrote it, WU-<nnn>-<nn>"`
 }
 
 // Run is one unit's run by its executor.

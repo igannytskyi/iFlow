@@ -194,6 +194,7 @@ func Resume(cfg Config, repo, dir string, changed func()) (*Run, error) {
 		for _, ca := range m.Execution.Candidates {
 			r.cands[ca.Unit] = filepath.Join(r.dir, ca.StoredAt, "files")
 		}
+		r.ledger = m.Execution.Tests
 	default:
 		r.from = 3
 		r.spec, r.units = draftOf(m.Intent, m.Specification, repo), units
@@ -246,14 +247,21 @@ func unitsOf(p *meta.Plan) ([]unit, bool) {
 	return out, true
 }
 
-// executed reports whether every unit was carried to a candidate.
+// executed reports whether every unit was carried to a candidate, every
+// tests unit with its part of the ledger.
 func executed(e *meta.Execution, units []unit) bool {
 	done := map[string]bool{}
 	for _, run := range e.Runs {
 		done[run.Unit] = run.Terminal == meta.CandidateEnd && run.Candidate != ""
 	}
+	inLedger := map[string]bool{}
+	for _, t := range e.Tests {
+		inLedger[t.Unit] = true
+	}
 	for _, u := range units {
-		if !done[u.id] {
+		// A tests unit carried before the ledger was kept left no record of
+		// which test judges what: it is carried again, not guessed at.
+		if !done[u.id] || (u.isTests() && !inLedger[u.id]) {
 			return false
 		}
 	}
