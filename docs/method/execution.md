@@ -95,6 +95,8 @@ Everything below fits one budget: 16000 tokens unless `IFLOW_PACK_TOKENS` says o
 
 A tests unit answers, besides its tests, with its part of the **test ledger**: each test it wrote, its file, and the criterion it judges. Its check holds the ledger to what it wrote; the ledger is kept in the execution document, and every later step that needs to know which test judges what reads it there ([handoffs.md](handoffs.md)).
 
+The author and the planner decide on the code, not on a guess at it: each is an agent that reads only (`harness.Study`). It is handed the estate's map and, for Go, an outline of the files the change works in — every type with its fields or methods, every function with what it calls — and asks the estate's graph where things are and what calls what, then reads the files its decision needs, before it answers with the specification or the plan. A model that holds no conversation is asked once, with what it is handed.
+
 What else it needs, the agent reads with its tools: files by parts, where a name is defined, who uses it.
 
 The budget is spent in this order:

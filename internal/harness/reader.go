@@ -17,11 +17,23 @@ func NewReader(ctx context.Context, dir string, libraries ...string) Reader {
 	return Reader{&workspace{dir: dir, ctx: ctx, libraries: libraries}}
 }
 
-var readOnly = []string{"read_file", "list_dir", "search"}
+// readOnly is the tools that only read: the estate's graph, where the
+// reader has one, then its files.
+var readOnly = []string{"find_definition", "find_callers", "read_file", "list_dir", "search"}
 
-// Tools is what the model is told it may call.
+// WithGraph is the reader with the estate's model of its code to ask.
+func (r Reader) WithGraph(g Graph) Reader {
+	r.ws.graph = g
+	return r
+}
+
+// Tools is what the model is told it may call: the graph's only where
+// there is one.
 func (r Reader) Tools() []model.Tool {
-	return slices.DeleteFunc(specs(), func(t model.Tool) bool { return !slices.Contains(readOnly, t.Function.Name) })
+	return slices.DeleteFunc(specs(), func(t model.Tool) bool {
+		n := t.Function.Name
+		return !slices.Contains(readOnly, n) || (r.ws.graph == nil && (n == "find_definition" || n == "find_callers"))
+	})
 }
 
 // Call carries out one call, and refuses any but reading.

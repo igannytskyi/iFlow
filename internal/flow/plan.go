@@ -17,6 +17,7 @@ import (
 
 	"github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/estate"
+	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
@@ -335,9 +336,9 @@ func (r *Run) planned(ctx context.Context, byTests []string, feedback string) ([
 		kept, handed := r.handed("planner", plannerSystem, prompt+why)
 		// The criteria a unit serves are the specification's: chosen among
 		// its ids, never written.
-		answer, u, err := model.AskJSONOf(model.Within(ctx, "planner"), m, plannerSystem, prompt+why, &p, map[string][]string{"units.criteria": r.criterionIDs()})
+		answer, u, turns, err := r.study(model.Within(ctx, "planner"), 2, m, plannerSystem, prompt+why, &p, map[string][]string{"units.criteria": r.criterionIDs()})
 		r.spend(u)
-		r.cost(artifact.Cost{Area: 2, What: fmt.Sprintf("the plan, attempt %d", attempt), Actor: m.Name(), Turns: 1,
+		r.cost(artifact.Cost{Area: 2, What: fmt.Sprintf("the plan, attempt %d", attempt), Actor: m.Name(), Turns: turns,
 			Handed: handed, Kept: kept}, u, time.Since(began))
 		if errors.Is(err, model.ErrUnreadable) {
 			why = "\n\nYour last answer was not one JSON object: " + err.Error()
@@ -995,4 +996,38 @@ func (r *Run) criterionIDs() []string {
 		ids[i] = r.id("CR", i+1)
 	}
 	return ids
+}
+
+// study has m take a decision of area — the specification, the plan — and
+// reads its answer into into. A model that holds a conversation studies
+// the estate first, by its graph and then its files, as far as the
+// decision needs (harness.Study); any other is asked once, with what it is
+// handed. The answer, what it cost, and the turns it took.
+func (r *Run) study(ctx context.Context, area int, m model.Model, system, prompt string, into any, among map[string][]string) (string, model.Usage, int, error) {
+	c, ok := m.(harness.Chatter)
+	if t, taped := m.(interface{ Chats() bool }); taped && !t.Chats() {
+		ok = false // a tape around a model that holds no conversation
+	}
+	if !ok {
+		answer, u, err := model.AskJSONOf(ctx, m, system, prompt, into, among)
+		return answer, u, 1, err
+	}
+	repo := r.cfg.Estate.Repo(r.repo)
+	study := harness.Study{Dir: r.repo, Graph: estateGraph{repo: repo, root: r.repo}, System: system, Prompt: prompt, BudgetUSD: r.cfg.BudgetUSD}
+	turns := 0
+	answer, u, _, err := study.Run(ctx, c, func(e harness.Event) {
+		switch e.Kind {
+		case harness.Spent:
+			turns++
+		case harness.Called:
+			r.say(area, "", "reading the estate: %s %s", e.Tool, e.Detail)
+		}
+	})
+	if err != nil {
+		return answer, u, turns, err
+	}
+	if err := model.JSON(answer, into); err != nil {
+		return answer, u, turns, fmt.Errorf("%w: %v", model.ErrUnreadable, err)
+	}
+	return answer, u, turns, nil
 }

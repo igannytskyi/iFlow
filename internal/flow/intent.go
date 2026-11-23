@@ -345,10 +345,10 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 		var d draft
 		began := time.Now()
 		kept, handed := r.handed("author", intentSystem, prompt+feedback+note)
-		answer, u, err := model.AskJSON(model.Within(ctx, "author"), r.cfg.Model, intentSystem, prompt+feedback+note, &d)
+		answer, u, turns, err := r.study(model.Within(ctx, "author"), 1, r.cfg.Model, intentSystem, prompt+feedback+note, &d, nil)
 		r.spend(u)
 		r.cost(artifact.Cost{Area: 1, What: fmt.Sprintf("the specification, attempt %d", attempt),
-			Actor: r.cfg.Model.Name(), Turns: 1, Handed: handed, Kept: kept}, u, time.Since(began))
+			Actor: r.cfg.Model.Name(), Turns: turns, Handed: handed, Kept: kept}, u, time.Since(began))
 		if errors.Is(err, model.ErrUnreadable) {
 			note = "\n\nYour last answer was not one JSON object: " + err.Error()
 			r.say(1, "", "the draft is sent back: it is not one JSON object (%v); it began %q and ended %q", err, head(answer, 80), tail(answer, 80))

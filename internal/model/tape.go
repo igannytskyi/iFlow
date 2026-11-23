@@ -152,6 +152,16 @@ type taped struct {
 
 func (m taped) Name() string { return m.name }
 
+// Chats says whether the model taped holds conversations: a taped model
+// answers Chat whatever it wraps, and this is whether it can.
+func (m taped) Chats() bool {
+	if m.chat != nil {
+		return true
+	}
+	_, ok := m.inner.(Chatter)
+	return ok
+}
+
 func (m taped) Ask(ctx context.Context, system, prompt string) (string, Usage, error) {
 	tk, err := m.tape.take(ctx, func() (Take, error) {
 		a, u, err := m.inner.Ask(ctx, system, prompt)
