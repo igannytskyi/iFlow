@@ -33,14 +33,14 @@ func TestTheFilesAUnitChangesAreAlwaysInView(t *testing.T) {
 // What an agent read stays whole while the turn fits its bound: it is cut,
 // oldest first, only as far as the turn does not fit.
 func TestOldAnswersAreCutOnlyBeyondTheTurnsBound(t *testing.T) {
-	answer := strings.Repeat("x", 4*4_000) // about 4k tokens
+	answer := strings.Repeat("x", 4*8_000) // about 8k tokens
 	msgs := []model.Message{{Role: "system", Content: "s"}, {Role: "user", Content: "u"}}
 	for range 8 {
 		msgs = append(msgs, model.Message{Role: "assistant", Content: "a"}, model.Message{Role: "tool", Content: answer})
 	}
 	for _, m := range compact(msgs) {
 		if strings.Contains(m.Content, "[cut:") {
-			t.Fatal("an answer was cut from a turn of about 32k tokens")
+			t.Fatal("an answer was cut from a turn of about 64k tokens")
 		}
 	}
 	for range 8 {
@@ -56,7 +56,7 @@ func TestOldAnswersAreCutOnlyBeyondTheTurnsBound(t *testing.T) {
 			}
 		}
 	}
-	if size > turnTokens || cut == 0 || cut > 6 {
-		t.Errorf("a turn of about 64k tokens came to %d, with %d answers cut", size, cut)
+	if size > turnTokens || cut == 0 || cut > 5 {
+		t.Errorf("a turn of about 128k tokens came to %d, with %d answers cut", size, cut)
 	}
 }

@@ -70,11 +70,13 @@ func maxRead(t Task) int {
 }
 
 // turnTokens bounds what one turn holds of the unit and the conversation
-// so far; the files the unit changes come on top, within yoursTokens. Within it nothing is cut, so an agent does not read
-// again what it has read; beyond it the oldest tool answers are cut first.
-// It stays well inside where models are measured to work well (an agent's
-// quality falls from about 32–64k on, a weak model's sooner).
-const turnTokens = 48_000
+// so far; the files the unit changes come on top, within yoursTokens.
+// Within it nothing is cut, so an agent does not read again what it has
+// read; beyond it the oldest tool answers are cut first. Frontier models
+// hold near parity up to about 128k (MRCR v2, 2026); an agent that reads
+// the same file again for want of it loses more than length costs it. To
+// be measured per model (backlog 82).
+const turnTokens = 100_000
 
 // keepWhole is how many of the latest messages keep their tool answers
 // whole, whatever the bound: what the agent just asked for, it is shown.
