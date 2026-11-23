@@ -132,3 +132,28 @@ func TestEachCriterionStandsByItsOwnTests(t *testing.T) {
 		}
 	}
 }
+
+// What a Go specification relies on is read by Go's own parser: a method
+// by its receiver, a field by its struct, an interface's method by its
+// interface; a name it declares more than once is chosen by "of".
+func TestGoDeclarationsAreReadByTheirOwner(t *testing.T) {
+	src := []byte("package model\n\ntype Model interface {\n\tName() string\n}\n\ntype OpenAI struct {\n\tKey string\n}\n\nfunc (o OpenAI) Name() string {\n\treturn \"x\"\n}\n\nfunc (c *ClaudeCode) Name() string { return \"y\" }\n\nfunc New() Model { return nil }\n")
+	for _, c := range []struct{ name, of, want string }{
+		{"Name", "Model", "Name() string"},
+		{"Name", "OpenAI", "func (o OpenAI) Name() string"},
+		{"Name", "ClaudeCode", "func (c *ClaudeCode) Name() string"},
+		{"Key", "OpenAI", "Key string"},
+		{"New", "", "func New() Model"},
+		{"Model", "", "Model interface"},
+	} {
+		if got, _ := goDeclarationOf(src, c.name, c.of); got != c.want {
+			t.Errorf("%s of %q: %q, want %q", c.name, c.of, got, c.want)
+		}
+	}
+	if got, all := goDeclarationOf(src, "Name", ""); got != "" || len(all) != 3 {
+		t.Errorf("a name declared thrice was chosen without its owner: %q %q", got, all)
+	}
+	if !identifier.MatchString("models.Config") || identifier.MatchString("Provider (as declared at models.go:51)") {
+		t.Error("a name is not told from a sentence")
+	}
+}

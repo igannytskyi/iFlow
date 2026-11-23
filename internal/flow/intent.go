@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -659,14 +662,41 @@ func (r *Run) relied(relies []meta.Provision) ([]meta.Provision, []string) {
 			whys = append(whys, fmt.Sprintf("relies_on gives %s the kind %q, which is not one of function, method, type, field, variable, constant — an interface, a struct or a class is a type", p.Name, p.Kind))
 			continue
 		}
+		if !identifier.MatchString(p.Name) || (p.Of != "" && !identifier.MatchString(strings.TrimLeft(p.Of, "*"))) {
+			whys = append(whys, fmt.Sprintf("relies_on names %q: a name is the name alone, as the code spells it — where it is declared goes in \"file\", the type it belongs to in \"of\"", p.Name))
+			continue
+		}
 		// A method or field may be named by its type, Config.Model, or its
 		// package, models.Config: the estate knows it by its own name.
-		name, of := p.Name, p.Of
+		name, of := p.Name, bareType(p.Of)
 		if q, base, ok := cutLast(name, "."); ok {
 			name = base
 			if of == "" {
-				of = q
+				of = bareType(q)
 			}
+		}
+		if filepath.Ext(p.File) == ".go" {
+			// Go is read by its own parser: a method by its receiver, a
+			// field by its struct, an interface's method by its interface;
+			// a name qualified by its file's package is that package's.
+			src, err := os.ReadFile(filepath.Join(r.repo, filepath.FromSlash(p.File)))
+			decl, all := "", []string(nil)
+			if err == nil {
+				if pkg := goPackage(src); pkg != "" && of == pkg {
+					of = ""
+				}
+				decl, all = goDeclarationOf(src, name, of)
+			}
+			switch {
+			case decl != "":
+				p.Signature = decl
+				out = append(out, p)
+			case len(all) > 0:
+				whys = append(whys, fmt.Sprintf("relies_on names %s in %s, which declares %s: name the type it belongs to in \"of\"", p.Name, p.File, strings.Join(quoted(all), " and ")))
+			default:
+				whys = append(whys, fmt.Sprintf("relies_on names %s in %s, which does not declare it%s; a name the change adds is not relied on, and one that exists is relied on where it is", p.Name, p.File, map[bool]string{true: " as a member of " + of, false: ""}[of != ""]))
+			}
+			continue
 		}
 		places, _ := repo.WhereDefined(name)
 		var lines []string
@@ -738,4 +768,94 @@ func declares(line, signature string) bool {
 	l, s := norm(estate.Signature(line)), norm(signature)
 	rest, ok := strings.CutPrefix(l, s)
 	return ok && (rest == "" || strings.HasPrefix(strings.TrimSpace(rest), "="))
+}
+
+// identifier is a name as code spells it, perhaps qualified: Config,
+// models.Config, Config.Model.
+var identifier = regexp.MustCompile(`^[\pL_][\pL\pN_]*(\.[\pL_][\pL\pN_]*)*$`)
+
+// goDeclarationOf is the declaration, as its first line reads, of name in
+// the Go file src: a member of the type of where of is given — a method by
+// its receiver, a field of a struct, a method of an interface — a top-level
+// name where not. Where it is not found as asked, all is every declaration
+// of that name in the file, for the author to choose among.
+func goDeclarationOf(src []byte, name, of string) (decl string, all []string) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
+	if err != nil {
+		return "", nil
+	}
+	line := func(n ast.Node) string {
+		from, to := fset.Position(n.Pos()).Offset, fset.Position(n.End()).Offset
+		if fn, ok := n.(*ast.FuncDecl); ok && fn.Body != nil {
+			to = fset.Position(fn.Body.Lbrace).Offset // its signature, not its body
+		}
+		text := string(src[from:to])
+		if i := strings.IndexByte(text, '\n'); i >= 0 {
+			text = text[:i]
+		}
+		return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(text), "{"))
+	}
+	found := func(owner string, n ast.Node) {
+		l := line(n)
+		all = append(all, l)
+		if decl == "" && owner == of {
+			decl = l
+		}
+	}
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			if d.Name.Name != name {
+				continue
+			}
+			owner := ""
+			if d.Recv != nil && len(d.Recv.List) == 1 {
+				owner = receiverType(d.Recv.List[0].Type)
+			}
+			found(owner, d)
+		case *ast.GenDecl:
+			for _, sp := range d.Specs {
+				switch sp := sp.(type) {
+				case *ast.TypeSpec:
+					if sp.Name.Name == name {
+						found("", sp)
+					}
+					var fields *ast.FieldList
+					switch t := sp.Type.(type) {
+					case *ast.StructType:
+						fields = t.Fields
+					case *ast.InterfaceType:
+						fields = t.Methods
+					}
+					if fields == nil {
+						continue
+					}
+					for _, fd := range fields.List {
+						for _, id := range fd.Names {
+							if id.Name == name {
+								found(sp.Name.Name, fd)
+							}
+						}
+					}
+				case *ast.ValueSpec:
+					for _, id := range sp.Names {
+						if id.Name == name {
+							found("", sp)
+						}
+					}
+				}
+			}
+		}
+	}
+	return decl, all
+}
+
+// goPackage is the name of the package the Go file src is in.
+func goPackage(src []byte) string {
+	f, err := parser.ParseFile(token.NewFileSet(), "", src, parser.PackageClauseOnly)
+	if err != nil {
+		return ""
+	}
+	return f.Name.Name
 }
