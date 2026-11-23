@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/igannytskyi/iflow/internal/protocol"
@@ -27,7 +26,14 @@ func (m Model) chatRef() protocol.ChatRef {
 // about, its turns — the newest at the foot, scrolled back by chatScroll —
 // and the line typed on, at the column's own foot.
 func (m Model) chat(width, height int) string {
-	head, lines := m.chatHead(width), m.chatLines(width)
+	s, _ := m.client.Chat(m.talking)
+	return m.chatView(width, height, s)
+}
+
+// chatView is the conversation s in its column, exactly width by height,
+// whatever its turns hold: the line typed on is always the column's last.
+func (m Model) chatView(width, height int, s protocol.ChatState) string {
+	head, lines := m.chatHead(width, s), m.chatLines(width, s)
 	foot := []string{m.st.faint.Render(strings.Repeat("─", width))}
 	line := m.ask
 	line.Width = max(4, width-ansi.StringWidth(line.Prompt)-1)
@@ -48,7 +54,14 @@ func (m Model) chat(width, height int) string {
 		shown = append(shown, "")
 	}
 	out := append(append(head, shown...), foot...)
-	return lipgloss.NewStyle().Width(width).Height(height).MaxHeight(height).Render(strings.Join(out, "\n"))
+	out = out[max(0, len(out)-height):] // a head too tall for a short screen gives way, never the line typed on
+	for i, l := range out {
+		// Each line is one line of the column: wrapped already, cut here
+		// only as a last guard, and filled to the column's width.
+		l = ansi.Truncate(l, width, "")
+		out[i] = l + strings.Repeat(" ", max(0, width-ansi.StringWidth(l)))
+	}
+	return strings.Join(out, "\n")
 }
 
 // chatScrolled is the conversation scrolled back by n lines more (fewer,
@@ -58,18 +71,18 @@ func (m Model) chatScrolled(n int) Model {
 	if l.chat == 0 {
 		return m
 	}
-	room := max(1, l.body-len(m.chatHead(l.chat))-2)
-	m.chatScroll = min(max(0, m.chatScroll+n), max(0, len(m.chatLines(l.chat))-room))
+	s, _ := m.client.Chat(m.talking)
+	room := max(1, l.body-len(m.chatHead(l.chat, s))-2)
+	m.chatScroll = min(max(0, m.chatScroll+n), max(0, len(m.chatLines(l.chat, s))-room))
 	return m
 }
 
 // chatHead is what the conversation is about, and what it has cost.
-func (m Model) chatHead(width int) []string {
+func (m Model) chatHead(width int, s protocol.ChatState) []string {
 	about := "the project"
 	if m.talking.Dir != "" {
 		about = "this task"
 	}
-	s, _ := m.client.Chat(m.talking)
 	head := []string{m.st.strong.Render("talk about " + about)}
 	sub := "reads what it has written, changes nothing"
 	if s.CostUSD > 0 {
@@ -80,8 +93,7 @@ func (m Model) chatHead(width int) []string {
 }
 
 // chatLines is the conversation's turns, wrapped to width, oldest first.
-func (m Model) chatLines(width int) []string {
-	s, _ := m.client.Chat(m.talking)
+func (m Model) chatLines(width int, s protocol.ChatState) []string {
 	var lines []string
 	add := func(text, indent string) {
 		for _, l := range strings.Split(text, "\n") {
@@ -117,7 +129,14 @@ func (m Model) chatLines(width int) []string {
 	if len(lines) == 0 {
 		add(m.st.faint.Render("ask anything: why it stopped, what a unit was handed, what to do next"), "")
 	}
-	return lines
+	// A tab is as wide as the terminal makes it, and a word may be wider
+	// than the column: each is made lines of the column's width, nothing cut.
+	var out []string
+	for _, l := range lines {
+		l = strings.ReplaceAll(l, "\t", "    ")
+		out = append(out, strings.Split(ansi.Hardwrap(l, width, true), "\n")...)
+	}
+	return out
 }
 
 // printable is text a model or a page wrote, without what a terminal would

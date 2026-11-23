@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -390,5 +391,32 @@ func TestTheConversationLeavesTheCosts(t *testing.T) {
 	}
 	if open.side+3+open.mid+3+open.costs+3+open.chat != m.width || open.mid < minMid {
 		t.Errorf("the columns do not fill the screen: %+v", open)
+	}
+}
+
+// Whatever the conversation holds — tabs, a word wider than its column,
+// more than it can show — and however far it is scrolled, its column is
+// exactly its height, the line typed on its last.
+func TestTheLineTypedOnIsAlwaysThere(t *testing.T) {
+	m := New(context.Background(), &service.Client{}, nil, "/estate", Terminal)
+	m.chatOpen = true
+	m, _ = m.begin(asking, "")
+	var msgs []protocol.ChatMessage
+	for i := range 30 {
+		msgs = append(msgs, protocol.ChatMessage{Role: "model", Text: fmt.Sprintf("answer %d\n\tfunc f() {\n\t\treturn %s\n\t}", i, strings.Repeat("x", 120))})
+	}
+	s := protocol.ChatState{Messages: msgs}
+	for _, back := range []int{0, 5, 40, 1000} {
+		m.chatScroll = back
+		rows := strings.Split(ansi.Strip(m.chatView(40, 20, s)), "\n")
+		if len(rows) != 20 || !strings.HasPrefix(rows[19], "›") {
+			t.Errorf("scrolled back %d, the column is %d lines and ends %q", back, len(rows), rows[len(rows)-1])
+		}
+		for _, r := range rows {
+			if ansi.StringWidth(r) != 40 {
+				t.Errorf("a line is %d wide, not 40: %q", ansi.StringWidth(r), r)
+				break
+			}
+		}
 	}
 }
