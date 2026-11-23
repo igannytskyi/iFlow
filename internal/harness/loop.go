@@ -69,10 +69,16 @@ func maxRead(t Task) int {
 	return t.MaxRead
 }
 
+// turnTokens bounds what one turn holds of the unit and the conversation
+// so far; the files the unit changes come on top, within yoursTokens. Within it nothing is cut, so an agent does not read
+// again what it has read; beyond it the oldest tool answers are cut first.
+// It stays well inside where models are measured to work well (an agent's
+// quality falls from about 32–64k on, a weak model's sooner).
+const turnTokens = 48_000
+
 // keepWhole is how many of the latest messages keep their tool answers
-// whole; older answers are cut short, the way agents that run long keep
-// their context from filling with files read long ago.
-const keepWhole = 8
+// whole, whatever the bound: what the agent just asked for, it is shown.
+const keepWhole = 4
 
 // Run implements Executor.
 func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error) {
@@ -253,21 +259,29 @@ func libraryNote(dirs []string) string {
 	return "\n# Libraries\n\nThe source of the libraries this estate uses can be read under " + strings.Join(dirs, " and ") + ". Read a library's source before you use a name of it you are not sure of.\n"
 }
 
-// compact is the conversation as sent: the system, the unit and the latest
-// turns whole, older tool answers cut to their first lines.
+// compact is the conversation as sent: the system, the unit and the
+// latest turns whole, and the older tool answers whole too while the turn
+// fits turnTokens — cut to their first lines, oldest first, only as far as
+// it does not.
 func compact(msgs []model.Message) []model.Message {
 	out := make([]model.Message, len(msgs))
 	copy(out, msgs)
-	if len(msgs) <= keepWhole+2 {
-		return out
+	size := 0
+	for _, m := range out {
+		size += tokens(m.Content)
 	}
-	for i := 2; i < len(out)-keepWhole; i++ {
+	for i := 2; i < len(out)-keepWhole && size > turnTokens; i++ {
 		if out[i].Role == "tool" && len(out[i].Content) > 240 {
+			was := tokens(out[i].Content)
 			out[i].Content = clip(out[i].Content, 160) + "\n[cut: this answer is old; call the tool again if you need it]"
+			size -= was - tokens(out[i].Content)
 		}
 	}
 	return out
 }
+
+// tokens is about how many tokens s is, as the estate counts them.
+func tokens(s string) int { return (len(s) + 3) / 4 }
 
 // call carries out one tool call, and says what it answered, what kind of
 // step that was, and whether the agent said its unit cannot be done.
