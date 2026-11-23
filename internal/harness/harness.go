@@ -73,6 +73,10 @@ type Task struct {
 	// Tests is the tests the unit must pass, by name: those its agent may
 	// hold wrong.
 	Tests []string
+	// Widen, where given, is asked when the agent writes a file outside
+	// Scope: "" grants it, which the result then says; anything else is
+	// why not, which the agent is told.
+	Widen func(path string) (why string)
 	// BudgetUSD and MaxSteps bound the run; a run that reaches either stops
 	// with what it has and says which it reached.
 	BudgetUSD float64
@@ -129,10 +133,13 @@ type Result struct {
 	// BlamedTests is the tests the agent holds wrong, by name: each one of
 	// the tests it was to pass.
 	BlamedTests []string
-	Steps       int
-	Turns       int
-	Usage       model.Usage
-	Elapsed     time.Duration
+	// Widened is the files outside its scope the agent was given, as it
+	// wrote them.
+	Widened []string
+	Steps   int
+	Turns   int
+	Usage   model.Usage
+	Elapsed time.Duration
 }
 
 // Executor carries out a task. Run returns when the task has ended, and

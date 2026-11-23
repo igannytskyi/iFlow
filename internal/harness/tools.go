@@ -35,6 +35,8 @@ type workspace struct {
 	dir       string
 	scope     []string
 	tests     []string // the tests it must pass, by name
+	widen     func(path string) (why string)
+	widened   []string // files given it beyond its scope, as it wrote them
 	check     []string
 	judge     func(passed bool, output string) (ok bool, why string)
 	first     []string
@@ -113,6 +115,25 @@ func (w *workspace) within(p string) (string, string, error) {
 		return "", "", errRefused{"that path is outside the workspace"}
 	}
 	return filepath.Join(w.dir, clean), filepath.ToSlash(clean), nil
+}
+
+// grant is whether rel may be written: in the unit's scope, or granted it
+// where the task can widen it — the unit's plan is a hint, and an agent who
+// finds the change needs another file of the change's scope is given it,
+// and that is said. What it is refused, it is told why.
+func (w *workspace) grant(rel string) error {
+	if w.writable(rel) {
+		return nil
+	}
+	if w.widen == nil {
+		return errRefused{rel + " is not in the unit's scope"}
+	}
+	if why := w.widen(rel); why != "" {
+		return errRefused{rel + " is not in the unit's scope, and cannot be given it: " + why}
+	}
+	w.scope = append(w.scope, rel)
+	w.widened = append(w.widened, rel)
+	return nil
 }
 
 // writable reports whether the unit's scope names a path.
@@ -212,8 +233,8 @@ var tools = []tool{
 			if err != nil {
 				return "", err
 			}
-			if !w.writable(rel) {
-				return "", errRefused{rel + " is not in the unit's scope"}
+			if err := w.grant(rel); err != nil {
+				return "", err
 			}
 			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 				return "", err
@@ -229,8 +250,8 @@ var tools = []tool{
 			if err != nil {
 				return "", err
 			}
-			if !w.writable(rel) {
-				return "", errRefused{rel + " is not in the unit's scope"}
+			if err := w.grant(rel); err != nil {
+				return "", err
 			}
 			b, err := os.ReadFile(p)
 			if err != nil {

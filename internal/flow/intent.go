@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -48,11 +47,8 @@ type draft struct {
 	Document document `json:"document"`
 	// Later are the parts of a task too large for one change: each a task
 	// of its own, to be specified when this one has landed.
-	Later    []string         `json:"later"`
-	Criteria []draftCriterion `json:"criteria"`
-	// Relies are the names the change builds on that exist already, each
-	// as the estate declares it.
-	Relies      []meta.Provision `json:"relies_on"`
+	Later       []string         `json:"later"`
+	Criteria    []draftCriterion `json:"criteria"`
 	Scope       []string         `json:"scope"`
 	NewTests    []string         `json:"new_tests"`
 	SuiteTests  []string         `json:"existing_tests"`
@@ -99,10 +95,11 @@ Rules you must follow:
 - Every entry of "scope", "new_tests" and "existing_tests" is the path of a file and nothing else — "test_greeting.py", never "test_greeting.py::GreetTest" or a path with words after it.
 - Keep the change to what a few agents, each with one unit, can carry out. If the task is larger, specify its first coherent part — one that is worth landing alone — and list in "later" the rest, each written as a task of its own, in the order they should come.
 - "existing_tests" lists the estate's existing test files that judge that nothing else moves.
-- "relies_on" lists every name that exists already and the change calls, changes or builds on, each as {"file" it is declared in, "name", "kind": one of function, method, type, field, variable, constant, "of": the type a method or field belongs to}. The framework writes each one's declaration from the estate; you do not copy it. You are shown how the names near the task are declared; one you are not shown, you do not guess — leave it out or say in "open_questions" what is unknown. Every other part of the specification states these names as declared here: a decision about an existing name never contradicts its declaration.
+- Say what the change is to do and how it is judged; how the code does it is the plan's and the agents', who read the code. Name an existing function, type or file only where the task itself names it, or where the change cannot be stated without it.
+- "scope" is what the change may touch, as narrow as is true and as wide as the work may need: a whole package's folder ("internal/ui/") where the change belongs to that package and its files are not known one by one, a file where it is. An agent that finds it must touch something outside the scope sends the specification back.
 - "slug" is a few lowercase words joined by hyphens.
 
-The JSON object has exactly these keys: slug, name, statement, class, prose, document (the keys above), later, criteria (criterion, when, then, plan, threshold, judged_by_new_tests, procedure), relies_on (file, name, kind, of), scope, new_tests, existing_tests, termination (condition, action: stop or escalate).`
+The JSON object has exactly these keys: slug, name, statement, class, prose, document (the keys above), later, criteria (criterion, when, then, plan, threshold, judged_by_new_tests, procedure), scope, new_tests, existing_tests, termination (condition, action: stop or escalate).`
 
 // overview is what a model is shown of the estate to state a change: every
 // source file and the names it defines, where the words of the task land,
@@ -124,7 +121,7 @@ func (r *Run) overview() string {
 			names = append(names, l.Names...)
 		}
 		if decl := r.declarations(names, 40); len(decl) > 0 {
-			b.WriteString("\nHow those names are declared, as relies_on lists them — copy an entry whole to rely on it:\n\n" + strings.Join(decl, "\n") + "\n")
+			b.WriteString("\nHow those names are declared, for reference:\n\n" + strings.Join(decl, "\n") + "\n")
 		}
 		b.WriteString("\n")
 	}
@@ -361,10 +358,6 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 			return d, r.fail(1, "the model could not be asked: %v", err)
 		}
 		breaks := d.problems()
-		relied, whys := r.relied(d.Relies)
-		if breaks = append(breaks, whys...); len(whys) == 0 {
-			d.Relies = relied
-		}
 		if why := strings.Join(breaks, "; "); why != "" {
 			// The author is handed what it wrote and every way it breaks, to
 			// mend those and keep the rest: asked afresh, it would write
@@ -502,7 +495,7 @@ func (r *Run) writeIntent(d draft) error {
 	if err != nil {
 		return err
 	}
-	spec := meta.Specification{Schema: meta.SchemaVersion, Name: r.slug, ID: r.id("SPEC"), Intent: r.id("INT"), Class: meta.Class(d.Class), Prose: d.Prose, Relies: d.Relies,
+	spec := meta.Specification{Schema: meta.SchemaVersion, Name: r.slug, ID: r.id("SPEC"), Intent: r.id("INT"), Class: meta.Class(d.Class), Prose: d.Prose,
 		Scope:    meta.Scope{Included: d.Scope, Excluded: append(slices.Clone(d.NewTests), d.SuiteTests...)},
 		NewTests: d.NewTests, SuiteTests: d.SuiteTests,
 	}
@@ -565,12 +558,7 @@ func (r *Run) writeIntent(d draft) error {
 	for i, c := range d.Criteria {
 		crit = append(crit, fmt.Sprintf("%s %s — when %s, then %s", r.id("CR", i+1), c.Criterion, c.When, c.Then))
 	}
-	var relies []string
-	for _, p := range d.Relies {
-		relies = append(relies, p.Signature+" — "+p.File)
-	}
-	parts := append(d.Document.parts(), artifact.Part{Title: "Existing names it builds on", Points: relies},
-		artifact.Part{Title: "Acceptance criteria", Points: crit},
+	parts := append(d.Document.parts(), artifact.Part{Title: "Acceptance criteria", Points: crit},
 		artifact.Part{Title: "Termination", Points: terms(d)},
 		artifact.Part{Title: "What comes after", Points: d.Later})
 	if err := os.WriteFile(filepath.Join(dir, artifact.ChangeFile), []byte(artifact.ChangeDoc{Name: r.slug, Statement: d.Statement, Summary: d.Prose, Parts: parts}.Markdown()), 0o644); err != nil {
@@ -736,135 +724,6 @@ func goDeclarationAt(src []byte, name string, line int) (meta.Provision, bool) {
 	found.Signature, _ = goDeclarationOf(src, name, found.Of)
 	return found, found.Signature != ""
 }
-
-// relied is what a specification relies on, each name with the declaration
-// the estate holds for it — the framework copies it, the author only names
-// it — or why one cannot be: a name its file does not declare, or one its
-// file declares more than once and the author's words do not choose.
-func (r *Run) relied(relies []meta.Provision) ([]meta.Provision, []string) {
-	repo := r.cfg.Estate.Repo(r.repo)
-	out := make([]meta.Provision, 0, len(relies))
-	var whys []string
-	for _, p := range relies {
-		switch {
-		case p.Name == "" || p.File == "":
-			whys = append(whys, fmt.Sprintf("relies_on holds %q without its file or its name", p.Name+p.File))
-			continue
-		case !meta.Allowed("DeclKind", string(p.Kind)) || p.Kind == meta.Described:
-			whys = append(whys, fmt.Sprintf("relies_on gives %s the kind %q, which is not one of function, method, type, field, variable, constant — an interface, a struct or a class is a type", p.Name, p.Kind))
-			continue
-		}
-		if !identifier.MatchString(p.Name) || (p.Of != "" && !identifier.MatchString(strings.TrimLeft(p.Of, "*"))) {
-			whys = append(whys, fmt.Sprintf("relies_on names %q: a name is the name alone, as the code spells it — where it is declared goes in \"file\", the type it belongs to in \"of\"", p.Name))
-			continue
-		}
-		// A method or field may be named by its type, Config.Model, or its
-		// package, models.Config: the estate knows it by its own name.
-		name, of := p.Name, bareType(p.Of)
-		if q, base, ok := cutLast(name, "."); ok {
-			name = base
-			if of == "" {
-				of = bareType(q)
-			}
-		}
-		if filepath.Ext(p.File) == ".go" {
-			// Go is read by its own parser: a method by its receiver, a
-			// field by its struct, an interface's method by its interface;
-			// a name qualified by its file's package is that package's.
-			src, err := os.ReadFile(filepath.Join(r.repo, filepath.FromSlash(p.File)))
-			decl, all := "", []string(nil)
-			if err == nil {
-				if pkg := goPackage(src); pkg != "" && of == pkg {
-					of = ""
-				}
-				decl, all = goDeclarationOf(src, name, of)
-			}
-			switch {
-			case decl != "":
-				p.Signature = decl
-				out = append(out, p)
-			case len(all) > 0:
-				whys = append(whys, fmt.Sprintf("relies_on names %s in %s, which declares %s: name the type it belongs to in \"of\"", p.Name, p.File, strings.Join(quoted(all), " and ")))
-			default:
-				whys = append(whys, fmt.Sprintf("relies_on names %s in %s, which does not declare it%s; a name the change adds is not relied on, and one that exists is relied on where it is", p.Name, p.File, map[bool]string{true: " as a member of " + of, false: ""}[of != ""]))
-			}
-			continue
-		}
-		places, _ := repo.WhereDefined(name)
-		var lines []string
-		for _, pl := range places {
-			if pl.File != p.File {
-				continue
-			}
-			if ex := repo.Excerpt(pl.File, pl.Start, pl.Start, 1); len(ex) == 1 {
-				lines = append(lines, estate.Signature(ex[0].Text))
-			}
-		}
-		line, why := chosen(lines, p.Signature, of)
-		switch {
-		case len(lines) == 0:
-			whys = append(whys, fmt.Sprintf("relies_on names %s in %s, which the estate does not declare there; a name the change adds is not relied on, and one that exists is relied on where it is", p.Name, p.File))
-			continue
-		case why != "":
-			whys = append(whys, fmt.Sprintf("relies_on names %s in %s, which declares %s: %s", p.Name, p.File, strings.Join(quoted(lines), " and "), why))
-			continue
-		}
-		p.Signature = line
-		out = append(out, p)
-	}
-	if len(whys) > 0 {
-		return nil, whys
-	}
-	return out, nil
-}
-
-// chosen is the one of lines, a file's declarations of one name, that the
-// author means: the only one, the one its signature states, or the one of
-// the type it names.
-func chosen(lines []string, signature, of string) (string, string) {
-	if len(lines) == 1 {
-		return lines[0], ""
-	}
-	for _, l := range lines {
-		if signature != "" && declares(l, signature) {
-			return l, ""
-		}
-	}
-	if of != "" {
-		var mine []string
-		for _, l := range lines {
-			if strings.Contains(l, " "+of+")") || strings.Contains(l, "*"+of+")") || strings.Contains(l, "class "+of) {
-				mine = append(mine, l)
-			}
-		}
-		if len(mine) == 1 {
-			return mine[0], ""
-		}
-	}
-	return "", "name the type it belongs to in \"of\""
-}
-
-func quoted(lines []string) []string {
-	out := make([]string, len(lines))
-	for i, l := range lines {
-		out[i] = strconv.Quote(l)
-	}
-	return out
-}
-
-// declares says whether line, a declaration's first line, declares what
-// signature states: the same but for its body, the block it opens, and its
-// spacing.
-func declares(line, signature string) bool {
-	norm := func(s string) string { return strings.TrimRight(strings.Join(strings.Fields(s), " "), " {:") }
-	l, s := norm(estate.Signature(line)), norm(signature)
-	rest, ok := strings.CutPrefix(l, s)
-	return ok && (rest == "" || strings.HasPrefix(strings.TrimSpace(rest), "="))
-}
-
-// identifier is a name as code spells it, perhaps qualified: Config,
-// models.Config, Config.Model.
-var identifier = regexp.MustCompile(`^[\pL_][\pL\pN_]*(\.[\pL_][\pL\pN_]*)*$`)
 
 // goDeclarationOf is the declaration, as its first line reads, of name in
 // the Go file src: a member of the type of where of is given — a method by

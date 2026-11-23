@@ -98,7 +98,11 @@ func (r *Run) assure(ctx context.Context) error {
 	var refusal string
 	if len(byPerson) > 0 {
 		ev := r.id("EV", len(r.units), 2)
-		got, err := r.ask(ctx, 5, "Does the change do what only you can judge? Read it — the candidates' files under Execution — and accept if each of these holds, or send it back saying which does not:\n\n"+strings.Join(byPerson, "\n"))
+		question := "Does the change do what only you can judge? Read it — the candidates' files under Execution — and accept if each of these holds, or send it back saying which does not:\n\n" + strings.Join(byPerson, "\n")
+		if w := r.widenedSaid(); w != "" {
+			question += "\n\nWhere the plan's division was found wrong, units changed beyond it, within the specification's scope:\n\n" + w
+		}
+		got, err := r.ask(ctx, 5, question)
 		if err != nil {
 			return err
 		}
@@ -198,4 +202,18 @@ func verdictOn(c string, critHolds map[string]bool, evidencePassed, judgedByNew 
 		return meta.Met, ""
 	}
 	return meta.Failed, ""
+}
+
+// widenedSaid is, a line a unit, the files units were given beyond their
+// plan.
+func (r *Run) widenedSaid() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var lines []string
+	for _, u := range r.units {
+		if files := r.widened[u.id]; len(files) > 0 {
+			lines = append(lines, u.id+": "+strings.Join(files, ", "))
+		}
+	}
+	return strings.Join(lines, "\n")
 }

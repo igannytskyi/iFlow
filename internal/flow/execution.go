@@ -161,6 +161,18 @@ func (r *Run) carry(ctx context.Context, i int, on []onto, prof profile, ok bool
 	if err != nil {
 		return c, fmt.Errorf("%s: what changed could not be read: %v", u.id, err)
 	}
+	// What the agent was given beyond the unit's scope is its scope too,
+	// and is said: the plan was a hint, and this is where it was wrong.
+	scope = append(slices.Clone(scope), res.Widened...)
+	if len(res.Widened) > 0 {
+		r.say(4, u.id, "%s changed %s beyond what the plan gave it, within the specification's scope", u.id, strings.Join(res.Widened, ", "))
+		r.mu.Lock()
+		if r.widened == nil {
+			r.widened = map[string][]string{}
+		}
+		r.widened[u.id] = res.Widened
+		r.mu.Unlock()
+	}
 	var outside []string
 	for _, ch := range changes {
 		if !inScope(ch.Path, scope) {
@@ -273,6 +285,7 @@ func (r *Run) byAgent(ctx context.Context, i int, ws string, on []onto, scope []
 	_ = os.WriteFile(filepath.Join(c.store, "pack.md"), []byte("# Goal\n\n"+goal+"\n\n"+pack.String()), 0o644)
 	task := harness.Task{Workspace: ws, Goal: goal, Role: string(u.kind), Scope: scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
 	if !u.isTests() && !u.isContract() {
+		task.Widen = func(path string) string { return r.widen(i, path) }
 		task.Tests = r.criterionTests(i)
 		if i == len(r.units)-1 {
 			task.Tests = r.newTestNames(prof)
@@ -479,8 +492,10 @@ func (r *Run) goal(u unit) string {
 		return brief + "\n\nDeclare only: no unit's behaviour is yours to write, and no test is written yet."
 	}
 	if u.isTests() {
-		return brief + "\n\nWrite only the tests. Assert what the criteria and the specification's decisions state, and nothing they leave open: a test that checks a detail the specification did not decide is a guess the code cannot know. The behaviour does not exist yet, and neither does the code that will provide it: " +
-			"call it by the names the brief gives, and leave it undefined — the code units define it, to pass your tests. " +
+		return brief + "\n\nWrite only the tests. Each judges whether its criterion's goal is reached — not how: any implementation that reaches it passes, and a test that another correct implementation would fail is wrong. " +
+			"So judge the behaviour where it is met, through what a person or a caller of the estate uses that exists already — its command, its server, its public functions, what it shows or writes — and assert the observable outcome the criterion states, nothing the specification left open. " +
+			"A helper's name, a private field, an internal order of calls is the code's to choose and never asserted. " +
+			"Call a name of the contract below only where nothing that exists reaches the behaviour — a new public function the criterion is about — and leave it undefined: the code units define it, to pass your tests. " +
 			"Fakes of what the code depends on (a mailer, a clock, a payment provider) belong in the tests; what the code itself provides never does. " +
 			"The tests fail against the estate as it stands, if only because what they call is not there yet. Name each test after what it checks. " +
 			"No test waits longer than five seconds for anything: wait on a channel or poll a condition with a short deadline, so that a failing test fails in seconds, not minutes."
@@ -650,4 +665,40 @@ func (r *Run) writeTrace(store, unit string) {
 	events := slices.Clone(r.agent[unit])
 	r.mu.Unlock()
 	_ = harness.WriteTrace(filepath.Join(store, harness.TraceFile), events)
+}
+
+// widen is why the code unit i may not be given path beyond its scope, or
+// "" where it may: a file of the specification's scope that nothing judges,
+// and that no other unit writes unless it was carried before this one —
+// what a unit carried beside it holds, it is not given.
+func (r *Run) widen(i int, path string) string {
+	switch {
+	case !inScope(path, r.spec.Scope):
+		return "it is outside the specification's scope; name it with cannot, and the specification goes back to have it"
+	case slices.Contains(r.spec.NewTests, path) || slices.Contains(r.spec.SuiteTests, path) || r.declaresTests(path) || slices.ContainsFunc(r.ledgerOfAll(), func(t meta.TestRecord) bool { return t.File == path }):
+		return "it judges the change, and what judges a change is never changed by it"
+	}
+	before := ancestors(r.dependencies(), i)
+	for j, u := range r.units {
+		if j != i && inScope(path, u.scope) && !before[j] {
+			return fmt.Sprintf("%s writes it, carried apart from this unit", u.id)
+		}
+	}
+	return ""
+}
+
+// ancestors is every unit i waits for, near and far.
+func ancestors(deps [][]int, i int) map[int]bool {
+	seen := map[int]bool{}
+	var walk func(int)
+	walk = func(j int) {
+		for _, d := range deps[j] {
+			if !seen[d] {
+				seen[d] = true
+				walk(d)
+			}
+		}
+	}
+	walk(i)
+	return seen
 }

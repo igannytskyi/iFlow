@@ -160,6 +160,28 @@
         "type": "object"
       },
       "type": "array"
+    },
+    "widened": {
+      "description": "files of the specification's scope a unit was given beyond its plan, by its agent's finding",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "description": "the file it was given",
+            "type": "string"
+          },
+          "unit": {
+            "description": "the unit, WU-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit",
+          "file"
+        ],
+        "type": "object"
+      },
+      "type": "array"
     }
   },
   "required": [

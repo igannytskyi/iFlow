@@ -133,9 +133,9 @@ func TestEachCriterionStandsByItsOwnTests(t *testing.T) {
 	}
 }
 
-// What a Go specification relies on is read by Go's own parser: a method
-// by its receiver, a field by its struct, an interface's method by its
-// interface; a name it declares more than once is chosen by "of".
+// A Go declaration is read by Go's own parser: a method by its receiver, a
+// field by its struct, an interface's method by its interface; a name it
+// declares more than once is told apart by its owner.
 func TestGoDeclarationsAreReadByTheirOwner(t *testing.T) {
 	src := []byte("package model\n\ntype Model interface {\n\tName() string\n}\n\ntype OpenAI struct {\n\tKey string\n}\n\nfunc (o OpenAI) Name() string {\n\treturn \"x\"\n}\n\nfunc (c *ClaudeCode) Name() string { return \"y\" }\n\nfunc New() Model { return nil }\n")
 	for _, c := range []struct{ name, of, want string }{
@@ -152,9 +152,6 @@ func TestGoDeclarationsAreReadByTheirOwner(t *testing.T) {
 	}
 	if got, all := goDeclarationOf(src, "Name", ""); got != "" || len(all) != 3 {
 		t.Errorf("a name declared thrice was chosen without its owner: %q %q", got, all)
-	}
-	if !identifier.MatchString("models.Config") || identifier.MatchString("Provider (as declared at models.go:51)") {
-		t.Error("a name is not told from a sentence")
 	}
 }
 
@@ -177,6 +174,36 @@ func TestDeclarationsAreHandedAsRelies(t *testing.T) {
 		got, ok := goDeclarationAt(src, c.name, c.line)
 		if !ok || got.Kind != c.want.Kind || got.Of != c.want.Of || got.Signature != c.want.Signature {
 			t.Errorf("%s at %d: %+v, want %+v", c.name, c.line, got, c.want)
+		}
+	}
+}
+
+// A code unit is given a file beyond its plan where the specification's
+// scope holds it, nothing judges it, and no unit carried apart from it
+// writes it.
+func TestAUnitIsGivenWhatThePlanMissed(t *testing.T) {
+	r := &Run{spec: draft{Scope: []string{"internal/ui/"}, NewTests: []string{"internal/ui/feed_test.go"}}, units: []unit{
+		{id: "C", kind: meta.ContractUnit, scope: []string{"internal/ui/feed.go"}},
+		{id: "T", kind: meta.TestsUnit, scope: []string{"internal/ui/feed_test.go"}},
+		{id: "A", kind: meta.CodeUnit, scope: []string{"internal/ui/remote.go"}},
+		{id: "B", kind: meta.CodeUnit, scope: []string{"internal/ui/feed.go"}, reads: []string{"internal/ui/remote.go"}},
+		{id: "D", kind: meta.CodeUnit, scope: []string{"internal/ui/app.go"}},
+		{id: "L", kind: meta.CodeUnit, scope: []string{"internal/ui/view.go"}},
+	}}
+	for _, c := range []struct {
+		unit int
+		path string
+		want string
+	}{
+		{3, "internal/ui/kit.go", ""},                         // nobody's: given
+		{3, "internal/ui/remote.go", ""},                      // A's, which B waits for: given
+		{3, "internal/ui/app.go", "D writes it"},              // D's, carried apart
+		{3, "internal/ui/feed_test.go", "judges the change"},  // a test
+		{3, "cmd/iflow/main.go", "outside the specification"}, // beyond the scope
+	} {
+		got := r.widen(c.unit, c.path)
+		if (c.want == "") != (got == "") || !strings.Contains(got, c.want) {
+			t.Errorf("%s given %s: %q, want %q", r.units[c.unit].id, c.path, got, c.want)
 		}
 	}
 }

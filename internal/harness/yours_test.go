@@ -101,3 +101,26 @@ func TestCannotBlamesOnlyWhatIsThere(t *testing.T) {
 		}
 	}
 }
+
+// An agent that writes a file outside its unit's scope is given it where
+// the task can widen it, and that is said; refused, it is told why.
+func TestAFileBeyondTheUnitIsGivenOrRefusedWithWhy(t *testing.T) {
+	dir := t.TempDir()
+	ws := &workspace{dir: dir, scope: []string{"feed.go"}, widen: func(p string) string {
+		if p == "remote.go" {
+			return ""
+		}
+		return "WU-3 writes it, carried apart from this unit"
+	}}
+	tool, _ := lookup("write_file")
+	if _, err := tool.run(ws, map[string]string{"path": "remote.go", "content": "package ui\n"}); err != nil {
+		t.Fatalf("a file the task could give was refused: %v", err)
+	}
+	if len(ws.widened) != 1 || ws.widened[0] != "remote.go" || !ws.writable("remote.go") {
+		t.Errorf("the file given is not said: %v", ws.widened)
+	}
+	_, err := tool.run(ws, map[string]string{"path": "app.go", "content": "package ui\n"})
+	if err == nil || !strings.Contains(err.Error(), "WU-3 writes it") {
+		t.Errorf("a file the task could not give was written, or refused without why: %v", err)
+	}
+}

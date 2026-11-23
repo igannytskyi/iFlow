@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -87,7 +88,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	if l.Model == nil {
 		return Result{Terminal: FailedSubstrate}, errNoModel
 	}
-	ws := &workspace{dir: t.Workspace, tests: t.Tests, faults: t.Faults, libraries: t.Libraries, scope: t.Scope, check: t.Check, first: t.First, graph: t.Graph, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
+	ws := &workspace{dir: t.Workspace, tests: t.Tests, widen: t.Widen, faults: t.Faults, libraries: t.Libraries, scope: slices.Clone(t.Scope), check: t.Check, first: t.First, graph: t.Graph, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
 	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t) + libraryNote(t.Libraries)}}
 	// What the estate says is read once: from the agent's third turn on it
 	// is sent as an index of what it held, and the agent reads what it
@@ -101,7 +102,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	var res Result
 	started := time.Now()
 	end := func(terminal, summary string) (Result, error) {
-		res.Terminal, res.Summary, res.Elapsed = terminal, summary, time.Since(started)
+		res.Terminal, res.Summary, res.Elapsed, res.Widened = terminal, summary, time.Since(started), ws.widened
 		emit(Event{At: time.Now(), Kind: Ended, Detail: terminal + ": " + summary, Usage: res.Usage})
 		return res, nil
 	}
@@ -131,7 +132,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			// writing is never cut — the files it may change, as they stand,
 			// so that it does not read its own work again and again.
 			sent[1] = slim
-			if mine := yours(ws.dir, t.Scope, yoursTokens); mine != "" {
+			if mine := yours(ws.dir, ws.scope, yoursTokens); mine != "" {
 				sent[1].Content += mine
 			}
 		}
@@ -173,7 +174,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 				return end(Candidate, strings.TrimSpace(msg.Content))
 			}
 			if judged == "" {
-				if outside := faultsOutside(faults(t, out), t.Scope); len(outside) > 0 {
+				if outside := faultsOutside(faults(t, out), ws.scope); len(outside) > 0 {
 					res.Blames = outside
 					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+faultsIn(out, outside))
 				}
@@ -232,7 +233,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			// this unit can mend: the run says so now, so that what wrote
 			// them is carried again, rather than spend its steps.
 			if ws.last.ran && !ws.last.ok && ws.last.why == "" {
-				if outside := faultsOutside(faults(t, ws.last.out), t.Scope); len(outside) > 0 {
+				if outside := faultsOutside(faults(t, ws.last.out), ws.scope); len(outside) > 0 {
 					res.Blames = outside
 					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+faultsIn(ws.last.out, outside))
 				}

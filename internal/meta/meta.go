@@ -280,6 +280,9 @@ type Execution struct {
 	// criterion it judges, as each unit stated it and the framework checked
 	// it against what was written.
 	Tests []TestRecord `json:"tests,omitempty" doc:"the test ledger: every test written first, its file, the criterion it judges and the unit that wrote it"`
+	// Widened is where a unit's agent found the plan's division wrong:
+	// files of the specification's scope it was given beyond its unit's.
+	Widened []Widening `json:"widened,omitempty" doc:"files of the specification's scope a unit was given beyond its plan, by its agent's finding"`
 	// Reproductions are, for a repair, how each criterion stood before it.
 	Reproductions []Reproduction `json:"reproductions,omitempty" doc:"for a repair, how each criterion stood before it"`
 	Prose         string         `json:"prose,omitempty" doc:"what the document says besides its fields, for one written before the model held it"`
@@ -293,6 +296,13 @@ type TestRecord struct {
 	File      string `json:"file" doc:"the file it is declared in"`
 	Criterion string `json:"criterion" doc:"the criterion it judges, CR-<nnn>-<nn>"`
 	Unit      string `json:"unit" doc:"the tests unit that wrote it, WU-<nnn>-<nn>"`
+}
+
+// Widening is a file a unit was given beyond the scope its plan gave it,
+// within the specification's.
+type Widening struct {
+	Unit string `json:"unit" doc:"the unit, WU-<nnn>-<nn>"`
+	File string `json:"file" doc:"the file it was given"`
 }
 
 // Run is one unit's run by its executor.

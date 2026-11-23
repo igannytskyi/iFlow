@@ -253,9 +253,18 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 		}
 		last = nil
 		for _, f := range files {
-			if !allowed(f.path, t.Scope) {
-				emit(Event{At: time.Now(), Kind: Refused, Tool: "Write", Detail: f.path + " is outside what the unit may change"})
-				continue
+			if !allowed(f.path, t.Scope) && !slices.Contains(res.Widened, filepath.ToSlash(filepath.Clean(f.path))) {
+				// Outside its scope: given it where the task can widen it.
+				why := "outside what the unit may change"
+				if t.Widen != nil {
+					if why = t.Widen(filepath.ToSlash(filepath.Clean(f.path))); why == "" {
+						res.Widened = append(res.Widened, filepath.ToSlash(filepath.Clean(f.path)))
+					}
+				}
+				if why != "" {
+					emit(Event{At: time.Now(), Kind: Refused, Tool: "Write", Detail: f.path + " is " + why})
+					continue
+				}
 			}
 			dst := filepath.Join(t.Workspace, filepath.FromSlash(f.path))
 			if err := f.apply(dst); err != nil {
@@ -300,7 +309,7 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			res.Summary = "the check still failed after " + fmt.Sprint(n) + " agent(s)"
 			continue
 		}
-		if outside := faultsOutside(faults(t, out), t.Scope); len(outside) > 0 {
+		if outside := faultsOutside(faults(t, out), append(slices.Clone(t.Scope), res.Widened...)); len(outside) > 0 {
 			// What fails is in files this unit may not change — tests
 			// written before it, a unit before it — and no agent of this
 			// unit can mend it: say so now rather than spend the attempts.

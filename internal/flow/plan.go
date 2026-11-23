@@ -377,12 +377,13 @@ func (r *Run) unitsOf(p planDraft) ([]unit, string) {
 		if strings.TrimSpace(pu.Objective) == "" || len(pu.Tasks) == 0 {
 			return nil, fmt.Sprintf("unit %q has no objective or no tasks", pu.Title)
 		}
-		for _, f := range u.reads {
-			// P11: a file read exists, or another unit writes it — for tests,
-			// which are written before any code, only the contract, which
-			// declares in the files the code units provide in.
+		// What a unit reads, what it gives the others and how much it holds
+		// are the planner's foresight of code it has not read: hints to the
+		// agent, who reads the code. One the estate shows wrong is set aside
+		// and said, never a reason to plan again (handoffs.md, defects.md).
+		u.reads = slices.DeleteFunc(slices.Clone(u.reads), func(f string) bool {
 			if fileExists(filepath.Join(r.repo, filepath.FromSlash(f))) {
-				continue
+				return false
 			}
 			written := slices.ContainsFunc(p.Units, func(o ticket) bool {
 				if u.kind == meta.TestsUnit {
@@ -391,11 +392,12 @@ func (r *Run) unitsOf(p planDraft) ([]unit, string) {
 				return o.Title != pu.Title && slices.Contains(o.Scope, f)
 			})
 			if !written {
-				return nil, fmt.Sprintf("unit %q reads %s, which neither exists nor is written before it", pu.Title, f)
+				r.say(2, "", "a hint set aside: %q would read %s, which neither exists nor is written before it", pu.Title, f)
 			}
-		}
+			return !written
+		})
 		if why := r.oversized(u); why != "" {
-			return nil, fmt.Sprintf("unit %q %s", pu.Title, why)
+			r.say(2, "", "a hint: %q %s — its agent is handed outlines where whole files do not fit", pu.Title, why)
 		}
 		switch u.kind {
 		case meta.TestsUnit:
@@ -410,17 +412,23 @@ func (r *Run) unitsOf(p planDraft) ([]unit, string) {
 	if problem := r.canonical(tests, code); problem != "" {
 		return nil, problem
 	}
-	for _, u := range code {
-		if why := r.providedAlready(u); why != "" {
-			return nil, fmt.Sprintf("unit %q: %s", u.title, why)
-		}
+	for i := range code {
+		// A name the package holds already is not declared again: the unit
+		// changes it, as its tasks say.
+		code[i].provides = slices.DeleteFunc(code[i].provides, func(p meta.Provision) bool {
+			why := r.providedAlready(unit{provides: []meta.Provision{p}})
+			if why != "" {
+				r.say(2, "", "a hint set aside: %q %s", code[i].title, why)
+			}
+			return why != ""
+		})
 	}
 	code, problem := orderByUse(code)
 	if problem != "" {
 		return nil, problem
 	}
 	if problem := r.orderOf(code); problem != "" {
-		return nil, problem
+		r.say(2, "", "a hint: %s — its agent finds what is there", problem)
 	}
 	return r.number(append(tests, code...)), ""
 }
@@ -448,8 +456,8 @@ func (r *Run) canonical(tests, code []unit) string {
 	// against them as their packages write them.
 	var provided []meta.Provision
 	for i := range code {
-		for j := range code[i].provides {
-			p := &code[i].provides[j]
+		var kept []meta.Provision
+		for _, p := range code[i].provides {
 			if q, base, ok := cutLast(p.Name, "."); ok && slices.Contains(r.qualifiers(p.File), q) {
 				p.Name = base
 			}
@@ -459,10 +467,14 @@ func (r *Run) canonical(tests, code []unit) string {
 			case slices.Contains(r.qualifiers(p.File), q):
 				p.Of = base
 			default:
-				return fmt.Sprintf("unit %q gives %s to %s, a type of another package than %s's: a unit adds fields and methods only to the types of the package it writes in",
-					code[i].title, p.Name, p.Of, p.File)
+				// No unit can add to another package's type: the hint is set
+				// aside, and the agent finds where the name belongs.
+				r.say(2, "", "a hint set aside: %q would give %s to %s, a type of another package than %s's", code[i].title, p.Name, p.Of, p.File)
+				continue
 			}
+			kept = append(kept, p)
 		}
+		code[i].provides = kept
 		provided = append(provided, code[i].provides...)
 	}
 	repo := r.cfg.Estate.Repo(r.repo)

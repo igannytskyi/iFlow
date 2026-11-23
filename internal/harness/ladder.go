@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"slices"
 	"time"
 )
 
@@ -56,6 +57,11 @@ func (l Ladder) Run(ctx context.Context, t Task, emit func(Event)) (Result, erro
 		then.Terminal, then.Summary, then.Cannot, then.Blames, then.BlamedTests = first.Terminal, first.Summary, first.Cannot, first.Blames, first.BlamedTests
 	}
 	then.Usage = first.Usage.Add(then.Usage)
+	for _, w := range first.Widened {
+		if !slices.Contains(then.Widened, w) {
+			then.Widened = append(then.Widened, w)
+		}
+	}
 	then.Steps += first.Steps
 	then.Turns += first.Turns
 	then.Elapsed += first.Elapsed

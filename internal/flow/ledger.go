@@ -184,3 +184,10 @@ func (r *Run) ledgerOf(unit string) []meta.TestRecord {
 	}
 	return out
 }
+
+// ledgerOfAll is the whole ledger kept so far.
+func (r *Run) ledgerOfAll() []meta.TestRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.ledger)
+}

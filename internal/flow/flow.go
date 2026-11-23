@@ -143,8 +143,9 @@ type Run struct {
 	// which the person is shown beside it.
 	reviewLeft review
 	units      []unit
-	cands      map[string]string // unit → candidate folder
-	ledger     []meta.TestRecord // the test ledger: every test kept, the criterion it judges, the unit that wrote it
+	cands      map[string]string   // unit → candidate folder
+	ledger     []meta.TestRecord   // the test ledger: every test kept, the criterion it judges, the unit that wrote it
+	widened    map[string][]string // by unit, the files it was given beyond its plan
 	// again is, for a tests unit carried again, what the code that could
 	// not pass its tests found wrong with them.
 	again map[string]string
@@ -193,7 +194,7 @@ func New(cfg Config, repo, statement string, changed func()) *Run {
 		cfg.Gate = gate.New(cfg.Estate)
 	}
 	r := &Run{cfg: cfg, repo: repo, statement: statement, agent: map[string][]harness.Event{},
-		answer: make(chan decision, 1), changed: changed, cands: map[string]string{}}
+		answer: make(chan decision, 1), changed: changed, cands: map[string]string{}, widened: map[string][]string{}}
 	for i := range r.areas {
 		r.areas[i] = Idle
 	}

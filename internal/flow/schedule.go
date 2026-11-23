@@ -377,6 +377,10 @@ func (s *scheduler) keep(i int) error {
 	if u.isTests() {
 		s.doc.Tests = append(slices.DeleteFunc(s.doc.Tests, func(t meta.TestRecord) bool { return t.Unit == u.id }), c.tests...)
 	}
+	s.doc.Widened = slices.DeleteFunc(s.doc.Widened, func(w meta.Widening) bool { return w.Unit == u.id })
+	for _, f := range c.res.Widened {
+		s.doc.Widened = append(s.doc.Widened, meta.Widening{Unit: u.id, File: f})
+	}
 	if err := artifact.Save(r.dir, artifact.Execution, s.doc); err != nil {
 		return r.fail(4, "the execution could not be written: %v", err)
 	}

@@ -1977,46 +1977,6 @@ func TestAPlanLeavingACriterionIsSentBack(t *testing.T) {
 	}
 }
 
-// What a specification relies on that exists is held to the estate's own
-// declaration: the author names it, the framework copies the declaration.
-func TestWhatTheSpecificationReliesOnIsAsDeclared(t *testing.T) {
-	repo := estateFixture(t)
-	r := &Run{repo: repo, cfg: Config{Estate: estate.NewLocal()}}
-	for _, p := range []meta.Provision{
-		{File: "greet.go", Name: "Greet", Kind: meta.Function},
-		{File: "greet.go", Name: "Greet", Kind: meta.Function, Signature: "func Greet(n ...string) string"},
-		{File: "greet.go", Name: "greet.Greet", Kind: meta.Function},
-	} {
-		got, why := r.relied([]meta.Provision{p})
-		if len(why) > 0 || len(got) != 1 || got[0].Signature != "func Greet(n string) string" {
-			t.Errorf("%s %q was not taken with the estate's declaration: %v %q", p.Name, p.Signature, got, why)
-		}
-	}
-	if _, why := r.relied([]meta.Provision{{File: "greet.go", Name: "Shout", Kind: meta.Function}, {File: "greet.go", Name: "Greet", Kind: "interface"}}); len(why) != 2 || !strings.Contains(why[0], "does not declare") || !strings.Contains(why[1], `the kind "interface"`) {
-		t.Errorf("not every name relied on wrongly was said, each with why: %q", why)
-	}
-	if c, why := chosen([]string{"func (a A) Model() int", "func (b *B) Model() string"}, "", "B"); c != "func (b *B) Model() string" || why != "" {
-		t.Errorf("of did not choose between two methods of one name: %q %q", c, why)
-	}
-	if _, why := chosen([]string{"func (a A) Model() int", "func (b *B) Model() string"}, "", ""); why == "" {
-		t.Error("two declarations of one name were chosen between without the author saying which")
-	}
-	for _, c := range []struct {
-		line, sig string
-		want      bool
-	}{
-		{"def greet(name: str) -> str:", "def greet(name: str) -> str", true},
-		{"def greet(name: str) -> str:", "def greet(name=None)", false},
-		{"function greet(name) {", "function greet(name)", true},
-		{"func  Greet(n string)  string {", "func Greet(n string) string", true},
-		{"func Greet(n string) string {", "func Greet(n string", false},
-	} {
-		if got := declares(c.line, c.sig); got != c.want {
-			t.Errorf("declares(%q, %q) = %v", c.line, c.sig, got)
-		}
-	}
-}
-
 // A plan with tests and no code is sent back, saying so; it does not bring
 // the run down.
 func TestAPlanWithNoCodeIsSentBack(t *testing.T) {
@@ -2042,7 +2002,7 @@ func TestAPlanWithNoCodeIsSentBack(t *testing.T) {
 // them.
 func TestWhatTestsMayRead(t *testing.T) {
 	repo := estateFixture(t)
-	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal()}}
+	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal()}, changed: func() {}}
 	plan := func(reads string, provides string) planDraft {
 		var p planDraft
 		js := `{"units":[
@@ -2053,15 +2013,28 @@ func TestWhatTestsMayRead(t *testing.T) {
 		}
 		return p
 	}
-	if _, why := r.unitsOf(plan("greet.go", "")); why != "" {
-		t.Errorf("tests reading the code they judge were sent back: %s", why)
+	reads := func(units []unit) []string {
+		for _, u := range units {
+			if u.isTests() {
+				return u.reads
+			}
+		}
+		return nil
 	}
-	if _, why := r.unitsOf(plan("loud.go", "")); !strings.Contains(why, "neither exists nor is written before it") {
-		t.Errorf("tests reading what only the code will write were let be: %q", why)
+	if units, why := r.unitsOf(plan("greet.go", "")); why != "" || !slices.Equal(reads(units), []string{"greet.go"}) {
+		t.Errorf("tests reading the code they judge were not let read it: %s", why)
+	}
+	// What only the code will write is no read for tests written before it:
+	// the hint is set aside and said — the plan is not sent back for it.
+	if units, why := r.unitsOf(plan("loud.go", "")); why != "" || len(reads(units)) != 0 {
+		t.Errorf("a read of what is not there was not set aside: %q %v", why, reads(units))
+	}
+	if !slices.ContainsFunc(r.steps, func(s Step) bool { return strings.Contains(s.Text, "neither exists nor is written before it") }) {
+		t.Error("a hint set aside was not said")
 	}
 	loud := `{"file":"loud.go","name":"Loud","kind":"function","signature":"func Loud(n string) string"}`
-	if _, why := r.unitsOf(plan("loud.go", loud)); why != "" {
-		t.Errorf("tests reading what the contract declares were sent back: %s", why)
+	if units, why := r.unitsOf(plan("loud.go", loud)); why != "" || !slices.Equal(reads(units), []string{"loud.go"}) {
+		t.Errorf("tests reading what the contract declares were not let read it: %s", why)
 	}
 }
 
@@ -2122,7 +2095,7 @@ func TestTestsAreHandedTheCodeByItsDeclarations(t *testing.T) {
 // unit provides. A field given to a type of another package is sent back.
 func TestNamesQualifiedByTheirPackageAreTheirPackagesOwn(t *testing.T) {
 	repo := estateFixture(t)
-	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal()}}
+	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal()}, changed: func() {}}
 	plan := func(of string) planDraft {
 		var p planDraft
 		js := `{"units":[
@@ -2154,7 +2127,9 @@ func TestNamesQualifiedByTheirPackageAreTheirPackagesOwn(t *testing.T) {
 			}
 		}
 	}
-	if _, why := r.unitsOf(plan("http.Request")); !strings.Contains(why, "a type of another package") {
-		t.Errorf("a field given to another package's type was let be: %q", why)
+	// No unit can add to another package's type: the hint is set aside and
+	// said, and the plan stands.
+	if _, why := r.unitsOf(plan("http.Request")); why != "" || !slices.ContainsFunc(r.steps, func(s Step) bool { return strings.Contains(s.Text, "a type of another package") }) {
+		t.Errorf("a field given to another package's type was not set aside and said: %q", why)
 	}
 }
