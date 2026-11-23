@@ -3,7 +3,11 @@ package tui
 import (
 	"cmp"
 	"fmt"
+	"slices"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/igannytskyi/iflow/internal/protocol"
 )
@@ -19,17 +23,71 @@ func (m Model) chatRef() protocol.ChatRef {
 	return ref
 }
 
-// chat is the conversation on view: its turns, newest at the foot, and the
-// answer being written.
+// chat is the conversation in its column, width by height: what it is
+// about, its turns — the newest at the foot, scrolled back by chatScroll —
+// and the line typed on, at the column's own foot.
 func (m Model) chat(width, height int) string {
-	ref := m.talking
+	head, lines := m.chatHead(width), m.chatLines(width)
+	foot := []string{m.st.faint.Render(strings.Repeat("─", width))}
+	line := m.ask
+	line.Width = max(4, width-ansi.StringWidth(line.Prompt)-1)
+	if m.mode == asking {
+		foot = append(foot, line.View())
+	} else {
+		foot = append(foot, m.st.faint.Render("› click here or press c to type"))
+	}
+
+	room := max(1, height-len(head)-len(foot))
+	end := len(lines) - min(m.chatScroll, max(0, len(lines)-room))
+	start := max(0, end-room)
+	shown := slices.Clone(lines[start:end])
+	if start > 0 {
+		shown[0] = m.st.faint.Render(fmt.Sprintf("↑ %d lines above — PgUp or the wheel", start))
+	}
+	for len(shown) < room {
+		shown = append(shown, "")
+	}
+	out := append(append(head, shown...), foot...)
+	return lipgloss.NewStyle().Width(width).Height(height).MaxHeight(height).Render(strings.Join(out, "\n"))
+}
+
+// chatScrolled is the conversation scrolled back by n lines more (fewer,
+// where n is negative), never past its first line nor its newest.
+func (m Model) chatScrolled(n int) Model {
+	l := m.layout()
+	if l.chat == 0 {
+		return m
+	}
+	room := max(1, l.body-len(m.chatHead(l.chat))-2)
+	m.chatScroll = min(max(0, m.chatScroll+n), max(0, len(m.chatLines(l.chat))-room))
+	return m
+}
+
+// chatHead is what the conversation is about, and what it has cost.
+func (m Model) chatHead(width int) []string {
 	about := "the project"
-	if ref.Dir != "" {
+	if m.talking.Dir != "" {
 		about = "this task"
 	}
-	head := m.st.strong.Render("talk about "+about) + m.st.faint.Render(" — the model reads what it has written, and changes nothing")
-	s, _ := m.client.Chat(ref)
+	s, _ := m.client.Chat(m.talking)
+	head := []string{m.st.strong.Render("talk about " + about)}
+	sub := "reads what it has written, changes nothing"
+	if s.CostUSD > 0 {
+		sub = fmt.Sprintf("$%.3f so far · ", s.CostUSD) + sub
+	}
+	head = append(head, fold(m.st.faint.Render(sub), width, "")...)
+	return append(head, m.st.faint.Render(strings.Repeat("─", width)))
+}
+
+// chatLines is the conversation's turns, wrapped to width, oldest first.
+func (m Model) chatLines(width int) []string {
+	s, _ := m.client.Chat(m.talking)
 	var lines []string
+	add := func(text, indent string) {
+		for _, l := range strings.Split(text, "\n") {
+			lines = append(lines, strings.Split(ansi.Wrap(indent+l, width, ""), "\n")...)
+		}
+	}
 	for _, msg := range s.Messages {
 		who := m.st.you.Render("you")
 		if msg.Role != "person" {
@@ -39,38 +97,27 @@ func (m Model) chat(width, height int) string {
 			who = m.st.bad.Render("failed")
 		}
 		lines = append(lines, who)
-		for _, l := range strings.Split(wrap(printable(msg.Text), width-2), "\n") {
-			lines = append(lines, "  "+l)
-		}
+		add(printable(msg.Text), "")
 		// The pages it cites, each a link where the terminal opens links.
 		for i, src := range msg.Sources {
 			what := printable(cmp.Or(src.Title, src.URL))
-			for k, l := range fold(fmt.Sprintf("[%d] %s — %s", i+1, what, printable(src.URL)), width-2, "    ") {
+			for k, l := range fold(fmt.Sprintf("[%d] %s — %s", i+1, what, printable(src.URL)), width, "    ") {
 				if k == 0 {
 					l = m.term.webLink(src.URL, l)
 				}
-				lines = append(lines, "  "+m.st.faint.Render(l))
+				lines = append(lines, m.st.faint.Render(l))
 			}
 		}
 		lines = append(lines, "")
 	}
 	if s.Waiting {
 		lines = append(lines, m.st.model.Render("model"))
-		for _, l := range strings.Split(wrap(printable(s.Partial)+" …", width-2), "\n") {
-			lines = append(lines, "  "+l)
-		}
+		add(printable(s.Partial)+" …", "")
 	}
 	if len(lines) == 0 {
-		lines = []string{m.st.faint.Render("ask anything: why it stopped, what a unit was handed, what to do next")}
+		add(m.st.faint.Render("ask anything: why it stopped, what a unit was handed, what to do next"), "")
 	}
-	room := max(1, height-2)
-	lines = lines[max(0, len(lines)-room):]
-	if s.CostUSD > 0 {
-		head += "\n" + m.st.faint.Render(fmt.Sprintf("this conversation has cost $%.3f", s.CostUSD))
-	} else {
-		head += "\n"
-	}
-	return head + "\n" + strings.Join(lines, "\n")
+	return lines
 }
 
 // printable is text a model or a page wrote, without what a terminal would

@@ -71,11 +71,20 @@ type Model struct {
 	traces map[string][]protocol.Event // a candidate's agent's steps, by folder and candidate
 	md     map[string]string           // a change described, drawn for a width
 
-	// talking is the conversation open below the task, while chatOpen.
-	chatOpen bool
-	talking  protocol.ChatRef
+	// talking is the conversation open beside the task, while chatOpen;
+	// chatW its width as the person set it, 0 until they do; chatScroll how
+	// many lines it is scrolled back from its newest; dragging, whether its
+	// edge is being dragged.
+	chatOpen   bool
+	talking    protocol.ChatRef
+	chatW      int
+	chatScroll int
+	dragging   bool
 
+	// input is the line at the foot: a new intent, why something is sent
+	// back; ask is the line at the conversation's foot.
 	input textinput.Model
+	ask   textinput.Model
 	mode  typing
 	note  string // what the screen last has to say: an error, an answer
 
@@ -88,11 +97,17 @@ type Model struct {
 // service through client; moved carries what moved: a run's id, or a
 // conversation's key.
 func New(ctx context.Context, client *service.Client, moved chan string, project string, theme Theme) Model {
-	in := textinput.New()
-	in.CharLimit = 4000
-	in.Cursor.SetMode(cursor.CursorStatic) // a cursor that does not blink asks nothing of the screen
+	line := func(prompt string) textinput.Model {
+		in := textinput.New()
+		in.CharLimit = 4000
+		in.Prompt = prompt
+		in.Cursor.SetMode(cursor.CursorStatic) // a cursor that does not blink asks nothing of the screen
+		return in
+	}
+	ask := line("› ")
+	ask.Placeholder = "ask anything"
 	return Model{ctx: ctx, client: client, moved: moved, project: project, term: detect(os.Getenv), theme: theme, st: stylesOf(theme), area: 1,
-		input: in, told: map[string]string{}, docs: map[string]protocol.ChangeDoc{}, steps: map[string]int{},
+		input: line(""), ask: ask, told: map[string]string{}, docs: map[string]protocol.ChangeDoc{}, steps: map[string]int{},
 		traces: map[string][]protocol.Event{}, md: map[string]string{}}
 }
 
@@ -245,6 +260,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.input.Width = max(10, msg.Width-24)
+		m.chatW = min(m.chatW, max(0, msg.Width/2))
 		m.md = map[string]string{}
 	case projectsMsg:
 		first := len(m.projects) == 0
@@ -329,13 +345,21 @@ func (m Model) notify(run string) tea.Cmd {
 	}
 }
 
-// begin begins typing at the foot, for what.
+// begin begins typing, for what: in the conversation, on its own line;
+// for anything else, at the foot.
 func (m Model) begin(what typing, prompt string) (Model, tea.Cmd) {
-	m.mode, m.input.Prompt = what, prompt
+	m.mode = what
+	if what == asking {
+		return m, m.ask.Focus()
+	}
+	m.input.Prompt = prompt
 	return m, m.input.Focus()
 }
 
 func (m Model) typed(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.mode == asking {
+		return m.asked(k)
+	}
 	switch k.Type {
 	case tea.KeyEsc:
 		m.mode = reading
@@ -349,23 +373,47 @@ func (m Model) typed(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		p, t, _ := m.current()
+		m.input.Blur()
 		switch m.mode {
 		case intent:
 			m.mode, m.sel, m.focus, m.area = reading, 0, onTask, 1 // the new task comes first, and is shown
-			m.input.Blur()
 			return m, m.start(p.Path, text)
 		case ground:
 			m.mode = reading
-			m.input.Blur()
 			run := t.run
 			return m, func() tea.Msg { return result(m.client.Refuse(m.ctx, run, text), "sent back") }
-		case asking:
-			ref := m.talking
-			return m, func() tea.Msg { return result(m.client.Ask(m.ctx, ref, text), "") }
 		}
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
+	return m, cmd
+}
+
+// asked is a key typed in the conversation: enter sends what is written,
+// the page keys scroll it, esc leaves the line with what is written kept.
+func (m Model) asked(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	page := max(1, m.layout().body-6)
+	switch k.Type {
+	case tea.KeyEsc:
+		m.mode = reading
+		m.ask.Blur()
+		return m, nil
+	case tea.KeyPgUp, tea.KeyCtrlUp:
+		return m.chatScrolled(page), nil
+	case tea.KeyPgDown, tea.KeyCtrlDown:
+		return m.chatScrolled(-page), nil
+	case tea.KeyEnter:
+		text := strings.TrimSpace(m.ask.Value())
+		if text == "" {
+			return m, nil
+		}
+		m.ask.SetValue("")
+		m.chatScroll = 0 // what is asked, and its answer, are shown
+		ref := m.talking
+		return m, func() tea.Msg { return result(m.client.Ask(m.ctx, ref, text), "") }
+	}
+	var cmd tea.Cmd
+	m.ask, cmd = m.ask.Update(k)
 	return m, cmd
 }
 
@@ -389,6 +437,17 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		if m.chatOpen {
 			m.chatOpen = false // the conversation closes before anything else does
+			return m, nil
+		}
+	case "<", ">":
+		if m.chatOpen {
+			w := m.layout().chat
+			if k.String() == "<" {
+				w += 4
+			} else {
+				w -= 4
+			}
+			m.chatW = max(minChat, w)
 			return m, nil
 		}
 	case "a":
@@ -519,20 +578,25 @@ func result(err error, done string) tea.Msg {
 }
 
 // View draws the screen: the projects and their tasks on the left, the
-// task on view in the middle with the conversation below it where one is
-// open, what it cost on the right, and the line to type on at the foot.
+// task on view in the middle, what it cost beside it, the conversation in
+// its own column on the right where one is open, and what the keys do at
+// the foot.
 func (m Model) View() string {
 	if m.width == 0 {
 		return ""
 	}
 	l := m.layout()
-	middle := box(l.mid, l.taskH, m.task(l.mid, l.taskH))
-	if m.chatOpen {
-		middle += "\n" + m.st.faint.Render(strings.Repeat("─", l.mid)) + "\n" + box(l.mid, l.chatH, m.chat(l.mid, l.chatH))
-	}
-	cols := []string{box(l.side, l.body, m.sidebar(l.side, l.body)), m.st.faint.Render(" │ "), middle}
+	rule := m.st.faint.Render(strings.TrimSuffix(strings.Repeat(" │ \n", l.body), "\n"))
+	cols := []string{box(l.side, l.body, m.sidebar(l.side, l.body)), rule, box(l.mid, l.body, m.task(l.mid, l.body))}
 	if l.costs > 0 {
-		cols = append(cols, m.st.faint.Render(" │ "), box(l.costs, l.body, m.costs(l.costs)))
+		cols = append(cols, rule, box(l.costs, l.body, m.costs(l.costs)))
+	}
+	if l.chat > 0 {
+		edge := rule
+		if m.dragging {
+			edge = m.st.strong.Render(strings.TrimSuffix(strings.Repeat(" ┃ \n", l.body), "\n"))
+		}
+		cols = append(cols, edge, m.chat(l.chat, l.body))
 	}
 	return strings.Join(m.top(), "\n") + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, cols...) + "\n" + strings.Join(m.foot(), "\n")
 }
@@ -601,7 +665,7 @@ func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // foot is the line the person types on, or what the keys do here, whole.
 func (m Model) foot() []string {
-	if m.mode != reading {
+	if m.mode == intent || m.mode == ground {
 		return []string{m.input.View()}
 	}
 	var keys string
@@ -611,8 +675,10 @@ func (m Model) foot() []string {
 	case onTask:
 		keys = "1–6, ←→ or click an area · ↑↓ choose/scroll · esc back · a accept · r send back · s stop · o read the spec · c talk"
 	}
-	if m.chatOpen {
-		keys = "c to type · esc closes the conversation · " + keys
+	if m.mode == asking {
+		keys = "enter sends · PgUp/PgDn or the wheel scroll the conversation · drag its edge or < > to widen · esc leaves the line"
+	} else if m.chatOpen {
+		keys = "c or click to type · < > or drag its edge to widen · esc closes the conversation · " + keys
 	}
 	var out []string
 	for _, l := range fold(keys, m.width, "") {

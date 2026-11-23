@@ -257,7 +257,7 @@ func TestTheScreenOpensAChangeAreaByArea(t *testing.T) {
 		t.Error("esc did not go back to the list")
 	}
 	m = key(m, "c")
-	show("the conversation, below the task", "talk about the project", "▾ greeting")
+	show("the conversation, beside the task", "talk about the project", "▾ greeting")
 	m = key(m, "esc")
 	if m.mode != reading || !m.chatOpen {
 		t.Error("esc did not leave the line typed on, the conversation still open")
@@ -335,5 +335,43 @@ func TestWhatTheWebWroteIsShownAsText(t *testing.T) {
 	}
 	if got := term.webLink("https://go.dev/doc", "words"); !strings.Contains(got, "\x1b]8;;https://go.dev/doc\x1b\\") {
 		t.Errorf("a page of the web was not linked: %q", got)
+	}
+}
+
+// The conversation is a column of its own on the right, the whole height,
+// its line typed on at its own foot; its edge is dragged to widen it.
+func TestTheConversationIsAColumnOfItsOwn(t *testing.T) {
+	m := New(context.Background(), &service.Client{}, nil, "/estate", Terminal)
+	m.projects = []protocol.Project{{Path: "/estate", Name: "estate"}}
+	m = drive(m, tea.WindowSizeMsg{Width: 160, Height: 40})
+	m.chatOpen = true
+	m, _ = m.begin(asking, "")
+	l := m.layout()
+	if l.chat < minChat || l.chatX+l.chat != m.width || l.side+3+l.mid+3 > l.chatX {
+		t.Fatalf("the conversation is not a column on the right: %+v", l)
+	}
+	rows := strings.Split(ansi.Strip(m.View()), "\n")
+	if len(rows) != m.height {
+		t.Errorf("the screen is %d lines, not %d", len(rows), m.height)
+	}
+	last := rows[l.top+l.body-1]
+	if at := strings.Index(last, "›"); at < 0 || ansi.StringWidth(last[:at]) < l.chatX {
+		t.Errorf("the line typed on is not at the conversation's own foot:\n%s", last)
+	}
+	if !strings.Contains(rows[l.top], "talk about the project") {
+		t.Errorf("the conversation does not begin at the top of its column:\n%s", rows[l.top])
+	}
+	if foot := strings.Join(m.foot(), " "); !strings.Contains(foot, "enter sends") {
+		t.Errorf("the foot does not say what the keys do in the conversation: %s", foot)
+	}
+
+	m = drive(m, tea.MouseMsg{X: l.chatX - 2, Y: l.top + 3, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	m = drive(m, tea.MouseMsg{X: m.width - 71, Y: l.top + 3, Button: tea.MouseButtonLeft, Action: tea.MouseActionMotion})
+	m = drive(m, tea.MouseMsg{X: m.width - 71, Y: l.top + 3, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease})
+	if got := m.layout().chat; got != 70 || m.dragging {
+		t.Errorf("dragged to 70 columns, the conversation is %d wide (dragging %v)", got, m.dragging)
+	}
+	if m = m.chatScrolled(50); m.chatScroll != 0 {
+		t.Errorf("an empty conversation scrolled back %d lines", m.chatScroll)
 	}
 }
