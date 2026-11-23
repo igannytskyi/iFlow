@@ -1,5 +1,10 @@
 # iFlow
 
+[![CI](https://github.com/igannytskyi/iFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/igannytskyi/iFlow/actions/workflows/ci.yml)
+[![Code: BUSL-1.1](https://img.shields.io/badge/code-BUSL--1.1-blue)](LICENSES/BUSL-1.1.txt)
+[![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey)](LICENSES/CC-BY-SA-4.0.txt)
+[![Go](https://img.shields.io/github/go-mod/go-version/igannytskyi/iFlow)](go.mod)
+
 A framework for software development and maintenance carried out at scale by autonomous agents.
 
 **Goal.** To make the development and maintenance of software an activity carried out at any scale by autonomous agents: a person contributes the intent and the criteria of an acceptable result, is free not to take part in how it is achieved, and is able to verify it at will; and the volume of such work is limited only by the resources one is willing to spend on it.
