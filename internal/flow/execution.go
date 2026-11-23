@@ -213,23 +213,31 @@ func (r *Run) carry(ctx context.Context, i int, on []onto, prof profile, ok bool
 		if len(names) == 0 {
 			return c, fmt.Errorf("%s wrote no test this estate's runner can name", u.id)
 		}
-		passed, out, took := runIn(ctx, ws, resolve(ws, prof.only(names)))
-		r.cost(artifact.Cost{Area: 4, Unit: u.id, What: "the tests run against the estate as it stands", Actor: prof.name}, model.Usage{}, took)
-		_ = os.WriteFile(filepath.Join(c.store, "failing-before.txt"), []byte(out), 0o644)
-		if passed && nothingRan(out, names) {
-			// Not one of them was run: the estate's own runner does not look
-			// where they were written. That they pass says nothing.
-			return c, fmt.Errorf("%s: the estate's own runner (%s) ran none of the tests %s — they are where it does not look; it said: %s",
-				u.id, shown(prof.only(names)), strings.Join(names, ", "), lastLines(out, 3))
+		run := runTests(ctx, ws, prof, names)
+		r.cost(artifact.Cost{Area: 4, Unit: u.id, What: "the tests run against the estate as it stands", Actor: prof.name}, model.Usage{}, run.Took)
+		_ = os.WriteFile(filepath.Join(c.store, "failing-before.txt"), []byte(run.Out), 0o644)
+		if run.Unbuilt != "" {
+			return c, fmt.Errorf("%s: its tests do not build on the contract, so they judge nothing yet: %s", u.id, lastLines(run.Unbuilt, 6))
 		}
+		if missed := run.notRun(names); len(missed) > 0 {
+			// The ledger names them, the runner did not run them: they are
+			// where it does not look, and judge nothing there.
+			return c, fmt.Errorf("%s: the estate's own runner (%s) did not run %s — they are where it does not look; it said: %s",
+				u.id, prof.name, strings.Join(missed, ", "), lastLines(run.Out, 3))
+		}
+		if !run.Reported && run.Passed && nothingRan(run.Out, names) {
+			return c, fmt.Errorf("%s: the estate's own runner (%s) ran none of the tests %s — they are where it does not look; it said: %s",
+				u.id, shown(prof.only(names)), strings.Join(names, ", "), lastLines(run.Out, 3))
+		}
+		passed := len(run.failed(names)) == 0
 		if passed && len(on) > 0 {
 			// They pass on the contract. What was asked holds already only
 			// if they pass on the estate as it stood, without it; if not,
 			// the contract does what it was only to declare.
 			if bare, err := harness.Snapshot(r.repo, filepath.Join(c.store, "files")); err == nil {
-				still, _, _ := runIn(ctx, bare, resolve(bare, prof.only(names)))
+				still := runTests(ctx, bare, prof, names)
 				_ = os.RemoveAll(bare)
-				if !still {
+				if len(still.failed(names)) > 0 {
 					return c, &behaves{tests: names}
 				}
 			}
@@ -330,12 +338,13 @@ func (r *Run) byAgent(ctx context.Context, i int, ws string, on []onto, scope []
 		// fail may be failing tests that ask for what cannot be: where they
 		// fail is said, so that the tests are carried again with it, once.
 		if names := r.newTestNames(prof); len(names) > 0 {
-			if passed, out, _ := runIn(ctx, ws, resolve(ws, prof.only(names))); !passed {
-				if at := testFaults(out); at != "" {
-					res.Terminal, res.Blames = harness.FailedTask, r.failingTestFiles(out)
-					res.Summary = "its agent spent its steps and the change's own tests in " + strings.Join(res.Blames, ", ") +
-						" still fail — they may ask for what no code can give: " + at
-				}
+			run := runTests(ctx, ws, prof, names)
+			if failed := run.failed(names); len(failed) > 0 && run.Reported {
+				// The report names the tests that fail; the ledger, the files
+				// they are in and the units that wrote them.
+				res.Terminal, res.Blames = harness.FailedTask, r.ledgerFiles(failed)
+				res.Summary = "its agent spent its steps and the change's own tests " + strings.Join(failed, ", ") + " in " + strings.Join(res.Blames, ", ") +
+					" still fail — they may ask for what no code can give: " + failedSaid(run, failed, 6)
 			}
 		}
 	}
@@ -460,18 +469,13 @@ func (r *Run) goal(u unit) string {
 	return brief + "\n\nTests that decide the criteria were written first; do not change them."
 }
 
-// failingTestFiles is the files of the tests units whose tests a run's
-// output says failed, each by its path.
-func (r *Run) failingTestFiles(out string) []string {
-	failed := map[string]bool{}
-	for _, n := range failedTests(out) {
-		failed[n] = true
-	}
+// ledgerFiles is the files the ledger says the tests named are in.
+func (r *Run) ledgerFiles(tests []string) []string {
 	var files []string
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, t := range r.ledger {
-		if failed[t.Test] || namesFile(out, t.File) {
+		if slices.Contains(tests, t.Test) {
 			files = append(files, t.File)
 		}
 	}
@@ -479,20 +483,22 @@ func (r *Run) failingTestFiles(out string) []string {
 	return slices.Compact(files)
 }
 
-// namesFile says whether out names file, a path in the estate, at a line:
-// as it is, or at the end of the path of the copy it ran in.
-func namesFile(out, file string) bool {
-	for at := 0; ; {
-		i := strings.Index(out[at:], file+":")
-		if i < 0 {
-			return false
-		}
-		i += at
-		if i == 0 || strings.ContainsRune(" \t\n/(", rune(out[i-1])) {
-			return true
-		}
-		at = i + 1
+// failedSaid is what the first n of the tests named that failed said, as
+// the report holds it, each by its name.
+func failedSaid(run testRun, failed []string, n int) string {
+	if run.Unbuilt != "" {
+		return "they do not build: " + lastLines(run.Unbuilt, 6)
 	}
+	var out []string
+	for _, name := range failed[:min(n, len(failed))] {
+		o, ok := run.Results[name]
+		if !ok {
+			out = append(out, name+": did not run")
+			continue
+		}
+		out = append(out, name+": "+lastLines(strings.TrimSpace(o.Output), 4))
+	}
+	return strings.Join(out, "\n")
 }
 
 // specDecisions is what the specification of the change in dir decides that

@@ -44,10 +44,9 @@ type language struct {
 	format func(files []string) []string
 	// tests is how a test is declared: its last group is the test's name.
 	tests *regexp.Regexp
-	// faults is how a run of its tests names the line of a test file;
-	// failed, how it names a test that failed — its last group the name;
-	// noneRan, how it says it ran no test at all.
-	faults, failed, noneRan *regexp.Regexp
+	// noneRan, for a runner that writes no report, is how it says it ran
+	// no test at all; which tests failed is read from the report alone.
+	noneRan *regexp.Regexp
 	// fault is how its build and its runner name the line of a file they
 	// blame — its first group the file; missing, whether such a line says a
 	// name is missing from one of the packages named, the ones this work
@@ -65,6 +64,10 @@ type language struct {
 	// it without behaviour: the contract, which the framework declares
 	// wherever a file's extension has a declarer.
 	declare map[string]declarer
+	// report, where the runner writes one for machines, runs the tests
+	// named and reads how each ended: what every step that must know which
+	// test failed reads, in place of the runner's prose.
+	report *report
 }
 
 // languages is every language the framework knows, in the order an
@@ -79,11 +82,12 @@ var languages = []language{
 		focus: func(pattern, path string) []string {
 			return []string{"go", "test", "-count=1", "-v", "-run", pattern, "./" + strings.TrimPrefix(filepath.ToSlash(filepath.Clean(path)), "./") + "/..."}
 		},
+		report: &report{cmd: func(n []string, _ string) []string {
+			return []string{"go", "test", "-json", "-count=1", "-run", "^(" + strings.Join(n, "|") + ")$", "./..."}
+		}, read: goReport},
 		build: []string{"go", "build", "./..."}, vet: goVet, check: goBuild, format: gofmt, declares: goDeclares, declare: map[string]declarer{".go": goDeclare},
 		fault: regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.go):\d+:\d+:`), missing: goMissing, libraries: goLibraries,
 		tests:   regexp.MustCompile(`(?m)^func ((?:Test|Fuzz)\w*)\(`), // what -run runs: tests, and fuzz tests on their seeds
-		faults:  regexp.MustCompile(`[\w./-]*_test\.go:\d+`),
-		failed:  regexp.MustCompile(`(?m)^\s*--- FAIL: (\w+)`),
 		noneRan: regexp.MustCompile(`\[no tests to run\]|\[no test files\]`),
 	},
 	{
@@ -96,13 +100,14 @@ var languages = []language{
 		focus: func(pattern, path string) []string {
 			return []string{"python3", "-m", "pytest", "-q", "-k", pattern, path}
 		},
+		report: &report{cmd: func(n []string, file string) []string {
+			return []string{"python3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "-k", strings.Join(n, " or "), "--junitxml=" + file}
+		}, read: junitReport},
 		check: func(files []string) []string {
 			return append([]string{"python3", "-m", "py_compile"}, files...)
 		},
 		fault:   regexp.MustCompile(`File "([^"]+\.py)", line \d+`),
 		tests:   regexp.MustCompile(`(?m)^\s*(?:async\s+)?def (test_\w+)\(`),
-		faults:  regexp.MustCompile(`[\w./-]*(?:test_\w+|\w+_test)\.py:\d+|File "[^"]*(?:test_\w+|\w+_test)\.py", line \d+`),
-		failed:  regexp.MustCompile(`(?m)^(?:FAILED [^\s:]+::(?:\w+::)?(\w+)|(?:FAIL|ERROR): (\w+) \()`),
 		noneRan: regexp.MustCompile(`(?m)^Ran 0 tests|no tests ran`),
 	},
 	{
@@ -119,6 +124,13 @@ var languages = []language{
 		focus: func(pattern, path string) []string {
 			return []string{"node", "--test", "--test-name-pattern=" + pattern, path}
 		},
+		report: &report{cmd: func(n []string, file string) []string {
+			out := []string{"node", "--test", "--test-reporter=spec", "--test-reporter-destination=stdout", "--test-reporter=junit", "--test-reporter-destination=" + file}
+			for _, name := range n {
+				out = append(out, "--test-name-pattern="+regexp.QuoteMeta(name))
+			}
+			return out
+		}, read: junitReport},
 		check: func(files []string) []string {
 			if len(files) != 1 || slices.Contains([]string{".ts", ".tsx", ".jsx"}, strings.ToLower(filepath.Ext(files[0]))) {
 				return nil // node checks one script at a time, and none it would have to compile
@@ -127,23 +139,17 @@ var languages = []language{
 		},
 		fault:   regexp.MustCompile(`([^\s()]+\.[cm]?[jt]sx?):\d+(?::\d+)?\b`),
 		tests:   regexp.MustCompile("(?m)\\b(?:test|it)\\s*\\(\\s*([\"'`])(.+?)[\"'`]"),
-		faults:  regexp.MustCompile(`[\w./-]*\.(?:test|spec)\.[cm]?[jt]sx?:\d+`),
-		failed:  regexp.MustCompile(`(?m)^\s*(?:✖|not ok \d+ -) (.+?)(?: \([\d.]+ms\))?$`),
 		noneRan: regexp.MustCompile(`(?m)^\S*\s*tests 0\s*$`),
 	},
 	{
 		name: "cargo test", marks: []string{"Cargo.toml"}, exts: []string{".rs"},
 		suite:   []string{"cargo", "test"},
 		tests:   regexp.MustCompile(`(?m)#\[test\]\s*(?:#\[[^\]]*\]\s*)*(?:pub\s+)?(?:async\s+)?fn (\w+)`),
-		faults:  regexp.MustCompile(`[\w./-]*\.rs:\d+`),
-		failed:  regexp.MustCompile(`(?m)^test (?:\S+::)?(\w+) \.\.\. FAILED`),
 		noneRan: regexp.MustCompile(`(?m)^running 0 tests`),
 	},
 	{
 		name: "gradle test", marks: []string{"build.gradle", "build.gradle.kts", "pom.xml"}, exts: []string{".java", ".kt", ".kts"},
 		tests:   regexp.MustCompile(`(?m)@Test\b[^{;]*?\b(?:void\s+|fun\s+)(\w+)\s*\(`),
-		faults:  regexp.MustCompile(`[\w./-]*Test\.(?:java|kt):\d+`),
-		failed:  regexp.MustCompile(`(?m)^\S+ > (\w+)\(\) FAILED`),
 		noneRan: regexp.MustCompile(`No tests found`),
 	},
 }
@@ -202,41 +208,6 @@ func testsIn(file, content string) []string {
 		out = append(out, m[len(m)-1])
 	}
 	return out
-}
-
-// testFaults is the lines of a test run's output that say where in a test
-// file it failed, in any language the framework knows, the first few.
-func testFaults(out string) string {
-	var at []string
-	for _, line := range strings.Split(out, "\n") {
-		if len(at) == 6 {
-			break
-		}
-		if slices.ContainsFunc(languages, func(l language) bool { return l.faults != nil && l.faults.MatchString(line) }) {
-			at = append(at, strings.TrimSpace(line))
-		}
-	}
-	return strings.Join(at, "\n")
-}
-
-// failedTests is the names of the tests a run says failed, in any language
-// the framework knows.
-func failedTests(out string) []string {
-	var names []string
-	for _, l := range languages {
-		if l.failed == nil {
-			continue
-		}
-		for _, m := range l.failed.FindAllStringSubmatch(out, -1) {
-			for i := len(m) - 1; i > 0; i-- {
-				if m[i] != "" {
-					names = append(names, m[i])
-					break
-				}
-			}
-		}
-	}
-	return names
 }
 
 // goDeclares is every name a Go file declares: its functions and methods,

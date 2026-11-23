@@ -50,7 +50,8 @@ func (r *Run) assure(ctx context.Context) error {
 		ca := r.id("CA", i+1)
 		names := r.ledgerTests(prep.id)
 		cmd := prof.only(names)
-		ok, out, took := runIn(ctx, ws, resolve(ws, cmd))
+		run := runTests(ctx, ws, prof, names)
+		ok, out, took := len(run.failed(names)) == 0, run.Out, run.Took
 		ev := r.id("EV", i+1, 1)
 		r.cost(artifact.Cost{Area: 5, Unit: prep.id, What: ev + ": the tests written first", Actor: prof.name}, model.Usage{}, took)
 		passed[ev] = ok

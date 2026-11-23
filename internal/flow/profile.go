@@ -32,7 +32,7 @@ func detect(repo string) (profile, bool) {
 		// The estate's own runner: with no arguments it runs every test,
 		// with names it runs the tests of those names, one a name — each a
 		// regular expression that matches the name it stands for.
-		p.name, p.suite = "test.sh", []string{"test.sh"}
+		p.name, p.suite, p.report = "test.sh", []string{"test.sh"}, nil // a script of the estate's own reports as it pleases
 		p.only = func(n []string) []string {
 			out := []string{"test.sh"}
 			for _, name := range n {
