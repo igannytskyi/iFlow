@@ -32,6 +32,10 @@ type benchTask struct {
 	Estate    string `json:"estate"`
 	Statement string `json:"statement"`
 	Expect    string `json:"expect,omitempty"`
+	// Commit, where given, makes the estate the framework's own repository
+	// as it stood at that commit: a task the size of real work, on code that
+	// does not move under it from one run to the next.
+	Commit string `json:"commit,omitempty"`
 }
 
 // benchResult is one task carried: what it came to and what it took. One
@@ -129,7 +133,11 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			results[i] = benchOne(ctx, cfg, filepath.Join(filepath.Dir(file), t.Estate), t)
+			estate := filepath.Join(filepath.Dir(file), t.Estate)
+			if t.Commit != "" {
+				estate = home
+			}
+			results[i] = benchOne(ctx, cfg, estate, t)
 			results[i].Commit, results[i].Label, results[i].Set = commit, label, set
 			r := results[i]
 			fmt.Fprintf(app.Out, "  %-18s %-8s %-6v $%.3f  %7d in  %6d out  %4.0fs  %s\n", r.Task, r.Outcome, r.OK, r.USD, r.In, r.Out, r.Seconds, clipLine(r.Why, 90))
@@ -204,8 +212,8 @@ func benchOne(ctx context.Context, cfg flow.Config, estate string, t benchTask) 
 			res.Kept = repo
 		}
 	}()
-	if out, err := exec.Command("cp", "-R", estate, repo).CombinedOutput(); err != nil {
-		res.Outcome, res.Why = "broken", strings.TrimSpace(string(out))
+	if err := lay(estate, repo, t.Commit); err != nil {
+		res.Outcome, res.Why = "broken", err.Error()
 		return res
 	}
 	if exec.Command("git", "-C", repo, "init", "-q").Run() == nil {
@@ -283,4 +291,34 @@ func clipLine(s string, n int) string {
 		return s[:n] + "…"
 	}
 	return s
+}
+
+// lay puts the estate at repo: a copy of the folder, or, for a commit, the
+// repository at estate as it stood at that commit, its tracked files only.
+func lay(estate, repo, commit string) error {
+	if commit == "" {
+		if out, err := exec.Command("cp", "-R", estate, repo).CombinedOutput(); err != nil {
+			return errors.New(strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		return err
+	}
+	archive := exec.Command("git", "-C", estate, "archive", "--format=tar", commit)
+	untar := exec.Command("tar", "-x", "-C", repo)
+	pipe, err := archive.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	untar.Stdin = pipe
+	var stderr strings.Builder
+	archive.Stderr = &stderr
+	if err := untar.Start(); err != nil {
+		return err
+	}
+	if err := archive.Run(); err != nil {
+		return fmt.Errorf("the estate at %s could not be read: %s", commit, strings.TrimSpace(stderr.String()))
+	}
+	return untar.Wait()
 }

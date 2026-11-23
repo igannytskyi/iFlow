@@ -41,6 +41,18 @@
       "name": "py-spanish",
       "estate": "greeting-py",
       "statement": "greet_in(lang, name) returns \"¡Hola, <name>!\" for lang \"es\" and greet(name) for any other language, trimming the name and greeting the world when nobody is named, as greet does."
+    },
+    {
+      "name": "iflow-cheapest-switch",
+      "estate": ".",
+      "commit": "6c9e67b",
+      "statement": "Add a switch to the workbench's settings that, when on, has every role served through OpenRouter take the provider that asks the least for the same model (OpenRouter's :floor); when off, OpenRouter routes as it does now."
+    },
+    {
+      "name": "iflow-execution-feed",
+      "estate": ".",
+      "commit": "6c9e67b",
+      "statement": "In the workbench's right panel, directly under the cost window, show a live feed of what the agent carrying the task writes, step by step, while a task is being carried."
     }
   ]
 }

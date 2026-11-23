@@ -3,7 +3,9 @@ package cli
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/igannytskyi/iflow/internal/flow"
@@ -53,5 +55,41 @@ func TestTheBenchVariesWhatItSays(t *testing.T) {
 		if err := vary(&cfg, bad); err == nil {
 			t.Errorf("%v was taken", bad)
 		}
+	}
+}
+
+// A task at a commit is laid from the repository as it stood then: its
+// tracked files, and nothing written since.
+func TestATaskAtACommitIsLaidAsItStood(t *testing.T) {
+	src := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", src, "-c", "user.name=t", "-c", "user.email=t@localhost"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	if err := os.WriteFile(filepath.Join(src, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "-A")
+	git("commit", "-qm", "one")
+	out, err := exec.Command("git", "-C", src, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "later.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := lay(src, repo, strings.TrimSpace(string(out))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "a.go")); err != nil {
+		t.Error("the file of the commit was not laid")
+	}
+	if _, err := os.Stat(filepath.Join(repo, "later.go")); err == nil {
+		t.Error("a file written after the commit was laid")
 	}
 }
