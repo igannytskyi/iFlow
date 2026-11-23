@@ -1020,7 +1020,7 @@ func (r *Run) study(ctx context.Context, area int, m model.Model, system, prompt
 		return answer, u, 1, err
 	}
 	repo := r.cfg.Estate.Repo(r.repo)
-	study := harness.Study{Dir: r.repo, Graph: estateGraph{repo: repo, root: r.repo}, System: system, Prompt: prompt, BudgetUSD: r.cfg.BudgetUSD}
+	study := harness.Study{Dir: r.repo, Graph: estateGraph{repo: repo, root: r.repo}, System: system, Prompt: prompt, BudgetUSD: r.studyBudget()}
 	turns := 0
 	answer, u, _, err := study.Run(ctx, c, func(e harness.Event) {
 		switch e.Kind {
@@ -1057,4 +1057,17 @@ func (r *Run) planOutsideScope(p planDraft) []string {
 		}
 	}
 	return out
+}
+
+// studyFraction is how much of a change's budget one decision may spend
+// reading the code before it answers: deciding is a small part of doing.
+const studyFraction = 0.15
+
+// studyBudget is what one decision — a specification, a plan — may spend on
+// reading, of what is left of the change's budget.
+func (r *Run) studyBudget() float64 {
+	if r.cfg.BudgetUSD <= 0 {
+		return 0
+	}
+	return min(r.left(), r.cfg.BudgetUSD*studyFraction)
 }

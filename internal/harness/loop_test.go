@@ -152,12 +152,13 @@ func TestALongFindingOutIsNotIdling(t *testing.T) {
 	}
 }
 
-// But finding out has an end: forty things read, each new, and nothing
-// written, and the agent is stopped — told first, at twenty.
-func TestReadingWithoutWritingHasAnEnd(t *testing.T) {
+// An agent is held to its progress, not its steps: one that spends a
+// quarter of its budget without changing anything is stopped — told first,
+// at half that — whatever number of steps that took.
+func TestSpendingWithoutProgressHasAnEnd(t *testing.T) {
 	ws := t.TempDir()
 	var turns []model.Message
-	for i := range readStop + 5 {
+	for i := range 40 {
 		f := fmt.Sprintf("f%02d.txt", i)
 		if err := os.WriteFile(filepath.Join(ws, f), []byte(f), 0o644); err != nil {
 			t.Fatal(err)
@@ -165,9 +166,10 @@ func TestReadingWithoutWritingHasAnEnd(t *testing.T) {
 		turns = append(turns, calling("read_file", map[string]string{"path": f}))
 	}
 	var sent [][]model.Message
-	res, _ := Loop{Model: chatting{sent: &sent, turns: turns}}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"out.txt"}, BudgetUSD: 2}, func(Event) {})
-	if res.Terminal != Exhausted || res.Steps != readStop {
-		t.Errorf("an agent reading %d things and writing none ended %s after %d steps", readStop+5, res.Terminal, res.Steps)
+	// Each turn costs $0.01; a budget of $0.20 allows $0.05 without progress.
+	res, _ := Loop{Model: chatting{sent: &sent, turns: turns}}.Run(context.Background(), Task{Workspace: ws, Goal: "g", Scope: []string{"out.txt"}, BudgetUSD: 0.20}, func(Event) {})
+	if res.Terminal != Exhausted || !strings.Contains(res.Summary, "since it last changed anything") || res.Turns > 6 {
+		t.Errorf("an agent spending without progress ended %s after %d turns: %s", res.Terminal, res.Turns, res.Summary)
 	}
 	told := slices.ContainsFunc(sent[len(sent)-1], func(m model.Message) bool { return m.Role == "user" && strings.Contains(m.Content, "read enough") })
 	if !told {
@@ -249,34 +251,34 @@ func TestAnAgentReadsNoMoreThanItMay(t *testing.T) {
 }
 
 // What the estate says is sent whole for the agent's first turns, then as
-// an index of what it held: no turn after carries every file again.
-func TestTheEstateIsReadOnceThenIndexed(t *testing.T) {
+// What an agent was handed stays with it in every turn, whole — so that it
+// never reads again what it was given — and the files it changes are sent
+// as they stand now, not as they were handed.
+func TestWhatWasHandedStaysWhole(t *testing.T) {
 	ws := t.TempDir()
 	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package a\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	big := "# May change: a.go\n\n" + strings.Repeat("// a line of the file\n", 200) + "# Used from elsewhere\n\nA()\n"
+	held := "# Must pass after you\n\n" + strings.Repeat("// a line of the tests\n", 200) + "# Used from elsewhere\n\nA()\n"
+	whole := "# May change: a.go\n\npackage a (as it was)\n" + held
 	var sent [][]model.Message
 	m := chatting{sent: &sent, turns: []model.Message{
-		calling("read_file", map[string]string{"path": "a.go"}),
+		calling("edit_file", map[string]string{"path": "a.go", "old": "package a", "new": "package a // changed"}),
 		calling("list_dir", map[string]string{"path": "."}),
 		calling("search", map[string]string{"pattern": "package"}),
-		{Content: "nothing to change"},
+		{Content: "done"},
 	}}
-	if _, err := (Loop{Model: m}).Run(context.Background(), Task{Workspace: ws, Goal: "the unit", Scope: []string{"a.go"}, Context: big}, func(Event) {}); err != nil {
+	if _, err := (Loop{Model: m}).Run(context.Background(), Task{Workspace: ws, Goal: "the unit", Scope: []string{"a.go"}, Context: whole, Held: held}, func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(sent[0][1].Content, "a line of the file") || !strings.Contains(sent[1][1].Content, "a line of the file") {
-		t.Error("the first turns were not sent the estate whole")
-	}
-	later := sent[2][1].Content
-	if strings.Contains(later, "a line of the file") {
-		t.Error("a later turn was sent the estate whole again")
-	}
-	for _, want := range []string{"# May change: a.go", "read_file", "# Used from elsewhere\n\nA()", "the unit"} {
+	later := sent[len(sent)-1][1].Content
+	for _, want := range []string{"a line of the tests", "# Used from elsewhere\n\nA()", "the unit", "package a // changed"} {
 		if !strings.Contains(later, want) {
-			t.Errorf("the index lost %q:\n%s", want, later)
+			t.Errorf("a later turn lost %q", want)
 		}
+	}
+	if strings.Contains(later, "(as it was)") {
+		t.Error("a later turn was sent the file it changes as it was handed, not as it stands")
 	}
 }
 

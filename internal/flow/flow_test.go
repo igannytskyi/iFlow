@@ -215,7 +215,8 @@ func TestATaskTravelsThePath(t *testing.T) {
 		if !strings.Contains(planner, "## How a person uses it") || !strings.Contains(planner, "FR-1 ") || strings.Contains(planner, `"Hello, "`) {
 			t.Errorf("the planner was not handed the specification as a document, and no code:\n%s", planner)
 		}
-		for _, f := range []string{"specification-1.md", "specification-2.md", "plan-1.md"} {
+		// One round of review: the specification and the plan reviewed once.
+		for _, f := range []string{"specification-1.md", "plan-1.md"} {
 			if _, err := os.Stat(filepath.Join(landed, "reviews", f)); err != nil {
 				t.Errorf("review %s was not kept", f)
 			}

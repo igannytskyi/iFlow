@@ -45,6 +45,19 @@ func (p Pack) String() string {
 	return b.String()
 }
 
+// Held is the pack without the files the agent may change: what stays
+// the same in every turn, the files it changes being sent as they stand.
+func (p Pack) Held() Pack {
+	var out Pack
+	out.Left = p.Left
+	for _, s := range p.Sections {
+		if !strings.HasPrefix(s.Title, "May change: ") {
+			out.Sections = append(out.Sections, s)
+		}
+	}
+	return out
+}
+
 // Tokens is what the pack weighs.
 func (p Pack) Tokens() int { return Tokens(p.String()) }
 

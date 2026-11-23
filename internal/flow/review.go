@@ -18,7 +18,7 @@ import (
 // nothing about acceptance — the criteria and the person do — and it is
 // asked at most reviewRounds times, after which what it still finds goes to
 // the person beside the document.
-const reviewRounds = 2
+const reviewRounds = 1
 
 // review is what a reviewing agent answers.
 type review struct {

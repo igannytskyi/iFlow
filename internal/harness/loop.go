@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -51,32 +52,25 @@ How to work:
 - If the unit cannot be done as it is asked — what it relies on does not exist, what it must change is outside its scope — call cannot with why, at once; do not search on for what is not there.
 - When the check passes, answer without calling a tool, in two sentences: what you changed and why. The harness runs the check once more; if it fails, you are told and go on.`
 
-// idleNudge and idleStop are how many steps an agent may ask again what it
-// asked already since it last changed anything before it is told it has
-// read enough, and stopped. Asking something new — a file not read, a
-// definition not looked up — is finding out, however long the finding out
-// of a hard unit takes; the unit's budget bounds it, not a count.
-//
-// readNudge and readStop bound finding out itself: steps without a change
-// of any kind, new questions among them. A hard unit may read a while — the
-// window's code, a library's — but an agent that has read forty things and
-// written nothing is not about to: on 11-23 one read 155 times, wrote
-// nothing, and spent its whole budget doing it. Set from the 35 units of
-// the bench kept on 11-23: of the 21 that made a candidate, the longest
-// stretch of reading without writing was 41, the rest 27 or less; of those
-// that did not, 109 and 160.
+// An agent is held to its progress, not to a count of its steps. Progress
+// is a change to its files; an agent that has spent stallShare of its
+// budget since it last changed anything is stopped, told first at half of
+// that. Steps say nothing of either: on 11-23 an agent stopped at twelve was
+// reading what it needed, and one let read on read 155 times and wrote
+// nothing. Where there is no budget — a model that costs nothing — steps
+// are all there is to count: idleStop of them asking again what was asked,
+// readStop of them without a change.
 const (
-	idleNudge = 6
-	idleStop  = 12
-	readNudge = 30
-	readStop  = 50
+	stallShare = 0.25
+	idleNudge  = 6
+	idleStop   = 12
+	readNudge  = 30
+	readStop   = 50
 )
 
 // maxRead is the most a unit's agent may read, all its turns together;
-// none unless the task says. What one turn holds is kept small by compact
-// and yours; the turns together re-send the same context, so their sum
-// measures spending, which BudgetUSD and the steps bound already do —
-// a bound on it stopped agents that were making progress.
+// none unless the task says: the turns together re-send the same context,
+// so their sum measures spending, which BudgetUSD bounds.
 func maxRead(t Task) int {
 	return t.MaxRead
 }
@@ -85,9 +79,8 @@ func maxRead(t Task) int {
 // so far; the files the unit changes come on top, within yoursTokens.
 // Within it nothing is cut, so an agent does not read again what it has
 // read; beyond it the oldest tool answers are cut first. Frontier models
-// hold near parity up to about 128k (MRCR v2, 2026); an agent that reads
-// the same file again for want of it loses more than length costs it. To
-// be measured per model (backlog 82).
+// hold near parity up to about 128k (MRCR v2, 2026); to be measured per
+// model (backlog 82).
 const turnTokens = 100_000
 
 // keepWhole is how many of the latest messages keep their tool answers
@@ -101,20 +94,24 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	}
 	ws := &workspace{dir: t.Workspace, tests: t.Tests, widen: t.Widen, faults: t.Faults, libraries: t.Libraries, scope: slices.Clone(t.Scope), check: t.Check, first: t.First, graph: t.Graph, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
 	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t) + libraryNote(t.Libraries)}}
-	// What the estate says is read once: from the agent's third turn on it
-	// is sent as an index of what it held, and the agent reads what it
-	// needs again, so that every turn does not carry every file.
-	slim := msgs[1]
-	slim.Content = prompt(Task{Goal: t.Goal, Scope: t.Scope, Check: t.Check, Context: index(t.Context)}) + libraryNote(t.Libraries)
-	// Steps bound a run only where no budget does: spending is what a run
-	// is held to (BudgetUSD), and a hard unit takes the steps it takes.
+	// What the agent was handed stays in every turn, whole: the tests it
+	// must pass, what it reads, the declarations around them — handed once
+	// and cut later, it was read again by tools, turn after turn. Only the
+	// files it changes are sent as they stand now, not as they were.
+	held := msgs[1]
+	if t.Held != "" {
+		held.Content = prompt(Task{Goal: t.Goal, Scope: t.Scope, Check: t.Check, Context: t.Held}) + libraryNote(t.Libraries)
+	}
+	// Steps bound a run only where no budget does.
 	maxSteps := t.MaxSteps
 	if maxSteps <= 0 {
-		maxSteps = 30
+		maxSteps = 80
 		if t.BudgetUSD > 0 {
-			maxSteps = 80
+			maxSteps = math.MaxInt
 		}
 	}
+	paid := t.BudgetUSD > 0
+	progressAt := 0.0 // what had been spent when the agent last changed a file
 	var res Result
 	started := time.Now()
 	end := func(terminal, summary string) (Result, error) {
@@ -131,7 +128,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	// told so once, and stopped if it goes on.
 	idle, nudged := 0, false
 	asked := map[string]bool{}
-	unchanged, readNudged := 0, false
+	unchanged := 0
 	refusedDone := 0
 	for res.Steps < maxSteps {
 		if ctx.Err() != nil {
@@ -148,7 +145,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			// What the estate says is an index by now; what the unit is
 			// writing is never cut — the files it may change, as they stand,
 			// so that it does not read its own work again and again.
-			sent[1] = slim
+			sent[1] = held
 			if mine := yours(ws.dir, ws.scope, yoursTokens); mine != "" {
 				sent[1].Content += mine
 			}
@@ -229,7 +226,8 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			switch {
 			case changed:
 				last = "" // the workspace changed: the same call now asks something new
-				idle, nudged, unchanged, readNudged = 0, false, 0, false
+				idle, nudged, unchanged = 0, false, 0
+				progressAt = res.Usage.CostUSD
 				asked = map[string]bool{}
 			case kind == Got && !asked[key]:
 				// Something not asked before since the last change — a file
@@ -243,7 +241,10 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			if !changed {
 				unchanged++
 			}
-			if idle >= idleStop || unchanged >= readStop {
+			if stalled := res.Usage.CostUSD - progressAt; paid && stalled >= stallShare*t.BudgetUSD {
+				return end(Exhausted, fmt.Sprintf("spent $%.2f since it last changed anything — a quarter of its budget with no progress", stalled))
+			}
+			if !paid && (idle >= idleStop || unchanged >= readStop) {
 				return end(Exhausted, fmt.Sprintf("read for %d steps without changing anything", max(idle, unchanged)))
 			}
 			// What fails only in files this unit may not change, no agent of
@@ -258,9 +259,10 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 		}
 		// After the turn's answers, never between them: the protocol wants
 		// each call answered before anything else is said.
-		if (idle >= idleNudge && !nudged) || (unchanged >= readNudge && !readNudged) {
-			nudged, readNudged = nudged || idle >= idleNudge, readNudged || unchanged >= readNudge
-			nudge := fmt.Sprintf("You have taken %d steps without changing anything. You have read enough: change the file that makes the check pass now, or say in one sentence why no change in your scope can.", max(idle, unchanged))
+		stalling := paid && res.Usage.CostUSD-progressAt >= stallShare*t.BudgetUSD/2
+		if !nudged && (stalling || (!paid && (idle >= idleNudge || unchanged >= readNudge))) {
+			nudged = true
+			nudge := "You have read a good while without changing anything. You have read enough: change the file that makes the check pass now, or say in one sentence why no change in your scope can."
 			if f := firstFaults(faults(t, ws.last.out), 3); !ws.last.ok && f != "" { // the check as it last ran
 				nudge += "\n\nThe check fails here — change these lines first:\n" + f
 			}
@@ -346,36 +348,6 @@ func argument(v any) string {
 }
 
 // index is what the estate said, with each long section cut to its heading:
-// the agent has read it whole once, and reads again what it needs.
-func index(context string) string {
-	if context == "" {
-		return ""
-	}
-	var b strings.Builder
-	for _, sec := range sections(context) {
-		head, _, _ := strings.Cut(sec, "\n")
-		if len(sec) <= 600 {
-			b.WriteString(sec)
-		} else {
-			b.WriteString(head + "\n\n[shown to you at the start; read_file or search it again for what you need]\n\n")
-		}
-	}
-	return b.String()
-}
-
-// sections splits Markdown at its headings, each section with its heading.
-func sections(s string) []string {
-	var out []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '#' && (i == 0 || s[i-1] == '\n') && i > start {
-			out = append(out, s[start:i])
-			start = i
-		}
-	}
-	return append(out, s[start:])
-}
-
 // firstFaults is what the first n faults said.
 func firstFaults(fs []Fault, n int) string {
 	var got []string

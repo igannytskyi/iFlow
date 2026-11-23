@@ -73,6 +73,10 @@ type Task struct {
 	// Tests is the tests the unit must pass, by name: those its agent may
 	// hold wrong.
 	Tests []string
+	// Held, where given, is the Context without the files the unit may
+	// change: handed whole in every turn, those files beside it as they
+	// stand, so that the agent never reads again what it was handed.
+	Held string
 	// Widen, where given, is asked when the agent writes a file outside
 	// Scope: "" grants it, which the result then says; anything else is
 	// why not, which the agent is told.

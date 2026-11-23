@@ -21,8 +21,8 @@ type Study struct {
 	Graph  Graph  // its model of its code
 	System string // what the decision is and how it is answered
 	Prompt string // what the framework hands it
-	// MaxSteps bounds the reading; past it the agent is asked to answer
-	// with what it has. 25 when zero.
+	// BudgetUSD bounds the reading: spent, the agent is asked to answer
+	// with what it has. Where there is none, MaxSteps does — 25 when zero.
 	MaxSteps  int
 	BudgetUSD float64
 }
@@ -42,7 +42,7 @@ func (s Study) Run(ctx context.Context, m Chatter, emit func(Event)) (string, mo
 	calls := 0
 	for turn := 0; ; turn++ {
 		offered := tools
-		if calls >= steps || (s.BudgetUSD > 0 && used.CostUSD >= s.BudgetUSD) {
+		if (s.BudgetUSD > 0 && used.CostUSD >= s.BudgetUSD) || (s.BudgetUSD <= 0 && calls >= steps) {
 			// Enough has been read: the answer is asked for, with no tool.
 			offered = nil
 			msgs = append(msgs, model.Message{Role: "user", Content: "You have read enough. Answer now, in the form asked, with what you know."})

@@ -283,7 +283,7 @@ func (r *Run) byAgent(ctx context.Context, i int, ws string, on []onto, scope []
 	pack := r.pack(u, here, on, r.cfg.packBudget()-estate.Tokens(goal))
 	handed := estate.Tokens(goal) + pack.Tokens()
 	_ = os.WriteFile(filepath.Join(c.store, "pack.md"), []byte("# Goal\n\n"+goal+"\n\n"+pack.String()), 0o644)
-	task := harness.Task{Workspace: ws, Goal: goal, Role: string(u.kind), Scope: scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
+	task := harness.Task{Workspace: ws, Goal: goal, Role: string(u.kind), Scope: scope, Context: pack.String(), Held: pack.Held().String(), BudgetUSD: r.left()}
 	if !u.isTests() && !u.isContract() {
 		task.Widen = func(path string) string { return r.widen(i, path) }
 		task.Tests = r.criterionTests(i)

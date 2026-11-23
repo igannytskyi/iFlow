@@ -66,7 +66,10 @@ type Config struct {
 	Gate   *gate.Gate
 	// Person is who accepts criteria and is named where a person acted.
 	Person string
-	// BudgetUSD bounds each unit's execution.
+	// BudgetUSD bounds the whole change: every model it asks, in every
+	// area, together. A change that would pass it stops, and says so — one
+	// that does not fit is a sign something is wrong, not a reason to spend
+	// on. Each unit's agent is handed what is left of it.
 	BudgetUSD float64
 	// PackTokens bounds what one agent is handed — its goal, the tests it
 	// must pass, its files and what surrounds them — and so how large a
@@ -97,7 +100,7 @@ func orModel(m, otherwise model.Model) model.Model {
 // Zero is the default.
 //
 //	ReviewRounds  how often a specification or a plan is reviewed and
-//	              written again before the person or the executor sees it; 2
+//	              written again before the person or the executor sees it; 1
 //	Attempts      how many one-shot answers a unit gets before its agent; 2
 //	RepeatOnce    a claim to repeat is run once more at landing and set
 //	              against the output its evidence kept, not run twice
@@ -151,6 +154,8 @@ type Run struct {
 	ledger     []meta.TestRecord   // the test ledger: every test kept, the criterion it judges, the unit that wrote it
 	widened    map[string][]string // by unit, the files it was given beyond its plan
 	scopeFault *sentBack           // the planner found the specification's scope too narrow
+	stopRun    context.CancelFunc  // ends what the run is doing, where it stands
+	overspent  bool                // the change spent its budget
 	// again is, for a tests unit carried again, what the code that could
 	// not pass its tests found wrong with them.
 	again map[string]string
@@ -288,7 +293,25 @@ func (r *Run) set(area int, s Status) {
 func (r *Run) spend(u model.Usage) {
 	r.mu.Lock()
 	r.spent = r.spent.Add(u)
+	over := r.cfg.BudgetUSD > 0 && r.spent.CostUSD >= r.cfg.BudgetUSD && !r.overspent
+	if over {
+		r.overspent = true
+	}
+	stop := r.stopRun
 	r.mu.Unlock()
+	if over && stop != nil {
+		stop() // what runs ends where it stands; Start says why
+	}
+}
+
+// left is what is left of the change's budget, or 0 where it has none.
+func (r *Run) left() float64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cfg.BudgetUSD <= 0 {
+		return 0
+	}
+	return max(0.01, r.cfg.BudgetUSD-r.spent.CostUSD)
 }
 
 // cost records what one piece of work consumed, against the area and unit it
@@ -396,6 +419,9 @@ func (r *Run) ask(ctx context.Context, area int, question string) (decision, err
 func (r *Run) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	r.mu.Lock()
+	r.stopRun = cancel
+	r.mu.Unlock()
 	go r.watchStop(ctx, cancel)
 	defer func() {
 		r.mu.Lock()
@@ -446,6 +472,13 @@ func (r *Run) Start(ctx context.Context) error {
 			r.say(i+1, r.id("INT"), "what was asked holds already: %s", h.Error())
 			r.set(i+1, Done)
 			return ErrHolds
+		}
+		r.mu.Lock()
+		overspent, spent := r.overspent, r.spent.CostUSD
+		r.mu.Unlock()
+		if overspent {
+			err = fmt.Errorf("the change spent its budget of $%.2f ($%.2f): a change that does not fit it is a sign something is wrong — its record says where the money went; resumed, it is given the budget again", r.cfg.BudgetUSD, spent)
+			r.say(i+1, r.id("INT"), "%v", err)
 		}
 		if err != nil {
 			r.stopped(i+1, err)
