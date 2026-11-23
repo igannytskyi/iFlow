@@ -1,0 +1,8 @@
+{
+  "about": "bench run ledger-2a36d4f, 11-23: the contract's functions panic 'not yet', and go test ends at the first panic; every test must be seen to fail before the change, none taken to be missing",
+  "commit": "6c9e67b",
+  "layers": ["contract", "tests"],
+  "tests": ["TestFeedPaintsStepsUnderTheCostLine", "TestFeedArrivesLiveWithoutReopening", "TestFeedShowsItsNothingSentenceWhenNoStepIsShown", "TestFeedShowsAStepOnceWhateverTheDelivery", "TestFeedKeepsTheNewestStepsUnderTheCostLine"],
+  "failed": ["TestFeedPaintsStepsUnderTheCostLine", "TestFeedArrivesLiveWithoutReopening", "TestFeedShowsItsNothingSentenceWhenNoStepIsShown", "TestFeedShowsAStepOnceWhateverTheDelivery", "TestFeedKeepsTheNewestStepsUnderTheCostLine"],
+  "not_run": []
+}

@@ -22,7 +22,9 @@ From 11-21 to 11-23 the real-size bench (two tasks on this repository) was run a
 
 1. **Close each class, not each instance.** For each class, every place of that kind in the code is listed below and brought to the sound form at once.
 2. **Replay** (done 11-23, `iflow bench --replay`). Every model answer of a bench run is recorded, by role, unit and attempt. `iflow bench --replay <run>` carries the task again against the framework as it now stands, with those answers, on the real repository and the real tests: free, deterministic, in a minute. Every run that ever failed becomes a test, run in CI. A paid run is made only once every recorded run replays; it is then a measure of the models, not a search for the framework's defects.
-3. **The author is handed declarations as data.** What it may rely on is handed as `{file, name, kind, of, signature}`, the shape `relies_on` is written in, never as lines to transcribe.
+3. **What a real run left is a test.** The contract, the tests and whatever else a real run wrote, with the commit of the framework it ran on, are kept under `internal/flow/testdata/realruns/`, and the framework as it stands judges them again in every test run and in CI. The first is the run of 11-23 whose contract panicked: with the change that read it wrongly undone, the test fails.
+4. **No paid run before the free ones.** `make test` — the real runs among it — and a replay of every recorded run pass first.
+5. **The author is handed declarations as data.** What it may rely on is handed as `{file, name, kind, of, signature}`, the shape `relies_on` is written in, never as lines to transcribe.
 
 ## What is left of each class
 
