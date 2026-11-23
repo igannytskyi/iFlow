@@ -165,6 +165,7 @@ func estateFixture(t *testing.T) string {
 }
 
 func TestATaskTravelsThePath(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	var prompts, packs, goals []string
@@ -307,6 +308,7 @@ func TestATaskTravelsThePath(t *testing.T) {
 }
 
 func TestARefusalStopsThePath(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{}, Estate: est, Gate: gate.New(est), Person: "a test"}
@@ -329,6 +331,7 @@ func TestARefusalStopsThePath(t *testing.T) {
 }
 
 func TestASlugNothingSurvivesOf(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	cyrillic := strings.Replace(spec, `"slug":"shout"`, `"slug":"страницы-каталога"`, 1)
@@ -353,6 +356,7 @@ func TestASlugNothingSurvivesOf(t *testing.T) {
 // the person is asked again; the second time they accept it and the path
 // goes on.
 func TestSendingBackRewritesTheSpecification(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	var prompts []string
@@ -394,6 +398,7 @@ func TestSendingBackRewritesTheSpecification(t *testing.T) {
 // while this one is carried out, this one's landing stops rather than undo
 // it, and says why.
 func TestALandingDoesNotUndoAnotherChange(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	other := "package greet\n\n// changed by another change\nfunc Greet(n string) string { return \"Hi, \" + n }\n"
@@ -428,6 +433,7 @@ func TestALandingDoesNotUndoAnotherChange(t *testing.T) {
 
 // Admission names every other change in flight whose scope meets this one's.
 func TestAdmissionNamesChangesInFlight(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	in := filepath.Join(repo, "changes", "louder")
 	if err := os.MkdirAll(in, 0o755); err != nil {
@@ -458,6 +464,7 @@ func TestAdmissionNamesChangesInFlight(t *testing.T) {
 
 // Runs started side by side each take a number of their own.
 func TestNumbersAreTakenOnce(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	got := make(chan int, 20)
 	var wg sync.WaitGroup
@@ -512,6 +519,7 @@ func (s secondTry) Run(_ context.Context, t harness.Task, _ func(harness.Event))
 // Tests the code cannot pass, because they are wrong, are carried again
 // with what the code found, and the code is carried on what comes back.
 func TestWrongTestsAreCarriedAgain(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	var goals []string
@@ -550,6 +558,7 @@ func TestWrongTestsAreCarriedAgain(t *testing.T) {
 // that asks for what cannot be: the specification goes back to its author
 // with why, the person accepts it again, and the change is carried on.
 func TestTestsWrongTwiceSendTheSpecificationBack(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	var goals, prompts []string
@@ -584,6 +593,7 @@ func TestTestsWrongTwiceSendTheSpecificationBack(t *testing.T) {
 // from its own, lands merged with them: neither undoes the other, and the
 // record says the suite passed on the merged ground.
 func TestAMovedChangeLandsMerged(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	other := "// Package greet greets.\npackage greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n"
@@ -621,6 +631,7 @@ func TestAMovedChangeLandsMerged(t *testing.T) {
 }
 
 func TestARequirementIsNumberedOnce(t *testing.T) {
+	t.Parallel()
 	for _, q := range []string{"FR-2 : Shout shouts.", "FR-2 — Shout shouts.", "FR-2. Shout shouts.", "Shout shouts."} {
 		if got := requirementText(q, 2); got != "Shout shouts." {
 			t.Errorf("%q gave %q", q, got)
@@ -632,6 +643,7 @@ func TestARequirementIsNumberedOnce(t *testing.T) {
 // specification: what it wrote from there on is kept under superseded/, the
 // record says it was reopened, and it lands again passing the gate.
 func TestAReopenedChangeIsCarriedAgain(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	files := map[string]string{
@@ -723,6 +735,7 @@ func (f failing) Run(ctx context.Context, t harness.Task, emit func(harness.Even
 // A change that stopped is carried on from where it stopped, in its own
 // folder, without doing again what it finished, and lands passing the gate.
 func TestAStoppedChangeIsResumed(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
 		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
@@ -869,6 +882,7 @@ func TestAStoppedChangeIsResumed(t *testing.T) {
 // first says it through its arbiters: those it keeps out of its scope that
 // the estate does not hold yet.
 func TestTheTestsWrittenFirstAreInferred(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	s := &meta.Specification{Name: "x", Scope: meta.Scope{Included: []string{"greet.go"}, Excluded: []string{"shout_test.go", "greet_test.go"}},
 		Criteria: []meta.Criterion{{ID: "CR-001-01"}, {ID: "CR-001-02"}},
@@ -897,6 +911,7 @@ func (s saysCannot) Run(ctx context.Context, t harness.Task, emit func(harness.E
 // A unit its agent says cannot be done as planned sends the change back to
 // its planner, once, with why; the plan made again is carried out and lands.
 func TestAUnitThatCannotBeDoneIsPlannedAgain(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	said := false
@@ -957,6 +972,7 @@ func (s saysOutside) Run(ctx context.Context, t harness.Task, emit func(harness.
 // specification's scope sends the change back to its author, not to its
 // planner: no plan can mend a scope.
 func TestAUnitNeedingAFileOutsideTheScopeSendsTheSpecificationBack(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package greet\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -995,6 +1011,7 @@ func TestAUnitNeedingAFileOutsideTheScopeSendsTheSpecificationBack(t *testing.T)
 // lands the change; a refusal carries it again with what the person said,
 // twice at most, and a change never affirmed does not land.
 func TestAPersonAffirmsWhatOnlyAPersonCanSee(t *testing.T) {
+	t.Parallel()
 	human := strings.Replace(spec, `{"criterion":"Nothing else moves"`, `{"criterion":"The greeting reads well","when":"a person reads a shouted greeting","then":"it reads as a greeting, not as an error","plan":"not-required","threshold":"the person's word","judged_by_new_tests":false,"procedure":"human"},
  {"criterion":"Nothing else moves"`, 1)
 	files := map[string]string{
@@ -1065,6 +1082,7 @@ func TestAPersonAffirmsWhatOnlyAPersonCanSee(t *testing.T) {
 // A change stopped because the person did not affirm it, resumed and
 // refused again, is carried again from admission all the same.
 func TestARefusedChangeResumedIsMended(t *testing.T) {
+	t.Parallel()
 	human := strings.Replace(spec, `{"criterion":"Nothing else moves"`, `{"criterion":"The greeting reads well","when":"a person reads a shouted greeting","then":"it reads as a greeting, not as an error","plan":"not-required","threshold":"the person's word","judged_by_new_tests":false,"procedure":"human"},
  {"criterion":"Nothing else moves"`, 1)
 	files := map[string]string{
@@ -1109,6 +1127,7 @@ func TestARefusedChangeResumedIsMended(t *testing.T) {
 // for what holds already: it is closed saying so, nothing is changed, and it
 // passes the gate.
 func TestWhatHoldsAlreadyIsAnAnswer(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	cfg := Config{Model: stubModel{answer: spec}, Estate: est, Gate: gate.New(est), Person: "a test",
@@ -1141,6 +1160,7 @@ func TestWhatHoldsAlreadyIsAnAnswer(t *testing.T) {
 // A run stopped while it carried a change again with what the person said
 // is resumed with it; once the change is admitted again, it is spent.
 func TestAMendStoppedIsResumedWithThePersonsWords(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	add := func(stage, note string) {
 		if err := artifact.AppendRecord(dir, "a-change", meta.Crossing{At: today(), Stage: stage, Object: "SPEC-001", Note: note}); err != nil {
@@ -1162,6 +1182,7 @@ func TestAMendStoppedIsResumedWithThePersonsWords(t *testing.T) {
 // What an agent writes is put in the estate's one form before it is kept:
 // form is not the agent's to spend turns on.
 func TestACandidateIsKeptInTheEstatesForm(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
 		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string {\nreturn strings.ToUpper(Greet(n))\n}\n",
@@ -1205,6 +1226,7 @@ func (s stoppedAtPlanning) Ask(ctx context.Context, system, prompt string) (stri
 // A run stopped while its plan is asked for stops: no plan is made in the
 // planner's place, and nothing is admitted on one.
 func TestARunStoppedWhilePlanningStops(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1228,6 +1250,7 @@ func TestARunStoppedWhilePlanningStops(t *testing.T) {
 // A configuration that leaves out the estate and the gate carries a task
 // all the same, on the estate on disk and the gate over it.
 func TestAConfigWithoutEstateOrGateWorks(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: map[string]string{
 		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
@@ -1246,6 +1269,7 @@ func TestAConfigWithoutEstateOrGateWorks(t *testing.T) {
 
 // What a unit reads, as its plan says, is handed whole to its agent.
 func TestWhatAUnitReadsIsHanded(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	r := &Run{repo: repo, cfg: Config{Estate: est}}
@@ -1259,6 +1283,7 @@ func TestWhatAUnitReadsIsHanded(t *testing.T) {
 // carried on, and no others: the tests it must pass whole, what the units
 // before it wrote by path, and nothing of a unit it does not wait for.
 func TestAUnitIsHandedWhatItIsCarriedOn(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	keep := func(rel, body string) string {
@@ -1298,6 +1323,7 @@ func TestAUnitIsHandedWhatItIsCarriedOn(t *testing.T) {
 // A file only read that would crowd out what is left is handed by its
 // outline, so that what an agent is handed stays within its budget.
 func TestAPackKeepsToItsBudget(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	long := "package greet\n\n"
 	for i := range 400 {
@@ -1321,6 +1347,7 @@ func TestAPackKeepsToItsBudget(t *testing.T) {
 // sees fields and methods, the estate's reader what it reads; a comment
 // that names a name declares nothing.
 func TestWhatIsDeclaredIsReadFromTheCode(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for f, src := range map[string]string{
 		"app.go":  "package ui\n\n// Notify and quiet are to come.\ntype Options struct{ Port int }\n\nfunc (u *UI) frame() {}\n",
@@ -1355,6 +1382,7 @@ func TestWhatIsDeclaredIsReadFromTheCode(t *testing.T) {
 // unit after the one that provides its names, whatever order the planner
 // wrote; a circle of uses, and a name nothing provides, are sent back.
 func TestCodeUnitsAreOrderedByWhatTheyUse(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	r := &Run{repo: repo, cfg: Config{Estate: estate.NewLocal()}}
 	fn := func(file, name string) meta.Provision {
@@ -1425,6 +1453,7 @@ func (s tiring) Run(_ context.Context, t harness.Task, _ func(harness.Event)) (h
 // tests back to be written again, with where they fail, and is carried
 // again after them.
 func TestTestsNoCodeCanPassAreWrittenAgain(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	var goals []string
@@ -1449,6 +1478,7 @@ func TestTestsNoCodeCanPassAreWrittenAgain(t *testing.T) {
 // requirements and interfaces, and for the tests its test strategy — so
 // that what the tests check and what the code does are decided once.
 func TestEveryAgentIsHandedTheSpecificationsDecisions(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	var goals []string
@@ -1501,6 +1531,7 @@ func (s planned) Ask(ctx context.Context, system, prompt string) (string, model.
 // that declares them: it is carried first, the tests are handed it, and
 // the code units come after.
 func TestTwoCodeUnitsBuildOnAContract(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	twoFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go"]`, 1)
@@ -1540,6 +1571,7 @@ func TestTwoCodeUnitsBuildOnAContract(t *testing.T) {
 // Code units that share no file are put in chains of their own; units that
 // change a file in common share one, in the plan's order.
 func TestChainsOfCodeUnits(t *testing.T) {
+	t.Parallel()
 	r := &Run{units: []unit{
 		{id: "c", kind: meta.ContractUnit},
 		{id: "t", kind: meta.TestsUnit},
@@ -1565,6 +1597,7 @@ func TestChainsOfCodeUnits(t *testing.T) {
 // Code units in chains of their own are carried at once, and the change
 // lands as if they had been carried one by one.
 func TestChainsAreCarriedAtOnce(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	threeFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go","whisper.go"]`, 1)
@@ -1607,6 +1640,7 @@ func TestChainsAreCarriedAtOnce(t *testing.T) {
 // A specification's scope and tests are paths of files; an entry that
 // names a test in its file, or says something of it, sends the draft back.
 func TestScopeAndTestsArePaths(t *testing.T) {
+	t.Parallel()
 	ok := draft{Slug: "s", Statement: "s", Criteria: []draftCriterion{{}}, Class: "C3", Scope: []string{"greeting.py", "web/a.spec.ts"}, NewTests: []string{"test_greeting.py"}}
 	ok.Document.Summary, ok.Document.Flows, ok.Document.Requirements, ok.Document.Interfaces, ok.Document.Components = "s", []string{"f"}, []string{"r"}, []string{"i"}, []string{"c"}
 	if why := ok.problem(); why != "" {
@@ -1624,6 +1658,7 @@ func TestScopeAndTestsArePaths(t *testing.T) {
 // Tests the estate's runner did not run have not passed: that they ran is
 // read from what the runner said.
 func TestTestsThatDidNotRunDidNotPass(t *testing.T) {
+	t.Parallel()
 	for out, none := range map[string]bool{
 		"ok  \texample.com/greeting\t0.257s [no tests to run]\n": true,
 		"Ran 0 tests in 0.000s\n\nOK\n":                          true,
@@ -1639,6 +1674,7 @@ func TestTestsThatDidNotRunDidNotPass(t *testing.T) {
 
 // The tests a file declares are read as its language declares them.
 func TestTestsAreReadInTheirLanguage(t *testing.T) {
+	t.Parallel()
 	for file, c := range map[string]struct {
 		content string
 		want    []string
@@ -1659,6 +1695,7 @@ func TestTestsAreReadInTheirLanguage(t *testing.T) {
 // The estate's own runner, where it keeps one, runs the tests; its language
 // still gives an agent its build and its check of one file.
 func TestARunnerTheEstateKeepsAndItsLanguage(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	for f, s := range map[string]string{"go.mod": "module m\n", "test.sh": "#!/bin/sh\n"} {
 		if err := os.WriteFile(filepath.Join(repo, f), []byte(s), 0o755); err != nil {
@@ -1683,6 +1720,7 @@ func TestARunnerTheEstateKeepsAndItsLanguage(t *testing.T) {
 // An agent asks the estate's model where a name is defined and who uses
 // it, and is answered with places and their lines.
 func TestTheEstateAnswersAnAgentByName(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	g := estateGraph{repo: estate.NewLocal().Repo(repo), root: repo}
 	def, err := g.Defined("Greet")
@@ -1725,6 +1763,7 @@ func (o overreach) Run(ctx context.Context, t harness.Task, emit func(harness.Ev
 // it cannot do what it was only to declare: no agent is handed it — not
 // even one that would overreach — and the change lands on it.
 func TestTheContractIsDeclaredByTheFramework(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	twoFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go"]`, 1)
@@ -1767,6 +1806,7 @@ func TestTheContractIsDeclaredByTheFramework(t *testing.T) {
 // reports each test — or, where it writes no report, how it says it ran
 // none.
 func TestEachLanguageIsOneEntry(t *testing.T) {
+	t.Parallel()
 	seen := map[string]bool{}
 	for _, l := range languages {
 		if l.name == "" || len(l.marks) == 0 || len(l.exts) == 0 || l.tests == nil || (l.report == nil && l.noneRan == nil) {
@@ -1790,6 +1830,7 @@ func TestEachLanguageIsOneEntry(t *testing.T) {
 // code for the contract and the tests and the unit before it in its chain,
 // the last unit for all.
 func TestEachUnitWaitsForWhatItBuildsOn(t *testing.T) {
+	t.Parallel()
 	r := &Run{units: []unit{
 		{kind: meta.ContractUnit},
 		{kind: meta.TestsUnit},
@@ -1814,6 +1855,7 @@ func TestEachUnitWaitsForWhatItBuildsOn(t *testing.T) {
 // a package it writes into is what the unit is to declare; a failed
 // assertion blames no file.
 func TestWhoseFaultAMissingNameIs(t *testing.T) {
+	t.Parallel()
 	l, _ := languageOfFile("a.go")
 	read := faultsOf(l, []string{"internal/cli/resolve.go"})
 	fs := read("internal/flow/advise_test.go:177:46: m.usage.Out undefined (type model.Usage has no field or method Out)\n" +
@@ -1827,6 +1869,7 @@ func TestWhoseFaultAMissingNameIs(t *testing.T) {
 // A code unit that finds its work done by the unit before it changes
 // nothing, and the change lands all the same.
 func TestAUnitWithNothingLeftToDo(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	twoUnits := `{"approach":{"summary":"Shout, then check.","steps":["test","shout","check"],"risks":["none"]},
@@ -1855,6 +1898,7 @@ func TestAUnitWithNothingLeftToDo(t *testing.T) {
 // Node names a failing file inside a stack frame's parentheses; the file is
 // what is between them.
 func TestANodeFaultIsTheFileInItsFrame(t *testing.T) {
+	t.Parallel()
 	l, _ := languageOfFile("a.js")
 	fs := faultsOf(l, []string{"greeting.js"})("    at TestContext.<anonymous> (/private/var/ws/shout.test.js:7:10)\n")
 	if len(fs) != 1 || fs[0].File != "/private/var/ws/shout.test.js" {
@@ -1865,6 +1909,7 @@ func TestANodeFaultIsTheFileInItsFrame(t *testing.T) {
 // A plan whose unit provides a name its file declares already is sent
 // back: a contract that declared it again would break its users.
 func TestANameProvidedIsANewName(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	r := &Run{repo: repo}
 	if why := r.providedAlready(unit{provides: []meta.Provision{{File: "greet.go", Name: "Greet", Kind: meta.Function, Signature: "func Greet(n string) string"}}}); !strings.Contains(why, "declares already") {
@@ -1896,6 +1941,7 @@ func TestANameProvidedIsANewName(t *testing.T) {
 // What a Go file declares is its package's: a parameter, a result, a
 // function's own variable declare nothing.
 func TestAGoFileDeclaresWhatItsPackageDoes(t *testing.T) {
+	t.Parallel()
 	names, err := goDeclares([]byte("package ui\n\nvar quiet bool\n\ntype UI struct{ notify func() }\n\ntype Sender interface{ Send(m string) }\n\nfunc newUI(s *settings) (u *UI) {\n\tvar local int\n\t_ = local\n\treturn nil\n}\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -1916,6 +1962,7 @@ func TestAGoFileDeclaresWhatItsPackageDoes(t *testing.T) {
 // planner, to be divided; a unit of one file too long for it cannot be
 // divided, and its agent reads that file by parts.
 func TestAUnitTooLargeForOneAgentIsSentBack(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	long := "package greet\n\n" + strings.Repeat("// a line of the long file, to give it weight\n", 200)
 	for _, f := range []string{"a.go", "b.go"} {
@@ -1941,6 +1988,7 @@ func TestAUnitTooLargeForOneAgentIsSentBack(t *testing.T) {
 // The author of a specification is told what the project is for, in its
 // own words, within its budget, by whole paragraphs from the beginning.
 func TestTheAuthorIsToldWhatTheProjectIsFor(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	readme := "# Shop\n\nA shop for books.\n\n" + strings.Repeat("A long paragraph of detail. ", 400)
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte(readme), 0o644); err != nil {
@@ -1962,6 +2010,7 @@ func TestTheAuthorIsToldWhatTheProjectIsFor(t *testing.T) {
 // planner, as every plan that breaks the method is; it is never mended in
 // the planner's place.
 func TestAPlanLeavingACriterionIsSentBack(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	short := strings.Replace(plan, `"criteria":["CR-001-01","CR-001-02"]`, `"criteria":["CR-001-01"]`, 1)
@@ -1981,6 +2030,7 @@ func TestAPlanLeavingACriterionIsSentBack(t *testing.T) {
 // A plan with tests and no code is sent back, saying so; it does not bring
 // the run down.
 func TestAPlanWithNoCodeIsSentBack(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
 	testsOnly := `{"approach":{"summary":"Test.","steps":["test"],"risks":["none"]},"units":[
@@ -2002,6 +2052,7 @@ func TestAPlanWithNoCodeIsSentBack(t *testing.T) {
 // only where the contract declares in it, for nothing else is there before
 // them.
 func TestWhatTestsMayRead(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal()}, changed: func() {}}
 	plan := func(reads string, provides string) planDraft {
@@ -2039,6 +2090,7 @@ func TestWhatTestsMayRead(t *testing.T) {
 // A carrying that sends the change back keeps saying so through the
 // scheduler: it is not read as a failure, which would stop the run.
 func TestASentBackIsNotAFailure(t *testing.T) {
+	t.Parallel()
 	s := &scheduler{r: &Run{}}
 	sb := &sentBack{area: 2, unit: "WU-1", why: "the contract cannot be declared"}
 	if out, _ := s.outcomeOf(0, finished{err: fmt.Errorf("wrapped: %w", sb)}); out != outSentBack {
@@ -2050,6 +2102,7 @@ func TestASentBackIsNotAFailure(t *testing.T) {
 // one left to the existing tests, which pass before the change, is sent
 // back to the author.
 func TestNewBehaviourIsJudgedByNewTests(t *testing.T) {
+	t.Parallel()
 	var d draft
 	if err := json.Unmarshal([]byte(spec), &d); err != nil {
 		t.Fatal(err)
@@ -2071,6 +2124,7 @@ func TestNewBehaviourIsJudgedByNewTests(t *testing.T) {
 // whole: what it costs to hand is what it changes and reads, and a long
 // file of the scope does not keep it from fitting one agent.
 func TestTestsAreHandedTheCodeByItsDeclarations(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	long := "package greet\n\n" + strings.Repeat("// a line of the long file, to give it weight\n", 2000) + "func Long() int { return 1 }\n"
 	if err := os.WriteFile(filepath.Join(repo, "long.go"), []byte(long), 0o644); err != nil {
@@ -2092,6 +2146,7 @@ func TestTestsAreHandedTheCodeByItsDeclarations(t *testing.T) {
 // package's own: a type a field is given to, a name a unit uses, a name a
 // unit provides. A field given to a type of another package is sent back.
 func TestNamesQualifiedByTheirPackageAreTheirPackagesOwn(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal()}, changed: func() {}}
 	plan := func(of string) planDraft {
@@ -2152,6 +2207,7 @@ func (w widePlanner) Ask(ctx context.Context, system, prompt string) (string, mo
 // specification back to its author, with what and why — not round its
 // planner, who may not widen what the person accepted.
 func TestAPlanOutsideTheScopeSendsTheSpecificationBack(t *testing.T) {
+	t.Parallel()
 	repo := estateFixture(t)
 	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package greet\n"), 0o644); err != nil {
 		t.Fatal(err)

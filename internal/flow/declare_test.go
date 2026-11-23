@@ -53,6 +53,7 @@ func run(t *testing.T, dir string, cmd ...string) string {
 // constant, declared without behaviour, in a file that builds, beside one
 // that is new to its package.
 func TestGoIsDeclaredWithoutBehaviour(t *testing.T) {
+	t.Parallel()
 	src := "package shop\n\ntype Cart struct {\n\tItems []int\n}\n"
 	ps := []meta.Provision{
 		{File: "cart.go", Name: "Total", Kind: meta.Function, Signature: "func Total(c Cart) int"},
@@ -83,6 +84,7 @@ func TestGoIsDeclaredWithoutBehaviour(t *testing.T) {
 // A field of a struct the file does not hold cannot be declared: that is
 // said, not guessed around.
 func TestAFieldWithoutItsTypeIsRefused(t *testing.T) {
+	t.Parallel()
 	_, err := goDeclare("x.go", []byte("package x\n"), []meta.Provision{{File: "x.go", Name: "N", Kind: meta.Field, Of: "Missing", Signature: "N int"}})
 	if err == nil || !strings.Contains(err.Error(), "Missing") {
 		t.Errorf("a field of no struct was declared: %v", err)
@@ -92,6 +94,7 @@ func TestAFieldWithoutItsTypeIsRefused(t *testing.T) {
 // Python: a function, a class, a method and a field of an existing class,
 // declared without behaviour, in a module that imports.
 func TestPythonIsDeclaredWithoutBehaviour(t *testing.T) {
+	t.Parallel()
 	src := "\"\"\"Greets.\"\"\"\n\n\nclass Greeter:\n    \"\"\"Says hello.\"\"\"\n\n    def hello(self, name):\n        return \"Hello, \" + name\n\n\ndef greet(name):\n    return name\n"
 	ps := []meta.Provision{
 		{File: "greeting.py", Name: "greet_in", Kind: meta.Function, Signature: "def greet_in(lang, name=None) -> str:"},
@@ -123,6 +126,7 @@ print(greeting.Farewell.__name__)
 // module.exports beside what it exported; a method and a field of an
 // existing class.
 func TestJavaScriptIsDeclaredWithoutBehaviour(t *testing.T) {
+	t.Parallel()
 	src := "// Says hello.\n\nclass Greeter {\n  hello(name) {\n    return \"Hello, \" + name;\n  }\n}\n\nfunction greet(name) {\n  return \"Hello, \" + name + \"!\";\n}\n\nmodule.exports = { greet, Greeter };\n"
 	ps := []meta.Provision{
 		{File: "greeting.js", Name: "shout", Kind: meta.Function, Signature: "function shout(name)"},
@@ -150,6 +154,7 @@ for (const call of [() => m.shout("a"), () => g.wave("a")]) {
 // Python's own parser says what a module declares: a constant assigned at
 // the top, a class's annotations, what a method assigns to self.
 func TestPythonDeclaresAreReadByPython(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("no python3 here")
 	}
@@ -168,6 +173,7 @@ func TestPythonDeclaresAreReadByPython(t *testing.T) {
 // A declaration that names a type of another package of the module brings
 // its import with it: the contract builds.
 func TestGoDeclarationsImportWhatTheyName(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for f, body := range map[string]string{
 		"go.mod":         "module example.com/shop\n\ngo 1.22\n",

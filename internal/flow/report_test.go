@@ -12,6 +12,7 @@ import (
 // A Go run is read from go test's own report: a test that passes, one that
 // fails, one whose goroutine panics, and one not found, each by its name.
 func TestAGoRunIsReadFromItsReport(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for f, body := range map[string]string{
 		"go.mod": "module example.com/greet\n\ngo 1.22\n",
@@ -27,6 +28,7 @@ func TestPasses(t *testing.T) {}
 func TestFails(t *testing.T) { t.Fatal("wrong greeting") }
 
 func TestSub(t *testing.T) {
+	t.Parallel()
 	t.Run("inner", func(t *testing.T) {})
 }
 
@@ -35,6 +37,7 @@ func TestPanicsFirst(t *testing.T) { panic("not yet: Shout") }
 func TestReachedAfterAPanic(t *testing.T) {}
 
 func TestPanicsInAGoroutine(t *testing.T) {
+	t.Parallel()
 	go func() { panic("boom") }()
 	time.Sleep(time.Second)
 }
@@ -88,6 +91,7 @@ func TestPanicsInAGoroutine(t *testing.T) {
 // A JUnit report — pytest's, node's nested suites — is read case by case,
 // a case's parameters taken off its name.
 func TestAJUnitReportIsReadCaseByCase(t *testing.T) {
+	t.Parallel()
 	file := filepath.Join(t.TempDir(), "report.xml")
 	xml := `<?xml version="1.0"?>
 <testsuites>

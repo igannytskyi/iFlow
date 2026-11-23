@@ -15,6 +15,7 @@ import (
 // declared in a file of the unit, judging a criterion of the unit, once;
 // every test the files declare in it; every criterion judged.
 func TestTheLedgerIsHeldToWhatWasWritten(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	src := "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {}\n\nfunc TestWhisper(t *testing.T) {}\n\nfunc FuzzShout(f *testing.F) {}\n\nfunc TestHelper(n int) {}\n\nfunc helper(t *testing.T) {}\n"
 	if err := os.WriteFile(filepath.Join(ws, "shout_test.go"), []byte(src), 0o644); err != nil {
@@ -55,6 +56,7 @@ func TestTheLedgerIsHeldToWhatWasWritten(t *testing.T) {
 // A criterion is judged at the code unit that serves it last, by the tests
 // the ledger says judge it; that unit waits for every other that serves it.
 func TestACriterionIsJudgedWhereItIsServedLast(t *testing.T) {
+	t.Parallel()
 	r := &Run{units: []unit{
 		{id: "C", kind: meta.ContractUnit, scope: []string{"greet.go"}},
 		{id: "T", kind: meta.TestsUnit, scope: []string{"greet_test.go"}, criteria: []string{"CR-1", "CR-2", "CR-3"}},
@@ -85,6 +87,7 @@ func TestACriterionIsJudgedWhereItIsServedLast(t *testing.T) {
 // A failure is blamed on a tests unit through the ledger, exactly: by a
 // test's name or a file's path, never a file of a like name.
 func TestBlameGoesThroughTheLedger(t *testing.T) {
+	t.Parallel()
 	r := &Run{units: []unit{
 		{id: "T1", kind: meta.TestsUnit, scope: []string{"a/greet_test.go"}},
 		{id: "T2", kind: meta.TestsUnit, scope: []string{"b/greet_test.go"}},
@@ -115,6 +118,7 @@ func TestBlameGoesThroughTheLedger(t *testing.T) {
 // other; one that new tests were to judge, with none in the ledger, is not
 // met whatever else passed.
 func TestEachCriterionStandsByItsOwnTests(t *testing.T) {
+	t.Parallel()
 	holds := map[string]bool{"CR-1": true, "CR-2": false}
 	for _, c := range []struct {
 		crit          string
@@ -137,6 +141,7 @@ func TestEachCriterionStandsByItsOwnTests(t *testing.T) {
 // field by its struct, an interface's method by its interface; a name it
 // declares more than once is told apart by its owner.
 func TestGoDeclarationsAreReadByTheirOwner(t *testing.T) {
+	t.Parallel()
 	src := []byte("package model\n\ntype Model interface {\n\tName() string\n}\n\ntype OpenAI struct {\n\tKey string\n}\n\nfunc (o OpenAI) Name() string {\n\treturn \"x\"\n}\n\nfunc (c *ClaudeCode) Name() string { return \"y\" }\n\nfunc New() Model { return nil }\n")
 	for _, c := range []struct{ name, of, want string }{
 		{"Name", "Model", "Name() string"},
@@ -159,6 +164,7 @@ func TestGoDeclarationsAreReadByTheirOwner(t *testing.T) {
 // and the type it belongs to, read by Go's parser at the line the estate
 // found it on.
 func TestDeclarationsAreHandedAsRelies(t *testing.T) {
+	t.Parallel()
 	src := []byte("package model\n\ntype Model interface {\n\tName() string\n}\n\ntype OpenAI struct {\n\tKey string\n}\n\nfunc (o OpenAI) Name() string {\n\treturn \"x\"\n}\n\nconst Limit = 3\n")
 	for _, c := range []struct {
 		name string
@@ -182,6 +188,7 @@ func TestDeclarationsAreHandedAsRelies(t *testing.T) {
 // scope holds it, nothing judges it, and no unit carried apart from it
 // writes it.
 func TestAUnitIsGivenWhatThePlanMissed(t *testing.T) {
+	t.Parallel()
 	r := &Run{spec: draft{Scope: []string{"internal/ui/"}, NewTests: []string{"internal/ui/feed_test.go"}}, units: []unit{
 		{id: "C", kind: meta.ContractUnit, scope: []string{"internal/ui/feed.go"}},
 		{id: "T", kind: meta.TestsUnit, scope: []string{"internal/ui/feed_test.go"}},
@@ -211,6 +218,7 @@ func TestAUnitIsGivenWhatThePlanMissed(t *testing.T) {
 // A planner is handed Go as it is: a struct with its fields, an interface
 // with its methods, a function with what it calls.
 func TestThePlannerSeesFieldsMethodsAndCalls(t *testing.T) {
+	t.Parallel()
 	src := []byte("package model\n\ntype Model interface {\n\tName() string\n}\n\ntype UI struct {\n\trunOf func() int\n}\n\nfunc (o OpenAI) Stream(n int) error {\n\treq := o.body(n)\n\treturn send(req)\n}\n")
 	got := goOutline(src)
 	for _, want := range []string{"type Model interface", "    Name() string", "type UI struct", "    runOf func() int", "func (o OpenAI) Stream(n int) error   — calls o.body, send"} {

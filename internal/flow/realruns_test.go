@@ -29,6 +29,7 @@ type realCase struct {
 // repository as it stood — is judged again by the framework as it stands:
 // free, and with what a real run does, not what a stub imagines.
 func TestRealRunsAreReadAsTheyHappened(t *testing.T) {
+	t.Parallel()
 	cases, _ := filepath.Glob(filepath.Join("testdata", "realruns", "*", "case.json"))
 	if len(cases) == 0 {
 		t.Fatal("no real run is kept")

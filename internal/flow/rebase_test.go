@@ -7,6 +7,7 @@ import (
 
 // Edits apart from each other merge; edits of the same lines do not.
 func TestMerge3(t *testing.T) {
+	t.Parallel()
 	base := "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n"
 	ours := "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return Greet(n) + \"!\" }\n"
 	theirs := "// Package greet greets.\npackage greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n"
