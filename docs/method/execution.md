@@ -93,7 +93,7 @@ Everything below fits one budget: 16000 tokens unless `IFLOW_PACK_TOKENS` says o
 | what earlier units wrote, by path | | | | ✓ | ✓ |
 | around them: signatures and names only | | | ✓ | ✓ | ✓ |
 
-A tests unit answers, besides its tests, with its part of the **test ledger**: each test it wrote, its file, and the criterion it judges. Its check holds the ledger to what it wrote; the ledger is kept in the execution document, and every later step that needs to know which test judges what reads it there ([handoffs.md](handoffs.md)).
+A tests unit answers, besides its tests, with its part of the **test ledger**: each test it wrote, its file, and the criterion it judges. Its check holds the ledger to what it wrote; the ledger is kept in the execution document, and every later step that needs to know which test judges what reads it there (below, *What passes between the steps*).
 
 The author and the planner decide on the code, not on a guess at it: each is an agent that reads only (`harness.Study`). It is handed the estate's map and, for Go, an outline of the files the change works in — every type with its fields or methods, every function with what it calls — and asks the estate's graph where things are and what calls what, then reads the files its decision needs, before it answers with the specification or the plan. A model that holds no conversation is asked once, with what it is handed.
 
@@ -108,6 +108,36 @@ The budget is spent in this order:
 5. signatures and names.
 
 The tokens each agent was handed are recorded with its costs.
+
+## What passes between the steps
+
+Every step hands the next what it needs as data, written by the step that knows it and checked as it is written; no step reads another's text to find out what it did. Dividing the work is sound only so: a single agent recovers what it needs by reading its own context, and divided agents cannot.
+
+| From → to | What passes | Form |
+|---|---|---|
+| person → author | the intent | the person's words |
+| estate → author, planner | the map of names; for Go, an outline of the files the change works in — types with their fields and methods, functions with what they call; the graph to ask, and the files to read | data from the estate |
+| author → plan | criteria (id, when, then, judged by new tests or by the person), scope, new test files, existing tests | typed JSON, checked by the gate |
+| plan → units | each unit's kind, scope, criteria (chosen among the specification's ids), what it provides, uses and reads | typed JSON, R24 |
+| plan → scheduler | which unit waits for which | derived: shared files, reads, uses, a criterion's last server |
+| tests unit → every later step | which tests it wrote, and which criterion each judges | the **test ledger**, held to what was written |
+| code unit ← its check | whether the criteria it serves last hold | the build, then those criteria's tests |
+| test run → framework | which tests passed, failed, did not run, did not build | the runner's report for machines (`go test -json`, JUnit XML); a runner with none is judged as a whole |
+| agent → framework | the unit cannot be done; which tests are wrong; which files outside its scope | tests by name, files by path, each checked when said, mapped through the ledger |
+| candidates → assurance | each criterion met or not | each criterion by its own tests, as the ledger names them |
+
+```
+criterion ──(specification)──► judged by new tests in file F
+    │
+    ▼ (plan)
+tests unit writes F for its criteria          code units serve criteria
+    │
+    ▼ (its answer, checked by the framework)
+ledger: test · file · criterion · unit
+    ├──► the code unit that serves a criterion last: must pass its tests
+    ├──► a failing test: its criterion and its unit, exactly
+    └──► assurance: each criterion by its own tests
+```
 
 ## Open
 
