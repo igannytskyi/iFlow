@@ -34,6 +34,7 @@ type tool struct {
 type workspace struct {
 	dir       string
 	scope     []string
+	tests     []string // the tests it must pass, by name
 	check     []string
 	judge     func(passed bool, output string) (ok bool, why string)
 	first     []string
@@ -81,11 +82,13 @@ func (w *workspace) run() (ok bool, out, why string) {
 	return ok, out, why
 }
 
-// Blocked is a unit its agent says cannot be done as it is asked: why, and
-// the files it names as the cause.
+// Blocked is a unit its agent says cannot be done as it is asked: why, the
+// files outside its scope it names as the cause, and the tests it holds
+// wrong — each checked when it is said.
 type Blocked struct {
 	Why   string
 	Files []string
+	Tests []string // the tests it must pass that it holds wrong, by name
 }
 
 func (b Blocked) Error() string { return "cannot be done as asked: " + b.Why }
@@ -242,16 +245,37 @@ var tools = []tool{
 			}
 			return "edited" + how + "; now:\n" + around(out, a["new"]) + w.builds(rel), nil
 		}, true},
-	{"cannot", "Say that the unit cannot be done as it is asked, and why: something it relies on does not exist, what it must change is outside its scope, it asks for what the estate cannot do. The unit goes back to be planned again with your reason. Say it as soon as you know — not after trying everything.",
-		`{"type":"object","properties":{"why":{"type":"string"},"files":{"type":"array","items":{"type":"string"},"description":"the files that keep it from being done, where they are files: a test written before you, a file outside your scope that must change — such a file sends the change back to its specification, whose scope it is"}},"required":["why"]}`,
+	{"cannot", "Say that the unit cannot be done as it is asked, and why: something it relies on does not exist, what it must change is outside its scope, it asks for what the estate cannot do, or a test written before you asks for what no code can give. Say it as soon as you know — not after trying everything.",
+		`{"type":"object","properties":{"why":{"type":"string"},"tests":{"type":"array","items":{"type":"string"},"description":"the tests you must pass that ask for what no code can give, each by its name as you were given it: they are written again"},"files":{"type":"array","items":{"type":"string"},"description":"the files outside your scope that must change, each by its path from the repository's root: such a file sends the change back to its specification, whose scope it is"}},"required":["why"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
-			var files []string
-			for _, f := range strings.Split(a["files"], "\n") {
-				if f = strings.TrimSpace(f); f != "" {
-					files = append(files, f)
+			b := Blocked{Why: strings.TrimSpace(a["why"])}
+			var wrong []string
+			for _, t := range strings.Split(a["tests"], "\n") {
+				if t = strings.TrimSpace(t); t == "" {
+					continue
 				}
+				if !slices.Contains(w.tests, t) {
+					wrong = append(wrong, fmt.Sprintf("%s is not one of the tests you must pass (%s)", t, strings.Join(w.tests, ", ")))
+					continue
+				}
+				b.Tests = append(b.Tests, t)
 			}
-			return "", Blocked{Why: strings.TrimSpace(a["why"]), Files: files}
+			for _, f := range strings.Split(a["files"], "\n") {
+				if f = filepath.ToSlash(filepath.Clean(strings.TrimSpace(f))); f == "." {
+					continue
+				}
+				if _, err := os.Stat(filepath.Join(w.dir, filepath.FromSlash(f))); err != nil || filepath.IsAbs(f) || strings.HasPrefix(f, "..") {
+					wrong = append(wrong, fmt.Sprintf("%s is not a file of the repository: name it by its path from the repository's root", f))
+					continue
+				}
+				b.Files = append(b.Files, f)
+			}
+			if len(wrong) > 0 {
+				// What is blamed must be what the framework can act on: said
+				// otherwise, it is asked again, not guessed at.
+				return "", errRefused{strings.Join(wrong, "; ")}
+			}
+			return "", b
 		}, false},
 	{"run_check", "Run the unit's check — the repository's own tests or build — and see the result.", `{"type":"object","properties":{}}`,
 		func(w *workspace, _ map[string]string) (string, error) {

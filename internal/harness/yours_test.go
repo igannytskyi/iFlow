@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,5 +70,34 @@ func TestAOneShotCannotNamesItsFiles(t *testing.T) {
 	}
 	if got := cannotFiles(answer); len(got) != 2 || got[0] != "internal/ui/remote.go" || got[1] != "internal/ui/feed_test.go" {
 		t.Errorf("the files were not read: %q", got)
+	}
+}
+
+// What an agent blames is what the framework can act on: a test it must
+// pass, by name; a file of the repository, by its path. Anything else is
+// refused, to be said again — never guessed at.
+func TestCannotBlamesOnlyWhatIsThere(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "ui"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "internal", "ui", "remote.go"), []byte("package ui\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws := &workspace{dir: dir, tests: []string{"TestFeed", "TestStrip"}}
+	tool, _ := lookup("cannot")
+	_, err := tool.run(ws, map[string]string{"why": "the hook lives in remote.go", "tests": "TestFeed", "files": "./internal/ui/remote.go"})
+	var b Blocked
+	if !errors.As(err, &b) || len(b.Tests) != 1 || b.Tests[0] != "TestFeed" || len(b.Files) != 1 || b.Files[0] != "internal/ui/remote.go" {
+		t.Fatalf("what was blamed rightly was not taken: %v", err)
+	}
+	for _, args := range []map[string]string{
+		{"why": "w", "tests": "TestNowhere"},
+		{"why": "w", "files": "remote.go"},
+		{"why": "w", "files": "/etc/passwd"},
+	} {
+		if _, err := tool.run(ws, args); !errors.As(err, new(errRefused)) {
+			t.Errorf("%v was taken: %v", args, err)
+		}
 	}
 }

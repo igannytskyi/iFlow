@@ -64,35 +64,33 @@ func (e *sentBack) Error() string {
 	return fmt.Sprintf("%s: sent back to area %d — %s", e.unit, e.area, e.why)
 }
 
-// blamed is the tests unit at the head of the plan whose files a code
-// unit's failure blames, or -1.
-func (r *Run) blamed(c carried, results []carried) int {
+// blamed is the tests unit whose tests a code unit's failure blames, or
+// -1: by the tests its agent held wrong, by name, or the files its check
+// failed in or its agent named, by path — each found in the test ledger,
+// exactly, never by a likeness.
+func (r *Run) blamed(c carried, _ []carried) int {
 	if c.res.Terminal != harness.FailedTask {
 		return -1
 	}
-	// By a file the unit's agent or its check named: its path, or, said
-	// without its folder, its name where only one tests unit wrote a file
-	// of that name.
-	for _, blamed := range c.res.Blames {
-		blamed = filepath.ToSlash(filepath.Clean(blamed))
-		byName := -1
-		for j, u := range r.units {
-			if !u.isTests() {
-				continue
-			}
-			for _, p := range results[j].paths {
-				switch {
-				case p == blamed:
-					return j
-				case path.Base(p) == blamed && byName == -1:
-					byName = j
-				case path.Base(p) == blamed:
-					byName = -2 // the name is not one file's
-				}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	unitOf := func(match func(meta.TestRecord) bool) int {
+		for _, t := range r.ledger {
+			if match(t) {
+				return slices.IndexFunc(r.units, func(u unit) bool { return u.id == t.Unit })
 			}
 		}
-		if byName >= 0 {
-			return byName
+		return -1
+	}
+	for _, name := range c.res.BlamedTests {
+		if j := unitOf(func(t meta.TestRecord) bool { return t.Test == name }); j >= 0 {
+			return j
+		}
+	}
+	for _, f := range c.res.Blames {
+		f = path.Clean(strings.TrimPrefix(filepath.ToSlash(f), "./"))
+		if j := unitOf(func(t meta.TestRecord) bool { return t.File == f }); j >= 0 {
+			return j
 		}
 	}
 	return -1
@@ -274,6 +272,12 @@ func (r *Run) byAgent(ctx context.Context, i int, ws string, on []onto, scope []
 	handed := estate.Tokens(goal) + pack.Tokens()
 	_ = os.WriteFile(filepath.Join(c.store, "pack.md"), []byte("# Goal\n\n"+goal+"\n\n"+pack.String()), 0o644)
 	task := harness.Task{Workspace: ws, Goal: goal, Role: string(u.kind), Scope: scope, Context: pack.String(), BudgetUSD: r.cfg.BudgetUSD}
+	if !u.isTests() && !u.isContract() {
+		task.Tests = r.criterionTests(i)
+		if i == len(r.units)-1 {
+			task.Tests = r.newTestNames(prof)
+		}
+	}
 	switch {
 	case ok && u.isTests() && prof.vet != nil:
 		// Tests written first build against the contract, declared before

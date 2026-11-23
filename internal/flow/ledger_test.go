@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/meta"
 )
 
@@ -78,5 +79,34 @@ func TestACriterionIsJudgedWhereItIsServedLast(t *testing.T) {
 	}
 	if deps := r.dependencies(); !slices.Contains(deps[3], 2) {
 		t.Errorf("B, judging CR-2, does not wait for A, which serves it too: %v", deps[3])
+	}
+}
+
+// A failure is blamed on a tests unit through the ledger, exactly: by a
+// test's name or a file's path, never a file of a like name.
+func TestBlameGoesThroughTheLedger(t *testing.T) {
+	r := &Run{units: []unit{
+		{id: "T1", kind: meta.TestsUnit, scope: []string{"a/greet_test.go"}},
+		{id: "T2", kind: meta.TestsUnit, scope: []string{"b/greet_test.go"}},
+		{id: "C", kind: meta.CodeUnit},
+	}, ledger: []meta.TestRecord{
+		{Test: "TestOne", File: "a/greet_test.go", Criterion: "CR-1", Unit: "T1"},
+		{Test: "TestTwo", File: "b/greet_test.go", Criterion: "CR-2", Unit: "T2"},
+	}}
+	failed := func(tests, files []string) carried {
+		return carried{res: harness.Result{Terminal: harness.FailedTask, BlamedTests: tests, Blames: files}}
+	}
+	for _, c := range []struct {
+		c    carried
+		want int
+	}{
+		{failed([]string{"TestTwo"}, nil), 1},
+		{failed(nil, []string{"./a/greet_test.go"}), 0},
+		{failed(nil, []string{"greet_test.go"}), -1}, // two files of that name: neither is guessed
+		{failed([]string{"TestNowhere"}, nil), -1},
+	} {
+		if got := r.blamed(c.c, nil); got != c.want {
+			t.Errorf("%v %v blamed unit %d, want %d", c.c.res.BlamedTests, c.c.res.Blames, got, c.want)
+		}
 	}
 }

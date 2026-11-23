@@ -87,7 +87,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 	if l.Model == nil {
 		return Result{Terminal: FailedSubstrate}, errNoModel
 	}
-	ws := &workspace{dir: t.Workspace, faults: t.Faults, libraries: t.Libraries, scope: t.Scope, check: t.Check, first: t.First, graph: t.Graph, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
+	ws := &workspace{dir: t.Workspace, tests: t.Tests, faults: t.Faults, libraries: t.Libraries, scope: t.Scope, check: t.Check, first: t.First, graph: t.Graph, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
 	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t) + libraryNote(t.Libraries)}}
 	// What the estate says is read once: from the agent's third turn on it
 	// is sent as an index of what it held, and the agent reads what it
@@ -205,7 +205,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			answer, kind, changed, blocked := l.call(ws, call)
 			if blocked != nil {
 				emit(Event{At: time.Now(), Kind: Said, Detail: blocked.Error()})
-				res.Cannot, res.Blames = blocked.Why, blocked.Files
+				res.Cannot, res.Blames, res.BlamedTests = blocked.Why, blocked.Files, blocked.Tests
 				return end(FailedTask, blocked.Why) // the agent says it cannot be done as asked
 			}
 			switch {

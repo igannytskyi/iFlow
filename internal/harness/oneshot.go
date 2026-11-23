@@ -233,7 +233,15 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			break
 		}
 		if why, ok := cannot(answer); ok {
-			res.Terminal, res.Summary, res.Cannot, res.Blames = FailedTask, why, why, cannotFiles(answer)
+			res.Terminal, res.Summary, res.Cannot = FailedTask, why, why
+			for _, f := range cannotFiles(answer) {
+				// Only a file of the repository, by its path from its root, is
+				// blamed: anything else is not a file the framework can act on.
+				f = filepath.ToSlash(filepath.Clean(f))
+				if _, err := os.Stat(filepath.Join(t.Workspace, filepath.FromSlash(f))); err == nil && !filepath.IsAbs(f) && !strings.HasPrefix(f, "..") {
+					res.Blames = append(res.Blames, f)
+				}
+			}
 			break
 		}
 		files, summary := parseFiles(answer)

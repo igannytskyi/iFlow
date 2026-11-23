@@ -70,6 +70,9 @@ type Task struct {
 	// saying of each whether it passed: what the agent runs to see which
 	// test fails, and why.
 	Focus func(pattern, path string) []string
+	// Tests is the tests the unit must pass, by name: those its agent may
+	// hold wrong.
+	Tests []string
 	// BudgetUSD and MaxSteps bound the run; a run that reaches either stops
 	// with what it has and says which it reached.
 	BudgetUSD float64
@@ -121,12 +124,15 @@ type Result struct {
 	// Cannot, where set, is why the agent said the unit cannot be done as it
 	// is asked; Blames, the files it named as the cause, or the files outside
 	// the unit's scope the check failed in.
-	Cannot  string
-	Blames  []string
-	Steps   int
-	Turns   int
-	Usage   model.Usage
-	Elapsed time.Duration
+	Cannot string
+	Blames []string
+	// BlamedTests is the tests the agent holds wrong, by name: each one of
+	// the tests it was to pass.
+	BlamedTests []string
+	Steps       int
+	Turns       int
+	Usage       model.Usage
+	Elapsed     time.Duration
 }
 
 // Executor carries out a task. Run returns when the task has ended, and

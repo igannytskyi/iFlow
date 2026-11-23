@@ -53,7 +53,7 @@ func (l Ladder) Run(ctx context.Context, t Task, emit func(Event)) (Result, erro
 	if said && err == nil && then.Terminal != Candidate && then.Terminal != Cancelled && then.Terminal != FailedTask {
 		// The agent neither did the unit nor showed the first rung wrong:
 		// what the first rung said stands, with what both spent.
-		then.Terminal, then.Summary, then.Cannot, then.Blames = first.Terminal, first.Summary, first.Cannot, first.Blames
+		then.Terminal, then.Summary, then.Cannot, then.Blames, then.BlamedTests = first.Terminal, first.Summary, first.Cannot, first.Blames, first.BlamedTests
 	}
 	then.Usage = first.Usage.Add(then.Usage)
 	then.Steps += first.Steps
