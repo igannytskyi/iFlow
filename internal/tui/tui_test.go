@@ -343,7 +343,7 @@ func TestWhatTheWebWroteIsShownAsText(t *testing.T) {
 func TestTheConversationIsAColumnOfItsOwn(t *testing.T) {
 	m := New(context.Background(), &service.Client{}, nil, "/estate", Terminal)
 	m.projects = []protocol.Project{{Path: "/estate", Name: "estate"}}
-	m = drive(m, tea.WindowSizeMsg{Width: 160, Height: 40})
+	m = drive(m, tea.WindowSizeMsg{Width: 200, Height: 40})
 	m.chatOpen = true
 	m, _ = m.begin(asking, "")
 	l := m.layout()
@@ -373,5 +373,22 @@ func TestTheConversationIsAColumnOfItsOwn(t *testing.T) {
 	}
 	if m = m.chatScrolled(50); m.chatScroll != 0 {
 		t.Errorf("an empty conversation scrolled back %d lines", m.chatScroll)
+	}
+}
+
+// The conversation opened leaves the costs where they were: it takes its
+// room from the task.
+func TestTheConversationLeavesTheCosts(t *testing.T) {
+	m := New(context.Background(), &service.Client{}, nil, "/estate", Terminal)
+	m.projects = []protocol.Project{{Path: "/estate", Name: "estate"}}
+	m = drive(m, tea.WindowSizeMsg{Width: 200, Height: 40})
+	closed := m.layout()
+	m.chatOpen = true
+	open := m.layout()
+	if closed.costs == 0 || open.costs != closed.costs {
+		t.Errorf("the costs were %d wide, and %d with the conversation open", closed.costs, open.costs)
+	}
+	if open.side+3+open.mid+3+open.costs+3+open.chat != m.width || open.mid < minMid {
+		t.Errorf("the columns do not fill the screen: %+v", open)
 	}
 }

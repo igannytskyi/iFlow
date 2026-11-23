@@ -17,8 +17,9 @@ type layout struct {
 }
 
 // The conversation is a column of its own, on the right, the whole height:
-// its turns above, the line typed on at its foot. Its width is the
-// person's — dragged at its edge, or < and > — within these bounds.
+// its turns above, the line typed on at its foot, beside the costs. Its
+// width is the person's — dragged at its edge, or < and > — within these
+// bounds.
 const (
 	minChat = 32
 	minMid  = 30
@@ -29,20 +30,29 @@ func (m Model) layout() layout {
 	l.body = max(4, m.height-l.top-len(m.foot()))
 	l.side = min(36, max(22, m.width/4))
 	rest := m.width - l.side - 3
+	// The costs stand where they stand with the conversation closed: the
+	// conversation opens beside them, taking its room from the task.
+	if rest >= 110 {
+		l.costs = 30
+		rest -= l.costs + 3
+	}
 	if m.chatOpen {
 		want := m.chatW
 		if want == 0 {
-			want = rest * 9 / 20
+			want = (rest - 3) / 2
 		}
 		l.chat = min(max(want, minChat), max(minChat, rest-minMid-3))
+		if rest-l.chat-3 < minMid && l.costs > 0 {
+			// Only where the task would have no room left do the costs
+			// give theirs.
+			rest += l.costs + 3
+			l.costs = 0
+			l.chat = min(max(want, minChat), max(minChat, rest-minMid-3))
+		}
 		rest -= l.chat + 3
 		l.chatX = m.width - l.chat
 	}
 	l.mid = rest
-	if l.mid >= 110 {
-		l.costs = 30
-		l.mid -= l.costs + 3
-	}
 	return l
 }
 
