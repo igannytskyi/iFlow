@@ -377,11 +377,12 @@ func TestR22WaitsForArbitersBeingRun(t *testing.T) {
 	if !unrun() {
 		t.Fatal("a landing with no arbiters run passed R22")
 	}
-	write(t, arbitersRunning(home), ArbitersKey(home))
+	// The arbiters are those of the framework the change entered: its root.
+	write(t, arbitersRunning(root), ArbitersKey(root))
 	if unrun() {
 		t.Error("R22 failed while the arbiters were being run")
 	}
-	write(t, filepath.Join(home, "internal", "moved.go"), "package moved\n")
+	write(t, filepath.Join(root, "internal", "moved.go"), "package moved\n")
 	if !unrun() {
 		t.Error("a run against the framework as it was stood for the framework as it is")
 	}

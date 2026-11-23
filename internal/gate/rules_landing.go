@@ -162,16 +162,20 @@ func verifiedBeforeEntry(r *run) {
 	if len(entered(r.c)) == 0 {
 		return
 	}
-	if !exists(filepath.Join(r.c.Root, "internal", "gate", "gate.go")) {
+	if !IsFramework(r.c.Root) {
 		// A change checked away from the framework that judges it cannot be
 		// asked whether that framework's arbiters were run.
 		r.note("R22", "this change is checked outside the framework that judges it, so whether the arbiters were run against it cannot be asked here")
 		return
 	}
+	// The arbiters asked of are those of the framework the change entered
+	// — its root, as it now stands — not those of the program judging it,
+	// which may be another copy of it.
+	root := r.c.Root
 	held := Verified(r.gate.home)
-	if _, ok := held[ArbitersKey(r.gate.home)]; !ok && ArbitersRunning(r.gate.home) {
+	if _, ok := Verified(root)[ArbitersKey(root)]; !ok && ArbitersRunning(root) {
 		r.note("R22", "the arbiters are being run against this framework as it is now; this is checked again when they end")
-	} else if !ok {
+	} else if _, ok := Verified(root)[ArbitersKey(root)]; !ok {
 		r.fail("R22", "this entered before the arbiters were run against this framework, so nothing here knows whether what judges it still passes; run `iflow check --arbiters`")
 	}
 	ev := repeatable(r.c)

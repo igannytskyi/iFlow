@@ -19,8 +19,10 @@ import (
 // it last changed: R22 holds such a landing until they pass, and running
 // them is the framework's work, not the person's.
 func (r *Run) arbitrate(ctx context.Context) {
-	home := gate.Home()
-	if home == "" || filepath.Clean(home) != filepath.Clean(r.repo) {
+	// The framework the change landed in, wherever its copy is: the one at
+	// work here, or another the bench laid out.
+	home := r.repo
+	if !gate.IsFramework(home) {
 		return
 	}
 	if _, ok := gate.Verified(home)[gate.ArbitersKey(home)]; ok {

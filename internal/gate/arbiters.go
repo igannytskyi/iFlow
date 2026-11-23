@@ -25,6 +25,13 @@ type ArbiterRun struct {
 	Output string
 }
 
+// IsFramework says whether root is a copy of this framework: a change to
+// it is judged by its own arbiters, run against it as it now stands (R22).
+func IsFramework(root string) bool {
+	_, err := os.Stat(filepath.Join(root, "internal", "gate", "gate.go"))
+	return err == nil
+}
+
 // Arbiters runs every test of the framework at home.
 func Arbiters(ctx context.Context, home string) (ArbiterRun, error) {
 	// While they run, the gate says so rather than that they were never run.
