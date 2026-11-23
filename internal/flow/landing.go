@@ -98,6 +98,12 @@ func (r *Run) land(ctx context.Context) error {
 		if err == nil {
 			for _, rp := range reps {
 				r.say(6, rp.Evidence, "%s repeated: %s gave the same result twice: %v", rp.Evidence, rp.Shown(), rp.Same)
+				// The framework's whole suite, repeated here on the landed
+				// framework and passing, is the arbiters' run: R22 is told
+				// so, and it is not run a third time on the same content.
+				if rp.Same && rp.Passed && gate.IsArbiterRun(rp.Command) && gate.IsFramework(r.repo) {
+					_ = gate.NoteVerified(r.repo, gate.ArbitersKey(r.repo), "every arbiter passed against this framework, run as "+rp.Evidence+"'s repeat")
+				}
 			}
 		}
 	}

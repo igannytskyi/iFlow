@@ -18,6 +18,8 @@ type Repetition struct {
 	// Command is nil when the claim names nothing that can be run.
 	Command []string
 	Same    bool
+	// Passed says the command, as it ran here, exited without failing.
+	Passed bool
 }
 
 // Shown is the command as it was run.
@@ -79,10 +81,12 @@ func (g *Gate) RepeatAgainst(ctx context.Context, c *artifact.Change, kept func(
 				argv = append([]string{"python3"}, cmd...)
 			}
 			if out, ok := keptOutput(kept, id); ok {
-				rep.Same = SameResult(out) == SameResult(runOnce(ctx, c.Root, argv).raw)
+				run := runOnce(ctx, c.Root, argv)
+				rep.Same, rep.Passed = SameResult(out) == SameResult(run.raw), run.code == 0
 			} else {
 				first, second := runOnce(ctx, c.Root, argv), runOnce(ctx, c.Root, argv)
 				rep.Same = first.code == second.code && first.output == second.output
+				rep.Passed = first.code == 0 && second.code == 0
 			}
 			if rep.Same {
 				if err := NoteVerified(g.home, RepeatKey(cmd), rep.Shown()+" gave the same result twice"); err != nil {
@@ -93,4 +97,11 @@ func (g *Gate) RepeatAgainst(ctx context.Context, c *artifact.Change, kept func(
 		out = append(out, rep)
 	}
 	return out, nil
+}
+
+// IsArbiterRun says whether cmd is the run of every arbiter — the
+// framework's whole suite, as Arbiters runs it — so that a claim to repeat
+// made of it, run here, is that run too.
+func IsArbiterRun(cmd []string) bool {
+	return len(cmd) == 4 && filepath.Base(cmd[0]) == "go" && cmd[1] == "test" && cmd[2] == "-count=1" && cmd[3] == "./..."
 }

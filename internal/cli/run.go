@@ -26,7 +26,9 @@ import (
 // The second value says what is wrong with the choice of models, if
 // anything.
 func (app *App) FlowConfig() (flow.Config, string) {
-	cfg := flow.Config{Estate: app.Estate.(*estate.Local), Gate: app.Gate, Person: person(), BudgetUSD: 2}
+	// A claim to repeat is run once more at landing and set against the
+	// run its evidence kept: two runs, as the rule asks, not three.
+	cfg := flow.Config{Estate: app.Estate.(*estate.Local), Gate: app.Gate, Person: person(), BudgetUSD: 2, RepeatOnce: true}
 	if v := os.Getenv("IFLOW_BUDGET_USD"); v != "" {
 		fmt.Sscan(v, &cfg.BudgetUSD)
 	}

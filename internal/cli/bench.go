@@ -87,7 +87,7 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 	file := filepath.Join(home, "examples", "bench.json")
 	var only []string
 	set := map[string]string{}
-	label, parallel, replay := "", 2, ""
+	label, parallel, replay, keep := "", 2, "", false
 	for i := 0; i < len(args); i++ {
 		next := func() string {
 			if i+1 < len(args) {
@@ -107,6 +107,8 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 			parallel, _ = strconv.Atoi(next())
 		case "--replay":
 			replay = next()
+		case "--keep":
+			keep = true // a task that landed is kept too, to be read
 		case "--set":
 			for _, kv := range strings.Split(next(), ",") {
 				if k, v, ok := strings.Cut(kv, "="); ok {
@@ -114,7 +116,7 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 				}
 			}
 		default:
-			fmt.Fprintln(app.Out, "usage: iflow bench [--suite file] [--only a,b] [--set review=1,attempts=1,repeat=once] [--label name] [--parallel n] [--replay <tapes>]")
+			fmt.Fprintln(app.Out, "usage: iflow bench [--suite file] [--only a,b] [--set review=1,attempts=1,repeat=once] [--label name] [--parallel n] [--replay <tapes>] [--keep]")
 			return Misused
 		}
 	}
@@ -218,7 +220,7 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 				results[i] = benchResult{Task: t.Name, Outcome: "broken", Why: err.Error()}
 				return
 			}
-			results[i] = benchOne(ctx, taped, estate, t)
+			results[i] = benchOne(ctx, taped, estate, t, keep)
 			results[i].Commit, results[i].Label, results[i].Set = commit, label, set
 			if replay != "" {
 				results[i].Replayed = path
@@ -305,7 +307,7 @@ func vary(cfg *flow.Config, set map[string]string) error {
 }
 
 // benchOne carries one task on a fresh copy of its estate.
-func benchOne(ctx context.Context, cfg flow.Config, estate string, t benchTask) (res benchResult) {
+func benchOne(ctx context.Context, cfg flow.Config, estate string, t benchTask, keep bool) (res benchResult) {
 	res = benchResult{At: time.Now().Format(time.RFC3339), Task: t.Name, Expect: t.Expect}
 	dir, err := os.MkdirTemp("", "iflow-bench-"+t.Name+"-")
 	if err != nil {
@@ -316,7 +318,7 @@ func benchOne(ctx context.Context, cfg flow.Config, estate string, t benchTask) 
 	// A task that came to what it should leaves nothing; one that did not
 	// is kept where it ran, its change folder and all, to be read.
 	defer func() {
-		if res.OK {
+		if res.OK && !keep {
 			os.RemoveAll(dir)
 		} else {
 			res.Kept = repo

@@ -414,3 +414,21 @@ func TestARepeatAgainstWhatWasKept(t *testing.T) {
 		}
 	}
 }
+
+// The run of every arbiter is the framework's whole suite, as Arbiters
+// runs it, wherever its go is.
+func TestTheArbitersRunIsKnownByItsCommand(t *testing.T) {
+	for _, c := range []struct {
+		cmd  []string
+		want bool
+	}{
+		{[]string{"/opt/homebrew/bin/go", "test", "-count=1", "./..."}, true},
+		{[]string{"go", "test", "-count=1", "./..."}, true},
+		{[]string{"go", "test", "-count=1", "-run", "^(TestA)$", "./..."}, false},
+		{[]string{"go", "test", "./internal/gate/"}, false},
+	} {
+		if got := IsArbiterRun(c.cmd); got != c.want {
+			t.Errorf("%v is the arbiters' run: %v", c.cmd, got)
+		}
+	}
+}
