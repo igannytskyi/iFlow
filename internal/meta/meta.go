@@ -7,6 +7,11 @@
 // from it.
 package meta
 
+import (
+	"bytes"
+	"encoding/json"
+)
+
 // The data model of a change: one type for each document a change keeps,
 // every field named, typed and described, every code one of the values
 // docs/method/conventions.md defines. A document is kept as JSON in the
@@ -72,11 +77,8 @@ type Specification struct {
 	Inputs []ArbiterInput `json:"arbiter_inputs,omitempty" doc:"what the arbiters read, and whether each is in the scope"`
 	// NewTests are the tests written for this change before its code, and
 	// SuiteTests those already there that judge it.
-	NewTests []string `json:"new_tests,omitempty" doc:"the tests written for this change, before its code"`
-	// Relies are the names the change builds on that exist already, each
-	// as the estate declared it when the change was specified.
-	Relies     []Provision `json:"relies_on,omitempty" doc:"the existing names the change builds on, each exactly as the estate declares it"`
-	SuiteTests []string    `json:"existing_tests,omitempty" doc:"the tests already there that judge it"`
+	NewTests   []string `json:"new_tests,omitempty" doc:"the tests written for this change, before its code"`
+	SuiteTests []string `json:"existing_tests,omitempty" doc:"the tests already there that judge it"`
 	// Sections are the further sections a study's specification keeps —
 	// its population, hypothesis, measures — as headed prose and tables.
 	Sections []Section `json:"sections,omitempty" doc:"headed parts the model has no field for, kept as they were written"`
@@ -435,4 +437,25 @@ type Crossing struct {
 	Object string `json:"object" doc:"the object"`
 	Digest string `json:"digest,omitempty" doc:"a digest the crossing fixes"`
 	Note   string `json:"note,omitempty" doc:"a note"`
+}
+
+// UnmarshalJSON exists solely to load documents written before the Relies
+// field was removed from Specification: it tolerates the legacy key
+// relies_on, decoding it and dropping it, while refusing every other key
+// the model does not hold. Nothing writes relies_on.
+func (s *Specification) UnmarshalJSON(b []byte) error {
+	// spec is a field-free alias of Specification, so decoding the
+	// embedded value does not call this method again.
+	type spec Specification
+	var w struct {
+		spec
+		Relies []Provision `json:"relies_on,omitempty"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&w); err != nil {
+		return err
+	}
+	*s = Specification(w.spec)
+	return nil
 }

@@ -10,7 +10,7 @@ Single-agent harnesses have no such handoffs: one agent holds the task, the code
 |---|---|---|---|---|
 | 1 | person → author | the intent | text | yes: it is the person's words |
 | 2 | estate → author | names, declarations, project's own words | data from the estate | yes |
-| 3 | author → plan | criteria (id, when, then, judged by new tests), scope, new test files, existing tests, relies_on | typed JSON, checked | yes, since relies_on is declared by the framework (11-23) |
+| 3 | author → plan | criteria (id, when, then, judged by new tests), scope, new test files, existing tests | typed JSON, checked | yes |
 | 4 | plan → units | each unit: kind, scope, criteria, provides, uses, reads | typed JSON, R24; criteria chosen among the specification's ids | yes |
 | 5 | plan → scheduler | which unit waits for which | derived from scope, reads, uses | yes, since reads and uses order code units (11-23) |
 | 6 | tests unit → everyone after | which tests it wrote, and which criterion each judges | the test ledger, held to what was written | yes, since 11-23 |
