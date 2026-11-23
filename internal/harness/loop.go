@@ -61,12 +61,15 @@ How to work:
 // of any kind, new questions among them. A hard unit may read a while — the
 // window's code, a library's — but an agent that has read forty things and
 // written nothing is not about to: on 11-23 one read 155 times, wrote
-// nothing, and spent its whole budget doing it.
+// nothing, and spent its whole budget doing it. Set from the 35 units of
+// the bench kept on 11-23: of the 21 that made a candidate, the longest
+// stretch of reading without writing was 41, the rest 27 or less; of those
+// that did not, 109 and 160.
 const (
 	idleNudge = 6
 	idleStop  = 12
-	readNudge = 20
-	readStop  = 40
+	readNudge = 30
+	readStop  = 50
 )
 
 // maxRead is the most a unit's agent may read, all its turns together;
