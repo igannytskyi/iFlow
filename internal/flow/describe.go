@@ -14,7 +14,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
-const describeSystem = `You write, after the fact, the specification of a change that was carried out before specifications were written whole. You are given what was asked, the record of how it was judged — its criteria, its scope — and the code as it now stands. Describe the change as it was meant and as it was built, without inventing what is not there. You answer with one JSON object and nothing else: {"document": {…}}, the document with exactly these keys, each as described:
+const describeSystem = `You write, after the fact, the specification of a change that was carried out before specifications were written whole. You are given everything the change kept: what was asked, its specification's record, its plan, its admission, its execution, the files its candidates held, its verdicts and its landing. Describe the change as it was meant and as it was built, from these — not from whether its files are still in the repository, which may since have been rewritten in another language. Do not invent what they do not show; where they show nothing for a part, leave it empty. You answer with one JSON object and nothing else: {"document": {…}}, the document with exactly these keys, each as described:
 - "summary": one paragraph — what changed, for whom, and why.
 - "context": the problem and its motivation, and what existed before.
 - "goals", "non_goals", "users", "user_stories" ("As a <user>, I want <action>, so that <outcome>"), "flows" (every path, step by step), "requirements" (one testable statement each), "non_functional", "architecture", "data_model", "interfaces" (routes, functions, signatures, errors, as the code has them), "components" (which file holds what), "technology", "edge_cases", "alternatives", "dependencies", "assumptions", "risks", "observability", "rollout", "test_strategy" (which tests judge which criteria), "success_metrics", "open_questions": points.
@@ -34,23 +34,35 @@ func Describe(ctx context.Context, cfg Config, repo, dir string) error {
 		return err
 	}
 	statement := ""
-	if d := c.Doc(artifact.Intent); d != nil {
-		for _, r := range d.Rows("Field", "Value") {
-			if r.Cell("Field") == "Statement" {
-				statement = r.Cell("Value")
-			}
+	if c.Meta.Intent != nil {
+		statement = c.Meta.Intent.Statement
+	}
+	// Everything the change kept, as it kept it: its documents, its record,
+	// and the files its candidates held — the change as it was, which the
+	// repository, rewritten since, may no longer show.
+	var b strings.Builder
+	for _, st := range []artifact.Stage{artifact.Plan, artifact.Admission, artifact.Execution, artifact.Assurance, artifact.Landing} {
+		if doc, err := os.ReadFile(filepath.Join(dir, string(st)+".md")); err == nil {
+			b.WriteString("\n# " + string(st) + "\n\n" + string(doc) + "\n")
 		}
 	}
-	var scope []string
-	if d := c.Doc(artifact.Specification); d != nil {
-		for _, r := range d.Rows("Included") {
-			if v := strings.TrimSpace(r.Cell("Included")); v != "" {
-				scope = append(scope, v)
-			}
+	held := 0
+	_ = filepath.WalkDir(filepath.Join(dir, "candidates"), func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || held > cfg.packBudget()*4 {
+			return err
 		}
-	}
-	pack := cfg.Estate.Repo(repo).PackFor(nil, scope, cfg.packBudget())
-	prompt := "# What was asked\n\n" + statement + "\n\n# Its record\n\n" + string(meta) + "\n\n# The code as it stands\n\n" + pack.String()
+		if strings.HasSuffix(p, ".jsonl") || strings.HasSuffix(p, ".tsv") || d.Name() == "CHANGES" {
+			return nil
+		}
+		body, err := os.ReadFile(p)
+		if err == nil && len(body) < 40_000 {
+			rel, _ := filepath.Rel(dir, p)
+			fmt.Fprintf(&b, "\n# %s\n\n```\n%s```\n", rel, body)
+			held += len(body)
+		}
+		return nil
+	})
+	prompt := "# What was asked\n\n" + statement + "\n\n# Its specification's record\n\n" + string(meta) + b.String()
 	var answer struct {
 		Document document `json:"document"`
 	}
@@ -72,16 +84,24 @@ func Describe(ctx context.Context, cfg Config, repo, dir string) error {
 		return err
 	}
 	var crit []string
-	if d := c.Doc(artifact.Specification); d != nil {
-		for _, r := range d.Rows("Criterion", "When") {
-			crit = append(crit, fmt.Sprintf("%s %s — when %s, then %s", r.Cell("Id"), r.Cell("Criterion"), r.Cell("When"), r.Cell("Then")))
+	if c.Meta.Specification != nil {
+		for _, cr := range c.Meta.Specification.Criteria {
+			crit = append(crit, fmt.Sprintf("%s %s — when %s, then %s", cr.ID, cr.Criterion, cr.When, cr.Then))
 		}
 	}
 	parts := append(answer.Document.parts(), artifact.Part{Title: "Acceptance criteria", Points: crit})
-	doc := artifact.ChangeDoc{Name: c.Name(), Statement: statement, Summary: "Written after the fact, from what was asked, its record and the code as it stands.", Parts: parts}
+	doc := artifact.ChangeDoc{Name: c.Name(), Statement: statement, Summary: "Written after the fact, from what the change kept: its documents, its record and its candidates.", Parts: parts}
 	if err := os.WriteFile(filepath.Join(dir, artifact.ChangeFile), []byte(doc.Markdown()), 0o644); err != nil {
 		return err
 	}
-	return artifact.Record{Name: c.Name(), Dir: dir}.Append(artifact.Crossing{At: today(), Stage: "specification", Object: artifact.ChangeFile,
-		Note: "the change described after the fact, by " + cfg.Model.Name() + ", from its record and the code"})
+	rec := artifact.Record{Name: c.Name(), Dir: dir}
+	var lines []artifact.Crossing
+	if len(c.Meta.Record) == 0 && c.Has(artifact.Intent) {
+		// A change that kept no record had its intent all the same; the
+		// record begins with it, said to be written after the fact.
+		lines = append(lines, artifact.Crossing{At: today(), Stage: "intent", Object: string(artifact.Intent) + ".md", Note: "recorded after the fact: the change kept no record of its own"})
+	}
+	lines = append(lines, artifact.Crossing{At: today(), Stage: "specification", Object: artifact.ChangeFile,
+		Note: "the change described after the fact, by " + cfg.Model.Name() + ", from what the change kept"})
+	return rec.Append(lines...)
 }

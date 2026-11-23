@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/gate"
 	"github.com/igannytskyi/iflow/internal/ledger"
+	"github.com/igannytskyi/iflow/internal/protocol"
 	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
@@ -38,15 +40,26 @@ type project struct {
 	estate  atomic.Pointer[estateFacts]
 	// showDone shows the tasks that landed, which are folded away.
 	showDone bool
+	// foundation is one of areas 7 to 13 opened from the overview, or 0.
+	foundation int
 	// filter is which tasks the overview lists: "", "active" or "landed".
 	filter  string
 	stale   atomic.Bool // the workspace is to be read again
 	pending atomic.Pointer[loaded]
+	// running is every change a live process is carrying now, wherever it
+	// was started, as the watcher last saw it; watched says it watches.
+	atWork  atomic.Pointer[map[string]bool]
+	watched atomic.Bool
+	// arbiters says, for the framework's own project, whether its arbiters
+	// are being run against the framework as it is now: "" when not.
+	arbiters atomic.Pointer[string]
 
-	run    *flow.Run
-	cancel context.CancelFunc
-	live   *workspace.Change // what the run has written so far
-	seen   int               // steps seen when live was last read
+	run  *remoteRun
+	live *workspace.Change // what the run has written so far
+	seen int               // steps seen when live was last read
+	// failed is what the service last said when asked about the run, for
+	// the window to show.
+	failed atomic.Pointer[string]
 
 	area  int             // the node of the path opened under the graph
 	nodeH int             // how tall the graph's nodes are drawn
@@ -72,8 +85,35 @@ type project struct {
 	// settles are escalations the next task typed is meant to close.
 	settles []string
 	ground  widget.Editor
+	// resolving is the matter whose way out is being written, as the task's
+	// folder and the escalation; resolveMode which way; resolveText the
+	// words, resolveErr what stopped it.
+	resolving, resolveMode, resolveErr string
+	resolveText                        widget.Editor
+
+	// talk is the project's conversations with a model, one per task.
+	talk talk
 
 	selected string // the task on view: a change's folder, or runKey; "" is the newest
+}
+
+// closeTop closes at most one of the project's open layers, topmost first:
+// the open object, then the open handover, then the open foundation page.
+// It reports whether a layer was closed. The settings page is outside its
+// authority: it is UI state, not the project's.
+func (p *project) closeTop() bool {
+	switch {
+	case p.item != nil:
+		p.item = nil
+		return true
+	case p.handedView != "":
+		p.handedView = ""
+		return true
+	case p.foundation != 0:
+		p.foundation = 0
+		return true
+	}
+	return false
 }
 
 func newProject(path string) *project {
@@ -112,9 +152,96 @@ func (u *UI) read(p *project) *loaded {
 	return &loaded{ws, newestFirst(ws.Changes), led}
 }
 
+// watch looks at a project's changes once a second, beside the window: a
+// run started anywhere — a terminal, another window — moves what is on
+// disk, and the window reads it again; which changes are being carried now
+// is kept for the frame to read without touching the disk.
+func (u *UI) watch(p *project) {
+	if p.watched.Swap(true) {
+		return
+	}
+	go func() {
+		var last string
+		for {
+			select {
+			case <-u.ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
+			var sig strings.Builder
+			running := map[string]bool{}
+			dirs, _ := filepath.Glob(filepath.Join(p.path, "changes", "*"))
+			for _, d := range dirs {
+				entries, _ := os.ReadDir(d)
+				for _, e := range entries {
+					if info, err := e.Info(); err == nil {
+						fmt.Fprintf(&sig, "%s/%s:%d:%d;", d, e.Name(), info.Size(), info.ModTime().UnixNano())
+					}
+				}
+				if flow.Running(d) {
+					running[d] = true
+				}
+			}
+			p.atWork.Store(&running)
+			if s := sig.String(); s != last {
+				if last != "" {
+					p.stale.Store(true)
+				}
+				last = s
+				u.invalidate()
+			}
+		}
+	}()
+}
+
+// verify runs the framework's own arbiters beside the window when the
+// project is the framework and its code has moved since they last passed:
+// R22 holds every landing until what judges the framework passes against it
+// as it is now, and the window makes that run rather than only asking for
+// it. One run at a time; the project is read again when it ends.
+func (u *UI) verify(p *project) {
+	home := gate.Home()
+	if home != p.path || !fileExists(filepath.Join(p.path, "internal", "gate", "gate.go")) {
+		return
+	}
+	if _, ok := gate.Verified(home)[gate.ArbitersKey(home)]; ok {
+		return
+	}
+	running := "the framework's own tests are running against it as it is now (R22)"
+	if !p.arbiters.CompareAndSwap(nil, &running) {
+		return
+	}
+	u.invalidate()
+	go func() {
+		run, err := gate.Arbiters(u.ctx, home)
+		switch {
+		case err != nil:
+			msg := "the framework's tests could not be run: " + err.Error()
+			p.arbiters.Store(&msg)
+		case !run.Passed:
+			msg := "the framework's own tests fail against it as it is now, so R22 holds its landings"
+			p.arbiters.Store(&msg)
+		default:
+			p.arbiters.Store(nil)
+		}
+		p.stale.Store(true)
+		u.invalidate()
+	}()
+}
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// at says whether a live process is carrying the change in dir now.
+func (p *project) at(dir string) bool {
+	m := p.atWork.Load()
+	return m != nil && (*m)[dir]
+}
+
 // take puts what was read in place, on the window's goroutine, and asks the
 // gate and the estate about it beside the window.
 func (u *UI) take(p *project, l *loaded) {
+	u.watch(p)
+	u.verify(p)
 	p.ws, p.order, p.led = l.ws, l.order, l.led
 	u.docs.bump()
 	if u.flowConfig != nil {
@@ -163,23 +290,19 @@ func (p *project) state() string {
 	return "stopped"
 }
 
-// start carries a task along the path in the background.
+// start has the service carry a task along the path, and shows its run.
 func (u *UI) start(p *project, statement string) {
 	statement = strings.TrimSpace(statement)
 	if statement == "" || u.flowConfig == nil || p.running() {
 		return
 	}
-	ctx, cancel := context.WithCancel(u.ctx)
-	p.cancel = cancel
-	run := flow.New(*u.flowConfig, p.path, statement, u.invalidate)
-	run.Settles(p.settles...)
+	settles := p.settles
 	p.settles = nil
-	p.run, p.live, p.seen, p.item, p.area, p.selected = run, nil, 0, nil, 1, runKey
-	go func() {
-		_ = run.Start(ctx)
-		p.stale.Store(true)
-		u.invalidate()
-	}()
+	if err := u.begin(p, 1, func(ctx context.Context) (string, error) {
+		return u.client.Start(ctx, protocol.StartParams{Project: p.path, Statement: statement, Settles: settles})
+	}); err != nil {
+		p.failed.Store(new(err.Error()))
+	}
 }
 
 // refresh rereads what the run has written when the run has moved, and
@@ -239,6 +362,9 @@ type shown struct {
 	live   bool
 	status [7]flow.Status
 	costs  []artifact.Cost
+	// running is a change being carried now by a run this window did not
+	// start: from a terminal, or another window.
+	running bool
 }
 
 // shownOf is the task a project has on view, if it has any.
@@ -256,7 +382,7 @@ func (p *project) shownOf() (shown, bool) {
 	}
 	for _, c := range p.order {
 		if c.Change.Dir == p.selected {
-			s := shown{c: c, costs: c.Costs}
+			s := shown{c: c, costs: c.Costs, running: p.at(c.Change.Dir)}
 			for n := 1; n <= 6; n++ {
 				s.status[n] = statusOf(c, n)
 			}
@@ -305,11 +431,12 @@ func (s shown) state(p *project) string {
 	if s.live {
 		return p.state()
 	}
-	for n := 1; n <= 6; n++ {
-		if s.status[n] == flow.Failed {
-			return "stopped"
-		}
+	if s.c != nil && s.running {
+		return "working"
 	}
+	// How a task stands is how far it went: landed, or not. What the gate
+	// says of it now — by rules that may be newer than the task — is shown
+	// beside it, and does not unmake a landing.
 	if s.c.Reached() == 6 {
 		return "landed"
 	}
@@ -335,23 +462,7 @@ func (p *project) show(sel string, c *workspace.Change) {
 // and why — appended to its record, never deleting anything — and reads
 // the project again.
 func (u *UI) close(p *project, c *workspace.Change, why string) error {
-	why = strings.TrimSpace(why)
-	if why == "" {
-		why = "no longer needed"
-	}
-	intent := c.Name()
-	for _, it := range c.Items {
-		if it.Kind == "Intent" {
-			intent = it.ID
-		}
-	}
-	by := "a person"
-	if u.flowConfig != nil {
-		by = u.flowConfig.Person
-	}
-	err := artifact.Record{Name: c.Name(), Dir: c.Change.Dir}.Append(artifact.Crossing{
-		At: time.Now().Format("2006-01-02"), Stage: workspace.ClosedStage, Object: intent, Note: "closed by " + by + ": " + why})
-	if err != nil {
+	if err := flow.Close(c.Change.Dir, u.person(), why); err != nil {
 		return err
 	}
 	if p.run != nil {

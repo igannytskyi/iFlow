@@ -114,6 +114,30 @@ Evidence about a `transformation` is amortized across every application of it, a
 | `refused` | It cannot be admitted at all; states why |
 | `awaiting-authority` | Blocked on another organization. Not a hold: no gate here controls the outcome |
 
+## Unit kind
+
+What a unit of work writes. Every other unit builds on the contract; the tests are written against it before any behaviour exists; the code fills it in.
+
+| Code | Meaning |
+|---|---|
+| `contract` | Declares, without behaviour, every name the units give each other, each in the file of the unit that provides it |
+| `tests` | Writes the tests that judge the change, before its code |
+| `code` | Writes the change's code |
+
+## Declaration kind
+
+What a name a unit provides is, as the code declares it. A provision names its file, its name and its signature; one carried over from before names were kept apart is `described`, its words kept as they were, with no name or file.
+
+| Code | Meaning |
+|---|---|
+| `function` | A function |
+| `method` | A method of a type |
+| `type` | A type: a struct, an interface, a class, an alias |
+| `field` | A field of a type |
+| `variable` | A variable |
+| `constant` | A constant |
+| `described` | Said in words, before names were kept apart; names nothing |
+
 ## Unit terminal state
 
 | Code | Meaning |

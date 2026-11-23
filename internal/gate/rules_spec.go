@@ -19,11 +19,10 @@ func criteriaVocabulary(r *run) {
 	if len(touchable) == 0 {
 		return
 	}
-	for _, row := range r.doc(a.Specification).Rows("Criterion", "Procedure") {
-		said := row.Cell("Criterion") + " " + row.Cell("When") + " " + row.Cell("Then")
+	for _, c := range r.c.Meta.Specification.Criteria {
+		said := c.Criterion + " " + c.When + " " + c.Then
 		if i := slices.IndexFunc(touchable, func(p string) bool { return strings.Contains(said, p) }); i >= 0 {
-			r.fail("R19", "%s names %s, which the change may touch: it can be met by editing what it names",
-				orNone(row.Get("Id")), touchable[i])
+			r.fail("R19", "%s names %s, which the change may touch: it can be met by editing what it names", or(c.ID), touchable[i])
 		}
 	}
 }
@@ -31,29 +30,22 @@ func criteriaVocabulary(r *run) {
 // arbiterInputs — R7b: an arbiter input inside the scope needs its prior
 // state captured.
 func arbiterInputs(r *run) {
-	if !r.has(a.Specification) {
+	// The prior state is captured at admission: a change that has not
+	// reached it owes none yet.
+	if !r.has(a.Specification) || !r.has(a.Admission) {
 		return
 	}
 	reads := newOrdered[string]()
-	for _, row := range r.doc(a.Specification).Rows("Input", "In scope?") {
-		reads.put(row.Cell("Input"), row.Cell("In scope?"))
+	for _, in := range r.c.Meta.Specification.Inputs {
+		reads.put(in.Input, in.InScope)
 	}
 	if reads.len() == 0 {
 		r.note("R7b", "this specification declares no arbiter inputs — it predates the obligation rather than violating it")
 		return
 	}
 	var captured strings.Builder
-	for _, t := range r.doc(a.Admission).All() {
-		if !t.Has("Artefact", "Captured to") {
-			continue
-		}
-		var parts []string
-		for _, row := range t.Rows {
-			if !row.Placeholder() {
-				parts = append(parts, nonEmpty(row.Values())...)
-			}
-		}
-		captured.WriteString(strings.Join(parts, " "))
+	for _, p := range r.c.Meta.Admission.Prior {
+		captured.WriteString(strings.Join(nonEmpty([]string{p.Criterion, p.Artefact, p.CapturedTo}), " ") + " ")
 	}
 	for _, in := range reads.keys {
 		if strings.HasPrefix(reads.vals[in], "yes") && !strings.Contains(captured.String(), in) {
@@ -65,7 +57,15 @@ func arbiterInputs(r *run) {
 // everyCriterionArbitrated — R11: a criterion nothing claims to arbitrate is
 // not being tested.
 func everyCriterionArbitrated(r *run) {
-	claimed := strings.Join(r.doc(a.Specification).Column("What it arbitrates", "Path"), " ")
+	var claims []string
+	if r.c.Meta.Specification != nil {
+		for _, a := range r.c.Meta.Specification.Arbiters {
+			if a.Path != "" {
+				claims = append(claims, a.Arbitrates)
+			}
+		}
+	}
+	claimed := strings.Join(claims, " ")
 	for _, crit := range criteria(r.c) {
 		if !strings.Contains(claimed, crit) {
 			r.fail("R11", "%s is claimed by no arbiter, so nothing tests it", crit)
@@ -93,14 +93,7 @@ func specImmutable(r *run) {
 	if !r.has(a.Admission) || !r.has(a.Specification) {
 		return
 	}
-	var recorded string
-	for _, t := range r.doc(a.Admission).All() {
-		for _, row := range t.Rows {
-			if !row.Placeholder() && strings.HasPrefix(row.Cell("Field"), "Specification digest") {
-				recorded = row.Cell("Value")
-			}
-		}
-	}
+	recorded := r.c.Meta.Admission.Digest
 	if recorded == "" {
 		r.fail("R1", "no specification digest recorded at admission")
 		return
@@ -108,6 +101,10 @@ func specImmutable(r *run) {
 	actual := r.c.SpecDigest
 	switch {
 	case recorded == actual:
+	case recorded == r.c.LegacySpecDigest && migratedAs(r.c, actual):
+		// Unchanged from admission to migration — the Markdown kept under
+		// legacy/ is what was admitted — and since: the JSON is what the
+		// migration wrote.
 	case len(candidates(r.c)) > 0:
 		r.fail("R1", "specification changed after a candidate existed (recorded %s, now %s)", recorded, actual)
 	case readmissionRecorded(r.c):
@@ -119,9 +116,12 @@ func specImmutable(r *run) {
 
 // candidatesStored — R2: a candidate exists apart from the live tree.
 func candidatesStored(r *run) {
-	for _, row := range r.doc(a.Execution).Rows("Stored at") {
-		id := orNone(row.Get("Id"))
-		switch where := row.Cell("Stored at"); {
+	if r.c.Meta.Execution == nil {
+		return
+	}
+	for _, ca := range r.c.Meta.Execution.Candidates {
+		id := or(ca.ID)
+		switch where := ca.StoredAt; {
 		case where == "":
 			r.fail("R2", "%s names no store", id)
 		case !exists(filepath.Join(r.c.Dir, where)):
@@ -141,15 +141,17 @@ func arbiterChangesSeparate(r *run) {
 		return
 	}
 	preparatory := map[string]bool{}
-	for _, row := range r.doc(a.Plan).Rows("Preparatory for") {
-		if row.Cell("Preparatory for") != "" {
-			preparatory[row.Cell("Id")] = true
+	if r.c.Meta.Plan != nil {
+		for _, u := range r.c.Meta.Plan.Units {
+			if len(u.PreparatoryFor) > 0 {
+				preparatory[u.ID] = true
+			}
 		}
 	}
-	for _, row := range r.doc(a.Execution).Rows("Artefacts", "Unit") {
-		i := slices.IndexFunc(judges, func(p string) bool { return strings.Contains(row.Cell("Artefacts"), p) })
-		if i >= 0 && !preparatory[row.Cell("Unit")] {
-			r.fail("R8", "%s touches the arbiter (%s) and is nobody's preparatory work", orNone(row.Get("Unit")), judges[i])
+	for _, ca := range r.c.Meta.Execution.Candidates {
+		i := slices.IndexFunc(judges, func(p string) bool { return strings.Contains(ca.Artefacts, p) })
+		if i >= 0 && !preparatory[ca.Unit] {
+			r.fail("R8", "%s touches the arbiter (%s) and is nobody's preparatory work", or(ca.Unit), judges[i])
 		}
 	}
 }

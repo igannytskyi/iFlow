@@ -15,7 +15,9 @@ import (
 // It is the cache's unit: a file whose stamp and reader have not moved is not
 // read again.
 type Record struct {
-	Commit     string          `json:"commit"`
+	Commit string `json:"commit"`
+	// Digest is the file's contents, as derived: what the record stands for.
+	Digest     string          `json:"digest"`
 	When       string          `json:"when"`
 	ReadBy     string          `json:"read by"`
 	Symbols    []reader.Symbol `json:"symbols"`
@@ -69,15 +71,22 @@ func (r *Repo) Cached() map[string]*Record {
 // from it. Files are read concurrently, one parser per worker; the answer is
 // assembled in path order, so it does not depend on which finished first.
 func (r *Repo) Index() (*Index, error) {
-	r.indexOnce.Do(func() { r.index, r.indexErr = r.derive(true) })
+	r.indexOnce.Do(func() { r.index, r.indexErr = r.derive() })
 	return r.index, r.indexErr
 }
 
-func (r *Repo) derive(useCache bool) (*Index, error) {
+// derive reads every source whose contents moved since what it was last
+// derived from — the cache, or, for a repository over another, the other's
+// index — and keeps the rest as it was.
+func (r *Repo) derive() (*Index, error) {
 	how := reader.Derivation()
-	var was map[string]*Record
-	if useCache {
-		was = r.Cached()
+	was := r.Cached()
+	if r.base != nil {
+		bix, err := r.base.Index()
+		if err != nil {
+			return nil, err
+		}
+		was = bix.Files
 	}
 	sources := r.Sources()
 	recs := make([]*Record, len(sources))
@@ -88,18 +97,19 @@ func (r *Repo) derive(useCache bool) (*Index, error) {
 		wg.Go(func() {
 			for i := range jobs {
 				rel := sources[i]
-				commit, when := r.Stamp(rel)
-				if keep := was[rel]; keep != nil && keep.Commit == commit && keep.ReadBy == how && keep.Calls != nil {
-					recs[i] = keep
-					continue
-				}
 				src, err := os.ReadFile(r.abs(rel))
 				if err != nil {
 					problems[i] = "file could not be read"
 					continue
 				}
+				digest := digestOf(src)
+				if keep := was[rel]; keep != nil && keep.Digest == digest && keep.ReadBy == how && keep.Calls != nil {
+					recs[i] = keep
+					continue
+				}
+				commit, when := r.stamp(rel, digest)
 				got := reader.Read(rel, src)
-				recs[i] = &Record{Commit: commit, When: when, ReadBy: how,
+				recs[i] = &Record{Commit: commit, Digest: digest, When: when, ReadBy: how,
 					Symbols: nonNil(got.Symbols), Calls: nonNil(got.Calls), Unresolved: nonNil(got.Unresolved)}
 			}
 		})
@@ -131,9 +141,10 @@ func (r *Repo) derive(useCache bool) (*Index, error) {
 		}
 		ix.Files[rel] = rec
 	}
-	if useCache && len(ix.Files) > 0 {
+	if r.base == nil && len(ix.Files) > 0 {
 		// The cache is disposable: an answer derived and not kept is still
-		// the answer, and the next query derives it again.
+		// the answer, and the next query derives it again. A repository over
+		// another is for one piece of work, and keeps none.
 		_ = r.writeCache(ix.Files)
 	}
 	return ix, nil
@@ -158,8 +169,8 @@ func (r *Repo) writeCache(files map[string]*Record) error {
 func (r *Repo) Refresh() (rederived []string, total int, err error) {
 	was, how := r.Cached(), reader.Derivation()
 	for _, rel := range r.Sources() {
-		commit, _ := r.Stamp(rel)
-		if keep := was[rel]; keep != nil && keep.Commit == commit && keep.ReadBy == how {
+		src, err := os.ReadFile(r.abs(rel))
+		if keep := was[rel]; err == nil && keep != nil && keep.Digest == digestOf(src) && keep.ReadBy == how {
 			continue
 		}
 		rederived = append(rederived, rel)

@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "name": "trim-name-whitespace",
+  "runs": [
+    {
+      "unit": "WU-002-01",
+      "executor": "Claude Code",
+      "version": "2.1.241 (Claude Code) / sonnet",
+      "terminal_state": "candidate",
+      "candidate": "CA-002-01"
+    },
+    {
+      "unit": "WU-002-02",
+      "executor": "Claude Code",
+      "version": "2.1.241 (Claude Code) / sonnet",
+      "terminal_state": "candidate",
+      "candidate": "CA-002-02"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "CA-002-01",
+      "unit": "WU-002-01",
+      "stored_at": "candidates/CA-002-01/",
+      "artefacts": "greeting_trim_test.go",
+      "produced_at": "2026-11-15"
+    },
+    {
+      "id": "CA-002-02",
+      "unit": "WU-002-02",
+      "stored_at": "candidates/CA-002-02/",
+      "artefacts": "greeting.go",
+      "produced_at": "2026-11-15"
+    }
+  ]
+}

@@ -2,9 +2,13 @@ package flow
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +18,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/gate"
 	"github.com/igannytskyi/iflow/internal/harness"
+	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
@@ -59,8 +64,12 @@ func countReviews(prompts []string) int {
 // plan is what the planner answers: the tests, then the change.
 const plan = `{"approach":{"summary":"Add Shout beside Greet.","steps":["write the test","add Shout"],"risks":["none"]},
 "units":[
- {"title":"the shout test","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"requirements":["FR-1"],"objective":"Judge shouting from outside.","tasks":["Test that Shout(\"a\") is HELLO, A."],"provides":["TestShout"],"done_when":["it fails before Shout exists"]},
- {"title":"Shout","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"requirements":["FR-1"],"objective":"Shout greets in capitals.","tasks":["Add func Shout(n string) string returning Greet(n) in capitals."],"provides":["func Shout(n string) string"],"constraints":["leave Greet as it is"],"done_when":["the suite passes"]}]}`
+ {"title":"the shout test","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"requirements":["FR-1"],"objective":"Judge shouting from outside.","tasks":["Test that Shout(\"a\") is HELLO, A."],"done_when":["it fails before Shout exists"]},
+ {"title":"Shout","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"requirements":["FR-1"],"objective":"Shout greets in capitals.","tasks":["Add func Shout(n string) string returning Greet(n) in capitals."],"provides":[{"file":"greet.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}],"constraints":["leave Greet as it is"],"done_when":["the suite passes"]}]}`
+
+// humanPlan is plan with the criterion only a person sees given, as every
+// criterion is, to the code unit that makes it true.
+var humanPlan = strings.Replace(plan, `"criteria":["CR-001-01","CR-001-02"]`, `"criteria":["CR-001-01","CR-001-02","CR-001-03"]`, 1)
 
 // stubExecutor writes what each unit's scope asks for: the test first, then
 // the repair; and keeps the pack each unit was handed where asked to.
@@ -68,6 +77,9 @@ type stubExecutor struct {
 	files map[string]string
 	packs *[]string
 	goals *[]string
+	// meanwhile, where set, is written into the estate itself while a code
+	// unit runs: another change landing on the same ground.
+	meanwhile func()
 }
 
 func (s stubExecutor) Name() string    { return "stub" }
@@ -79,13 +91,50 @@ func (s stubExecutor) Run(_ context.Context, t harness.Task, emit func(harness.E
 	if s.goals != nil {
 		*s.goals = append(*s.goals, t.Goal)
 	}
+	if s.meanwhile != nil && !strings.HasSuffix(t.Scope[0], "_test.go") {
+		s.meanwhile()
+	}
 	for _, p := range t.Scope {
+		if p == LedgerFile {
+			continue // written last, of what was written
+		}
 		emit(harness.Event{At: time.Now(), Kind: harness.Called, Tool: "write_file", Detail: p})
-		if err := os.WriteFile(filepath.Join(t.Workspace, p), []byte(s.files[p]), 0o644); err != nil {
+		body := s.files[p]
+		if t.Role == string(meta.ContractUnit) {
+			d, ok := s.files["declared "+p]
+			if !ok {
+				continue // a contract declares, and does nothing; here, it has nothing to declare
+			}
+			body = d
+		}
+		if err := os.WriteFile(filepath.Join(t.Workspace, p), []byte(body), 0o644); err != nil {
 			return harness.Result{Terminal: harness.FailedTask}, err
 		}
 	}
+	if slices.Contains(t.Scope, LedgerFile) {
+		writeLedger(t)
+	}
 	return harness.Result{Terminal: harness.Candidate, Summary: "wrote " + strings.Join(t.Scope, ", "), Steps: len(t.Scope)}, nil
+}
+
+// writeLedger states, as a tests unit's agent would, which criterion each
+// test it wrote judges: the criteria its goal names, in turn.
+func writeLedger(t harness.Task) {
+	_, rest, _ := strings.Cut(t.Goal, "The criteria are ")
+	list, _, _ := strings.Cut(rest, ";")
+	crit := strings.Split(list, ", ")
+	var entries []ledgerEntry
+	for _, p := range t.Scope {
+		src, err := os.ReadFile(filepath.Join(t.Workspace, p))
+		if p == LedgerFile || err != nil {
+			continue
+		}
+		for _, name := range declaredTests(p, src) {
+			entries = append(entries, ledgerEntry{Test: name, File: p, Criterion: crit[len(entries)%len(crit)]})
+		}
+	}
+	b, _ := json.Marshal(entries)
+	_ = os.WriteFile(filepath.Join(t.Workspace, LedgerFile), b, 0o644)
 }
 
 const spec = `{"slug":"shout","name":"shout","statement":"The greeting can be shouted.","class":"C3","prose":"A shouted greeting is in capitals.",
@@ -123,19 +172,22 @@ func TestATaskTravelsThePath(t *testing.T) {
 	cfg := Config{
 		Model: stubModel{spec, &prompts},
 		Executor: stubExecutor{packs: &packs, goals: &goals, files: map[string]string{
-			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
-			"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+			"shout_test.go":     "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":          "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+			"declared greet.go": "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return \"\" }\n",
 		}},
 		Estate: est, Gate: gate.New(est), Person: "a test",
 	}
 	defer func() {
-		if len(goals) != 2 || !strings.Contains(goals[1], "Add func Shout") {
+		// The contract is the framework's to declare; the agents write the
+		// tests against it, then the code.
+		if len(goals) != 2 || !strings.Contains(goals[0], "Write only the tests") || !strings.Contains(goals[1], "Add func Shout") {
 			t.Errorf("the units were not handed their briefs: %q", goals)
 		}
 		if b, _ := os.ReadFile(filepath.Join(landed, "plan.md")); !strings.Contains(string(b), "## The units") || !strings.Contains(string(b), "Planned by stub") {
 			t.Errorf("the plan does not describe its units:\n%s", b)
 		}
-		if b, _ := os.ReadFile(filepath.Join(landed, "units", "WU-001-02.md")); !strings.Contains(string(b), "Add func Shout") {
+		if b, _ := os.ReadFile(filepath.Join(landed, "units", "WU-001-03.md")); !strings.Contains(string(b), "Add func Shout") {
 			t.Errorf("the code unit's ticket is not kept:\n%s", b)
 		}
 		// Each agent is handed the least it needs: the model stating the
@@ -171,7 +223,7 @@ func TestATaskTravelsThePath(t *testing.T) {
 		if len(packs) != 2 {
 			t.Fatalf("%d packs handed", len(packs))
 		}
-		for i, want := range [][]string{{"May change: shout_test.go", "Read: greet.go", `"Hello, "`}, {"Must pass, written by WU-001-01", "TestShout", "May change: greet.go"}} {
+		for i, want := range [][]string{{"May change: shout_test.go", "The code these tests exercise, as declared", "func Shout(n string) string"}, {"Must pass after you — TestShout — written by WU-001-02", "May change: greet.go"}} {
 			for _, w := range want {
 				if !strings.Contains(packs[i], w) {
 					t.Errorf("unit %d was not handed %q:\n%s", i+1, w, packs[i])
@@ -208,8 +260,28 @@ func TestATaskTravelsThePath(t *testing.T) {
 		t.Error("the person was never asked to accept the criteria")
 	}
 	c, err := artifact.Load(v.Dir)
+	if err == nil {
+		if e := c.Meta.Execution; e == nil || len(e.Tests) != 1 || e.Tests[0] != (meta.TestRecord{Test: "TestShout", File: "shout_test.go", Criterion: "CR-001-01", Unit: "WU-001-02"}) {
+			t.Errorf("the execution does not keep the test ledger: %+v", e)
+		}
+	}
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Every document the run wrote is in the data model: JSON beside its
+	// Markdown, read back whole and breaking nothing of the model.
+	for _, st := range artifact.Stages {
+		if _, err := os.Stat(artifact.JSONFile(v.Dir, st)); err != nil {
+			t.Errorf("%s was not written in the data model: %v", st, err)
+		}
+	}
+	if len(c.Meta.Problems) > 0 || c.Meta.Landing == nil || len(c.Meta.Record) == 0 || c.Meta.Specification.Criteria[0].ID != "CR-001-01" {
+		t.Errorf("the change does not read back in the model: %v", c.Meta.Problems)
+	}
+	for _, d := range []any{c.Meta.Intent, c.Meta.Specification, c.Meta.Plan, c.Meta.Admission, c.Meta.Execution, c.Meta.Assurance, c.Meta.Landing} {
+		if ps := meta.Validate(d); len(ps) > 0 {
+			t.Errorf("a document breaks the model: %v", ps)
+		}
 	}
 	rep := cfg.Gate.Check(context.Background(), c)
 	if !rep.Passed() {
@@ -218,7 +290,7 @@ func TestATaskTravelsThePath(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(repo, "greet.go")); !strings.Contains(string(b), "Shout") {
 		t.Error("the repair did not enter the estate")
 	}
-	if b, _ := os.ReadFile(filepath.Join(v.Dir, "candidates", "CA-001-01", "failing-before.txt")); !strings.Contains(string(b), "FAIL") {
+	if b, _ := os.ReadFile(filepath.Join(v.Dir, "candidates", "CA-001-02", "failing-before.txt")); !strings.Contains(string(b), "FAIL") {
 		t.Errorf("the reproduction was not shown to fail before the change: %s", b)
 	}
 	if b, _ := os.ReadFile(filepath.Join(v.Dir, "05-assurance.md")); !strings.Contains(string(b), "| earlier#1 | this change |") {
@@ -314,5 +386,1776 @@ func TestSendingBackRewritesTheSpecification(t *testing.T) {
 	defer mu.Unlock()
 	if asked < 2 {
 		t.Errorf("the person was asked %d time(s), not again after sending it back", asked)
+	}
+}
+
+// Two changes in flight on the same ground: when another lands on a file
+// while this one is carried out, this one's landing stops rather than undo
+// it, and says why.
+func TestALandingDoesNotUndoAnotherChange(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	other := "package greet\n\n// changed by another change\nfunc Greet(n string) string { return \"Hi, \" + n }\n"
+	cfg := Config{
+		Model: stubModel{answer: spec},
+		Executor: stubExecutor{files: map[string]string{
+			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+		}, meanwhile: func() { _ = os.WriteFile(filepath.Join(repo, "greet.go"), []byte(other), 0o644) }},
+		Estate: est, Gate: gate.New(est), Person: "a test",
+	}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	err := run.Start(context.Background())
+	if err == nil {
+		t.Fatal("the change landed on ground that moved under it")
+	}
+	if v := run.View(); v.Areas[6] != Failed {
+		t.Errorf("areas: %v", v.Areas)
+	}
+	if b, _ := os.ReadFile(filepath.Join(repo, "greet.go")); string(b) != other {
+		t.Errorf("the other change was undone:\n%s", b)
+	}
+	if !strings.Contains(err.Error(), "greet.go was changed") && !strings.Contains(fmt.Sprint(run.View().Steps), "greet.go was changed") {
+		t.Errorf("the landing does not say what moved: %v", err)
+	}
+}
+
+// Admission names every other change in flight whose scope meets this one's.
+func TestAdmissionNamesChangesInFlight(t *testing.T) {
+	repo := estateFixture(t)
+	in := filepath.Join(repo, "changes", "louder")
+	if err := os.MkdirAll(in, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other := artifact.SpecDoc{Name: "louder", ID: "SPEC-009", Intent: "INT-009", Class: "C3", Included: []string{"greet.go"},
+		Criteria: []artifact.CriterionRow{{ID: "CR-009-01", Criterion: "c", When: "w", Then: "t", Plan: "not-required", Procedure: "machine", Evidence: "test-run"}}}
+	if err := artifact.Write(in, artifact.Specification, other.Markdown()); err != nil {
+		t.Fatal(err)
+	}
+	est := estate.NewLocal()
+	cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "shout", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	_ = run.Start(context.Background())
+	b, _ := os.ReadFile(filepath.Join(run.View().Dir, "03-admission.md"))
+	if !strings.Contains(string(b), "louder") || !strings.Contains(string(b), "greet.go") {
+		t.Errorf("admission does not name the change in flight on the same ground:\n%s", b)
+	}
+}
+
+// Runs started side by side each take a number of their own.
+func TestNumbersAreTakenOnce(t *testing.T) {
+	repo := t.TempDir()
+	got := make(chan int, 20)
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Go(func() { got <- nextNumber(repo) })
+	}
+	wg.Wait()
+	close(got)
+	seen := map[int]bool{}
+	for n := range got {
+		if seen[n] {
+			t.Fatalf("number %d was taken twice", n)
+		}
+		seen[n] = true
+	}
+}
+
+// secondTry is an executor whose tests are wrong the first wrong times they
+// are written: the code cannot pass them, says so, and passes them once
+// they are written right.
+type secondTry struct {
+	goals *[]string
+	calls map[string]int
+	wrong int
+}
+
+func (s secondTry) Name() string    { return "second try" }
+func (s secondTry) Version() string { return "1" }
+func (s secondTry) Run(_ context.Context, t harness.Task, _ func(harness.Event)) (harness.Result, error) {
+	*s.goals = append(*s.goals, t.Goal)
+	if t.Role == string(meta.ContractUnit) {
+		return harness.Result{Terminal: harness.Candidate, Summary: "every name is declared already"}, nil
+	}
+	scope := t.Scope[0]
+	s.calls[scope]++
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}
+	if scope == "greet.go" && s.calls["shout_test.go"] <= s.wrong {
+		return harness.Result{Terminal: harness.FailedTask, Summary: "the check fails in shout_test.go, which this unit may not change: undefined: strings.Shouty", Blames: []string{"shout_test.go"}}, nil
+	}
+	if err := os.WriteFile(filepath.Join(t.Workspace, scope), []byte(files[scope]), 0o644); err != nil {
+		return harness.Result{}, err
+	}
+	if slices.Contains(t.Scope, LedgerFile) {
+		writeLedger(t)
+	}
+	return harness.Result{Terminal: harness.Candidate, Summary: "wrote " + scope}, nil
+}
+
+// Tests the code cannot pass, because they are wrong, are carried again
+// with what the code found, and the code is carried on what comes back.
+func TestWrongTestsAreCarriedAgain(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	var goals []string
+	ex := secondTry{goals: &goals, calls: map[string]int{}, wrong: 1}
+	cfg := Config{Model: stubModel{answer: spec}, Executor: ex, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		for _, s := range run.View().Steps {
+			t.Logf("%d %s", s.Area, s.Text)
+		}
+		t.Fatalf("the task stopped: %v", err)
+	}
+	if ex.calls["shout_test.go"] != 2 || ex.calls["greet.go"] != 2 {
+		t.Errorf("carried %v", ex.calls)
+	}
+	again := ""
+	for _, g := range goals {
+		if strings.Contains(g, "Why you are asked again") {
+			again = g
+		}
+	}
+	if !strings.Contains(again, "strings.Shouty") {
+		t.Errorf("the tests were not handed what the code found:\n%s", strings.Join(goals, "\n---\n"))
+	}
+	if b, _ := os.ReadFile(filepath.Join(repo, "greet.go")); !strings.Contains(string(b), "Shout") {
+		t.Error("the code did not land")
+	}
+}
+
+// Tests still wrong when written again were written from a specification
+// that asks for what cannot be: the specification goes back to its author
+// with why, the person accepts it again, and the change is carried on.
+func TestTestsWrongTwiceSendTheSpecificationBack(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	var goals, prompts []string
+	ex := secondTry{goals: &goals, calls: map[string]int{}, wrong: 2}
+	cfg := Config{Model: stubModel{spec, &prompts}, Executor: ex, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		for _, s := range run.View().Steps {
+			t.Logf("%d %s", s.Area, s.Text)
+		}
+		t.Fatalf("the task stopped: %v", err)
+	}
+	if !slices.ContainsFunc(prompts, func(p string) bool {
+		return strings.Contains(p, "What could not be built from it") && strings.Contains(p, "strings.Shouty")
+	}) {
+		t.Error("the author was not handed why its specification could not be built")
+	}
+	if _, err := os.Stat(filepath.Join(run.View().Dir, "superseded", "1", "01-specification.json")); err != nil {
+		t.Error("the specification sent back was not kept")
+	}
+	if ex.calls["shout_test.go"] != 3 {
+		t.Errorf("the tests were written %d times, want 3: twice, then from the specification written again", ex.calls["shout_test.go"])
+	}
+}
+
+// A change whose ground moved, where the other change's edits are apart
+// from its own, lands merged with them: neither undoes the other, and the
+// record says the suite passed on the merged ground.
+func TestAMovedChangeLandsMerged(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	other := "// Package greet greets.\npackage greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n"
+	cfg := Config{
+		Model: stubModel{answer: spec},
+		Executor: stubExecutor{files: map[string]string{
+			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":      "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return \"HELLO, \" + strings.ToUpper(n) }\n\nvar _ = strings.ToUpper\n",
+		}, meanwhile: func() { _ = os.WriteFile(filepath.Join(repo, "greet.go"), []byte(other), 0o644) }},
+		Estate: est, Gate: gate.New(est), Person: "a test",
+	}
+	// The stub's greet.go needs strings imported; the import goes where
+	// the other change does not reach.
+	files := cfg.Executor.(stubExecutor).files
+	files["greet.go"] = strings.Replace(files["greet.go"], "package greet\n\nfunc Greet", "package greet\n\nimport \"strings\"\n\nfunc Greet", 1)
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		for _, s := range run.View().Steps {
+			t.Logf("%d %s", s.Area, s.Text)
+		}
+		t.Fatalf("the change did not land: %v", err)
+	}
+	b, _ := os.ReadFile(filepath.Join(repo, "greet.go"))
+	if s := string(b); !strings.Contains(s, "// Package greet greets.") || !strings.Contains(s, "func Shout") {
+		t.Errorf("one change undid the other:\n%s", s)
+	}
+	if rec, _ := os.ReadFile(filepath.Join(run.View().Dir, "record.md")); !strings.Contains(string(rec), "merged onto the estate as it is now") {
+		t.Errorf("the record does not say the change was merged:\n%s", rec)
+	}
+}
+
+func TestARequirementIsNumberedOnce(t *testing.T) {
+	for _, q := range []string{"FR-2 : Shout shouts.", "FR-2 — Shout shouts.", "FR-2. Shout shouts.", "Shout shouts."} {
+		if got := requirementText(q, 2); got != "Shout shouts." {
+			t.Errorf("%q gave %q", q, got)
+		}
+	}
+}
+
+// A change is carried again in its own folder, from its plan or from its
+// specification: what it wrote from there on is kept under superseded/, the
+// record says it was reopened, and it lands again passing the gate.
+func TestAReopenedChangeIsCarriedAgain(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}
+	var prompts []string
+	cfg := Config{Model: stubModel{spec, &prompts}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	carry := func(run *Run) {
+		t.Helper()
+		run.changed = func() {
+			if v := run.View(); v.Question != "" {
+				go run.Accept()
+			}
+		}
+		if err := run.Start(context.Background()); err != nil {
+			for _, s := range run.View().Steps {
+				t.Logf("%d %s", s.Area, s.Text)
+			}
+			t.Fatalf("the change did not land: %v", err)
+		}
+	}
+	first := New(cfg, repo, "make it possible to shout the greeting", nil)
+	carry(first)
+	dir := first.View().Dir
+	for i, from := range []int{2, 1} {
+		// What the person asks for is new behaviour: tests that fail on the
+		// estate as the first landing left it, and code that passes them.
+		bang := strings.Repeat("!", i+1)
+		files["shout_test.go"] = "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A" + bang + "\" {\n\t\tt.Fatal()\n\t}\n}\n"
+		files["greet.go"] = "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) + \"" + bang + "\" }\n"
+		prompts = nil
+		// Shout exists now: planned again, it is changed, not provided.
+		again := cfg
+		again.Planner = planned{stubModel{spec, &prompts}, strings.Replace(plan, `,"provides":[{"file":"greet.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}]`, "", 1)}
+		run, err := Reopen(again, repo, dir, from, "shout with an exclamation mark", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		carry(run)
+		if run.View().Dir != dir {
+			t.Errorf("reopened into %s, not its own folder", run.View().Dir)
+		}
+		handed := strings.Join(prompts, "\n")
+		if !strings.Contains(handed, "shout with an exclamation mark") {
+			t.Errorf("from %d: the person's words were not handed on", from)
+		}
+		c, err := artifact.Load(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
+			t.Errorf("from %d: the change does not pass the gate again: %v", from, rep.Problems())
+		}
+		reopened := 0
+		for _, cr := range c.Meta.Record {
+			if cr.Stage == "reopened" {
+				reopened++
+			}
+		}
+		if reopened == 0 || c.Meta.Intent.ID != "INT-001" {
+			t.Errorf("from %d: the record does not say it was reopened, or the number moved: %d, %s", from, reopened, c.Meta.Intent.ID)
+		}
+	}
+	for _, kept := range []string{"superseded/1/02-plan.json", "superseded/2/01-specification.json", "superseded/2/change.md"} {
+		if _, err := os.Stat(filepath.Join(dir, kept)); err != nil {
+			t.Errorf("%s was not kept", kept)
+		}
+	}
+	if _, err := Reopen(cfg, repo, dir, 3, "x", nil); err == nil {
+		t.Error("reopened from area 3")
+	}
+}
+
+// failing fails the code unit once, as a process ending would leave it.
+type failing struct {
+	stubExecutor
+	fail *bool
+}
+
+func (f failing) Run(ctx context.Context, t harness.Task, emit func(harness.Event)) (harness.Result, error) {
+	if *f.fail && !strings.HasSuffix(t.Scope[0], "_test.go") {
+		*f.fail = false
+		return harness.Result{Terminal: harness.FailedSubstrate, Summary: "the process ended"}, nil
+	}
+	return f.stubExecutor.Run(ctx, t, emit)
+}
+
+// A change that stopped is carried on from where it stopped, in its own
+// folder, without doing again what it finished, and lands passing the gate.
+func TestAStoppedChangeIsResumed(t *testing.T) {
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}
+	land := func(t *testing.T, cfg Config, run *Run) {
+		t.Helper()
+		run.changed = func() {
+			if v := run.View(); v.Question != "" {
+				go run.Accept()
+			}
+		}
+		if err := run.Start(context.Background()); err != nil {
+			for _, s := range run.View().Steps {
+				t.Logf("%d %s", s.Area, s.Text)
+			}
+			t.Fatalf("it did not land: %v", err)
+		}
+		c, err := artifact.Load(run.View().Dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
+			t.Errorf("it does not pass the gate: %v", rep.Problems())
+		}
+	}
+	t.Run("at the specification", func(t *testing.T) {
+		repo := estateFixture(t)
+		est := estate.NewLocal()
+		var prompts []string
+		cfg := Config{Model: stubModel{spec, &prompts}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+		ctx, stop := context.WithCancel(context.Background())
+		var first *Run
+		first = New(cfg, repo, "make it possible to shout the greeting", func() {
+			if first.View().Question != "" {
+				stop() // the person never answers: the window is closed
+			}
+		})
+		if err := first.Start(ctx); err == nil {
+			t.Fatal("the run did not stop")
+		}
+		written := len(prompts)
+		run, err := Resume(cfg, repo, first.View().Dir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.from != 1 || !run.resumed {
+			t.Fatalf("resumed from %d", run.from)
+		}
+		land(t, cfg, run)
+		for _, p := range prompts[written:] {
+			if strings.HasPrefix(p, "The task, as a person wrote it") {
+				t.Error("the specification was written again")
+			}
+		}
+	})
+	t.Run("stopped by request", func(t *testing.T) {
+		repo := estateFixture(t)
+		est := estate.NewLocal()
+		cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+		var first *Run
+		asked := false
+		first = New(cfg, repo, "make it possible to shout the greeting", func() {
+			if v := first.View(); v.Question != "" && !asked {
+				asked = true
+				go func() {
+					if err := Stop(v.Dir, "someone in another window"); err != nil {
+						t.Error(err)
+					}
+				}()
+			}
+		})
+		if err := first.Start(context.Background()); err == nil {
+			t.Fatal("the run did not stop when asked")
+		}
+		c, err := artifact.Load(first.View().Dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last := c.Meta.Record[len(c.Meta.Record)-1]; last.Stage != "stopped" || !strings.Contains(last.Note, "someone in another window") {
+			t.Errorf("the record does not say who stopped it: %+v", last)
+		}
+		run, err := Resume(cfg, repo, first.View().Dir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		land(t, cfg, run)
+	})
+	t.Run("in execution", func(t *testing.T) {
+		repo := estateFixture(t)
+		est := estate.NewLocal()
+		fail := true
+		cfg := Config{Model: stubModel{answer: spec}, Executor: failing{stubExecutor{files: files}, &fail}, Estate: est, Gate: gate.New(est), Person: "a test"}
+		first := New(cfg, repo, "make it possible to shout the greeting", nil)
+		first.changed = func() {
+			if first.View().Question != "" {
+				go first.Accept()
+			}
+		}
+		if err := first.Start(context.Background()); err == nil {
+			t.Fatal("the run did not stop")
+		}
+		if c, _ := artifact.Load(first.View().Dir); c.Meta.Record[len(c.Meta.Record)-1].Stage != "stopped" {
+			t.Errorf("the record does not say the run stopped: %+v", c.Meta.Record[len(c.Meta.Record)-1])
+		}
+		run, err := Resume(cfg, repo, first.View().Dir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.from != 3 {
+			t.Fatalf("resumed from %d", run.from)
+		}
+		land(t, cfg, run)
+	})
+	t.Run("after execution", func(t *testing.T) {
+		repo := estateFixture(t)
+		est := estate.NewLocal()
+		cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+		first := New(cfg, repo, "make it possible to shout the greeting", nil)
+		land(t, cfg, first)
+		dir := first.View().Dir
+		// As if it had stopped before it was judged: the code back as it
+		// was, no assurance, no landing.
+		for _, name := range []string{"05-assurance.json", "05-assurance.md", "06-landing.json", "06-landing.md"} {
+			os.Remove(filepath.Join(dir, name))
+		}
+		b, _ := os.ReadFile(filepath.Join(dir, "baseline", "greet.go.before"))
+		os.WriteFile(filepath.Join(repo, "greet.go"), b, 0o644)
+		os.Remove(filepath.Join(repo, "shout_test.go"))
+		run, err := Resume(cfg, repo, dir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.from != 5 {
+			t.Fatalf("resumed from %d", run.from)
+		}
+		land(t, cfg, run)
+		if b, _ := os.ReadFile(filepath.Join(repo, "greet.go")); !strings.Contains(string(b), "Shout") {
+			t.Error("the candidate did not land")
+		}
+	})
+}
+
+// A specification written before the model said which tests are written
+// first says it through its arbiters: those it keeps out of its scope that
+// the estate does not hold yet.
+func TestTheTestsWrittenFirstAreInferred(t *testing.T) {
+	repo := estateFixture(t)
+	s := &meta.Specification{Name: "x", Scope: meta.Scope{Included: []string{"greet.go"}, Excluded: []string{"shout_test.go", "greet_test.go"}},
+		Criteria: []meta.Criterion{{ID: "CR-001-01"}, {ID: "CR-001-02"}},
+		Arbiters: []meta.Arbiter{{Path: "shout_test.go", Arbitrates: "CR-001-01"}, {Path: "greet_test.go", Arbitrates: "CR-001-02"}}}
+	d := draftOf(&meta.Intent{Statement: "s"}, s, repo)
+	if !slices.Equal(d.NewTests, []string{"shout_test.go"}) || !slices.Equal(d.SuiteTests, []string{"greet_test.go"}) || !d.Criteria[0].New || d.Criteria[1].New {
+		t.Errorf("inferred %v, %v, %+v", d.NewTests, d.SuiteTests, d.Criteria)
+	}
+}
+
+// saysCannot says, the first time it is handed the code unit, that it cannot
+// be done as planned.
+type saysCannot struct {
+	stubExecutor
+	said *bool
+}
+
+func (s saysCannot) Run(ctx context.Context, t harness.Task, emit func(harness.Event)) (harness.Result, error) {
+	if !*s.said && !strings.HasSuffix(t.Scope[0], "_test.go") {
+		*s.said = true
+		return harness.Result{Terminal: harness.FailedTask, Summary: "the helper Shoutify it relies on does not exist", Cannot: "the helper Shoutify it relies on does not exist"}, nil
+	}
+	return s.stubExecutor.Run(ctx, t, emit)
+}
+
+// A unit its agent says cannot be done as planned sends the change back to
+// its planner, once, with why; the plan made again is carried out and lands.
+func TestAUnitThatCannotBeDoneIsPlannedAgain(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	said := false
+	var prompts []string
+	cfg := Config{Model: stubModel{spec, &prompts}, Estate: est, Gate: gate.New(est), Person: "a test",
+		Executor: saysCannot{stubExecutor{files: map[string]string{
+			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+		}}, &said}}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		for _, s := range run.View().Steps {
+			t.Logf("%d %s", s.Area, s.Text)
+		}
+		t.Fatalf("it did not land: %v", err)
+	}
+	replanned := false
+	for _, p := range prompts {
+		if strings.Contains(p, "Shoutify it relies on does not exist") {
+			replanned = true
+		}
+	}
+	if !replanned {
+		t.Error("the planner was not handed why the unit could not be done")
+	}
+	dir := run.View().Dir
+	if _, err := os.Stat(filepath.Join(dir, "superseded", "1", "02-plan.json")); err != nil {
+		t.Error("the plan that could not be carried out was not kept")
+	}
+	c, _ := artifact.Load(dir)
+	if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
+		t.Errorf("it does not pass the gate: %v", rep.Problems())
+	}
+}
+
+// saysOutside says, the first time it is handed the code unit, that it
+// cannot be done unless a file outside the specification's scope changes.
+type saysOutside struct {
+	stubExecutor
+	said *bool
+}
+
+func (s saysOutside) Run(ctx context.Context, t harness.Task, emit func(harness.Event)) (harness.Result, error) {
+	if !*s.said && !strings.HasSuffix(t.Scope[0], "_test.go") {
+		*s.said = true
+		why := "the shout must be bound in main.go, outside my scope"
+		return harness.Result{Terminal: harness.FailedTask, Summary: why, Cannot: why, Blames: []string{"main.go", "greet.go"}}, nil
+	}
+	return s.stubExecutor.Run(ctx, t, emit)
+}
+
+// A unit that cannot be done because what must change lies outside the
+// specification's scope sends the change back to its author, not to its
+// planner: no plan can mend a scope.
+func TestAUnitNeedingAFileOutsideTheScopeSendsTheSpecificationBack(t *testing.T) {
+	repo := estateFixture(t)
+	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package greet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	est := estate.NewLocal()
+	said := false
+	var prompts []string
+	cfg := Config{Model: stubModel{spec, &prompts}, Estate: est, Gate: gate.New(est), Person: "a test",
+		Executor: saysOutside{stubExecutor{files: map[string]string{
+			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+		}}, &said}}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	_ = run.Start(context.Background())
+	back := false
+	for _, p := range prompts {
+		if strings.Contains(p, "# Your previous specification") && strings.Contains(p, "it needs main.go changed, which the specification's scope does not hold") {
+			back = true
+		}
+	}
+	if !back {
+		for _, s := range run.View().Steps {
+			t.Logf("%d %s", s.Area, s.Text)
+		}
+		t.Error("the author was not handed the file outside the scope")
+	}
+}
+
+// What only a person can see is affirmed by the person reading the finished
+// change: no test is written for it, and the assurance asks. An affirmation
+// lands the change; a refusal carries it again with what the person said,
+// twice at most, and a change never affirmed does not land.
+func TestAPersonAffirmsWhatOnlyAPersonCanSee(t *testing.T) {
+	human := strings.Replace(spec, `{"criterion":"Nothing else moves"`, `{"criterion":"The greeting reads well","when":"a person reads a shouted greeting","then":"it reads as a greeting, not as an error","plan":"not-required","threshold":"the person's word","judged_by_new_tests":false,"procedure":"human"},
+ {"criterion":"Nothing else moves"`, 1)
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}
+	for _, tc := range []struct {
+		name    string
+		refuse  int // how many times the person refuses before affirming
+		lands   bool
+		judging int // how many times the person is asked
+	}{
+		{"affirmed", 0, true, 1},
+		{"refused once, then affirmed", 1, true, 2},
+		{"never affirmed", 99, false, 1 + maxRefusals},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := estateFixture(t)
+			est := estate.NewLocal()
+			var goals []string
+			cfg := Config{Model: planned{stubModel{answer: human}, humanPlan}, Executor: stubExecutor{files: files, goals: &goals}, Estate: est, Gate: gate.New(est), Person: "a test"}
+			var run *Run
+			judged := 0
+			run = New(cfg, repo, "make it possible to shout the greeting", func() {
+				v := run.View()
+				if v.Question == "" {
+					return
+				}
+				if v.Areas[5] == Waiting {
+					judged++
+					if !strings.Contains(v.Question, "it reads as a greeting") {
+						t.Errorf("the person is not asked what they judge: %s", v.Question)
+					}
+					if judged > tc.refuse {
+						go run.Accept()
+					} else {
+						go run.Refuse("it reads like an error")
+					}
+					return
+				}
+				go run.Accept()
+			})
+			err := run.Start(context.Background())
+			if judged != tc.judging {
+				t.Fatalf("the person was asked to judge the finished change %d times, want %d", judged, tc.judging)
+			}
+			if tc.lands != (err == nil) {
+				t.Fatalf("the run ended %v", err)
+			}
+			if tc.refuse > 0 && !slices.ContainsFunc(goals, func(g string) bool { return strings.Contains(g, "it reads like an error") }) {
+				t.Error("the unit carried again was not told what the person said")
+			}
+			c, _ := artifact.Load(run.View().Dir)
+			if tc.lands {
+				if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
+					t.Errorf("it does not pass the gate: %v", rep.Problems())
+				}
+				if !slices.ContainsFunc(c.Meta.Assurance.Evidence, func(e meta.Evidence) bool { return e.Kind == meta.HumanAffirmation }) {
+					t.Error("the affirmation is not evidence")
+				}
+			} else if c.Meta.Landing != nil {
+				t.Error("a change the person did not affirm landed")
+			}
+		})
+	}
+}
+
+// A change stopped because the person did not affirm it, resumed and
+// refused again, is carried again from admission all the same.
+func TestARefusedChangeResumedIsMended(t *testing.T) {
+	human := strings.Replace(spec, `{"criterion":"Nothing else moves"`, `{"criterion":"The greeting reads well","when":"a person reads a shouted greeting","then":"it reads as a greeting, not as an error","plan":"not-required","threshold":"the person's word","judged_by_new_tests":false,"procedure":"human"},
+ {"criterion":"Nothing else moves"`, 1)
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	cfg := Config{Model: planned{stubModel{answer: human}, humanPlan}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	answer := func(run **Run, refuse *int) func() {
+		return func() {
+			v := (*run).View()
+			if v.Question == "" {
+				return
+			}
+			if v.Areas[5] == Waiting && *refuse > 0 {
+				*refuse--
+				go (*run).Refuse("it reads like an error")
+				return
+			}
+			go (*run).Accept()
+		}
+	}
+	var first *Run
+	refuse := 1 + maxRefusals
+	first = New(cfg, repo, "make it possible to shout the greeting", answer(&first, &refuse))
+	if err := first.Start(context.Background()); err == nil {
+		t.Fatal("a change never affirmed landed")
+	}
+	var run *Run
+	refuse = 1
+	run, err := Resume(cfg, repo, first.View().Dir, answer(&run, &refuse))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := run.Start(context.Background()); err != nil {
+		t.Fatalf("refused once on resuming, then affirmed, it did not land: %v", err)
+	}
+}
+
+// A change whose tests, written first, pass on the estate as it stands asks
+// for what holds already: it is closed saying so, nothing is changed, and it
+// passes the gate.
+func TestWhatHoldsAlreadyIsAnAnswer(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	cfg := Config{Model: stubModel{answer: spec}, Estate: est, Gate: gate.New(est), Person: "a test",
+		Executor: stubExecutor{files: map[string]string{
+			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Greet(\"a\") != \"Hello, a\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":      "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n",
+		}}}
+	before, _ := os.ReadFile(filepath.Join(repo, "greet.go"))
+	var run *Run
+	run = New(cfg, repo, "make sure the greeting names the person", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); !errors.Is(err, ErrHolds) {
+		t.Fatalf("ended %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(repo, "greet.go")); string(b) != string(before) {
+		t.Error("something was changed")
+	}
+	c, _ := artifact.Load(run.View().Dir)
+	if why, closed := gate.Closed(c); !closed || !strings.Contains(why, "holds already") {
+		t.Errorf("not closed as holding already: %q", why)
+	}
+	if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
+		t.Errorf("it does not pass the gate: %v", rep.Problems())
+	}
+}
+
+// A run stopped while it carried a change again with what the person said
+// is resumed with it; once the change is admitted again, it is spent.
+func TestAMendStoppedIsResumedWithThePersonsWords(t *testing.T) {
+	dir := t.TempDir()
+	add := func(stage, note string) {
+		if err := artifact.AppendRecord(dir, "a-change", meta.Crossing{At: today(), Stage: stage, Object: "SPEC-001", Note: note}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("admission", "admitted")
+	add("execution", mendNote+"the border is missing")
+	add("stopped", "stopped in area 4")
+	if got := mendOf(dir); got != "the border is missing" {
+		t.Errorf("resumed with %q", got)
+	}
+	add("admission", "admitted again")
+	if got := mendOf(dir); got != "" {
+		t.Errorf("an admitted mend is resumed with again: %q", got)
+	}
+}
+
+// What an agent writes is put in the estate's one form before it is kept:
+// form is not the agent's to spend turns on.
+func TestACandidateIsKeptInTheEstatesForm(t *testing.T) {
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string {\nreturn strings.ToUpper(Greet(n))\n}\n",
+	}
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(repo, "greet.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "\n\treturn strings.ToUpper") {
+		t.Errorf("what entered is not in gofmt's form:\n%s", b)
+	}
+}
+
+// stoppedAtPlanning stops the run when the planner is asked, the way a
+// person's stop lands while the planner works.
+type stoppedAtPlanning struct {
+	stubModel
+	stop context.CancelFunc
+}
+
+func (s stoppedAtPlanning) Ask(ctx context.Context, system, prompt string) (string, model.Usage, error) {
+	if system == plannerSystem {
+		s.stop()
+		return "", model.Usage{}, ctx.Err()
+	}
+	return s.stubModel.Ask(ctx, system, prompt)
+}
+
+// A run stopped while its plan is asked for stops: no plan is made in the
+// planner's place, and nothing is admitted on one.
+func TestARunStoppedWhilePlanningStops(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := Config{Model: stoppedAtPlanning{stubModel{answer: spec}, cancel}, Executor: stubExecutor{}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(ctx); err == nil {
+		t.Fatal("a run stopped while planning went on")
+	}
+	c, _ := artifact.Load(run.View().Dir)
+	if c.Meta.Plan != nil || c.Meta.Admission != nil {
+		t.Error("a plan was made in the planner's place, though the run was stopped")
+	}
+}
+
+// A configuration that leaves out the estate and the gate carries a task
+// all the same, on the estate on disk and the gate over it.
+func TestAConfigWithoutEstateOrGateWorks(t *testing.T) {
+	repo := estateFixture(t)
+	cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}}, Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// What a unit reads, as its plan says, is handed whole to its agent.
+func TestWhatAUnitReadsIsHanded(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	r := &Run{repo: repo, cfg: Config{Estate: est}}
+	p := r.pack(unit{kind: meta.CodeUnit, scope: []string{"shout.go"}, reads: []string{"greet.go"}}, est.Repo(repo), nil, 16000)
+	if !strings.Contains(p.String(), "Read: greet.go") || !strings.Contains(p.String(), "func Greet") {
+		t.Errorf("what the unit reads was not handed:\n%s", p.String())
+	}
+}
+
+// A unit is handed what its copy of the estate holds — the candidates it is
+// carried on, and no others: the tests it must pass whole, what the units
+// before it wrote by path, and nothing of a unit it does not wait for.
+func TestAUnitIsHandedWhatItIsCarriedOn(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	keep := func(rel, body string) string {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	tests := keep("shout_test.go", "package greet\n\nfunc TestShout(t *testing.T) {}\n")
+	upper := keep("upper.go", "package greet\n\nfunc Upper(s string) string { return s }\n")
+	other := keep("other.go", "package greet\n\nfunc Other() {}\n")
+	r := &Run{repo: repo, cfg: Config{Estate: est}, units: []unit{
+		{id: "WU-1", kind: meta.TestsUnit, scope: []string{"shout_test.go"}},
+		{id: "WU-2", kind: meta.CodeUnit, scope: []string{"upper.go"}},
+		{id: "WU-3", kind: meta.CodeUnit, scope: []string{"other.go"}},
+		{id: "WU-4", kind: meta.CodeUnit, scope: []string{"shout.go"}},
+	}, ledger: []meta.TestRecord{{Test: "TestShout", File: "shout_test.go", Criterion: "CR-1", Unit: "WU-1"}}}
+	on := []onto{{0, tests}, {1, upper}}
+	ws, err := harness.Snapshot(repo, tests, upper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(ws)
+	got := r.pack(r.units[3], est.Repo(repo).Over(ws), on, 16000).String()
+	for _, want := range []string{"Must pass after you — TestShout — written by WU-1: shout_test.go", "func TestShout", "upper.go   (WU-2)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the pack lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "other.go") {
+		t.Errorf("the pack holds a candidate the unit is not carried on:\n%s", got)
+	}
+	_ = other // kept, as WU-3's candidate is, but not under WU-4
+}
+
+// A file only read that would crowd out what is left is handed by its
+// outline, so that what an agent is handed stays within its budget.
+func TestAPackKeepsToItsBudget(t *testing.T) {
+	repo := estateFixture(t)
+	long := "package greet\n\n"
+	for i := range 400 {
+		long += fmt.Sprintf("func F%d() int { return %d }\n", i, i)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "long.go"), []byte(long), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	est := estate.NewLocal()
+	r := &Run{repo: repo, cfg: Config{Estate: est}}
+	p := r.pack(unit{kind: meta.CodeUnit, scope: []string{"greet.go"}, reads: []string{"long.go"}}, est.Repo(repo), nil, 2000)
+	if p.Tokens() > 2000 {
+		t.Errorf("handed %d tokens against a budget of 2000:\n%s", p.Tokens(), p.String())
+	}
+	if !strings.Contains(p.String(), "func Greet") {
+		t.Errorf("the file to change was not handed whole:\n%s", p.String())
+	}
+}
+
+// What a contract says is declared is read from the code: Go's own parser
+// sees fields and methods, the estate's reader what it reads; a comment
+// that names a name declares nothing.
+func TestWhatIsDeclaredIsReadFromTheCode(t *testing.T) {
+	dir := t.TempDir()
+	for f, src := range map[string]string{
+		"app.go":  "package ui\n\n// Notify and quiet are to come.\ntype Options struct{ Port int }\n\nfunc (u *UI) frame() {}\n",
+		"util.py": "def greet(name):\n    return name\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := undeclared(dir, []meta.Provision{
+		{File: "app.go", Name: "Options", Kind: meta.TypeDecl, Signature: "type Options struct"},
+		{File: "app.go", Name: "Port", Kind: meta.Field, Signature: "Port int"},
+		{File: "app.go", Name: "frame", Kind: meta.Method, Signature: "func (u *UI) frame()"},
+		{File: "app.go", Name: "Notify", Kind: meta.Field, Signature: "Notify notify.Sender"},
+		{File: "app.go", Name: "quiet", Kind: meta.Method, Signature: "func (u *UI) quiet() bool"},
+		{File: "util.py", Name: "greet", Kind: meta.Function, Signature: "def greet(name)"},
+		{File: "util.py", Name: "farewell", Kind: meta.Function, Signature: "def farewell(name)"},
+		{File: "util.py", Name: "language", Kind: meta.Field, Signature: "self.language"},
+		{Kind: meta.Described, Signature: "nothing named"},
+	})
+	// Python's own parser sees fields too, where python3 is here.
+	want := []string{"Notify", "quiet", "farewell"}
+	if _, err := exec.LookPath("python3"); err == nil {
+		want = append(want, "language")
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("undeclared %v, want %v", got, want)
+	}
+}
+
+// The code units are carried in an order derived from what they use: a
+// unit after the one that provides its names, whatever order the planner
+// wrote; a circle of uses, and a name nothing provides, are sent back.
+func TestCodeUnitsAreOrderedByWhatTheyUse(t *testing.T) {
+	repo := estateFixture(t)
+	r := &Run{repo: repo, cfg: Config{Estate: estate.NewLocal()}}
+	fn := func(file, name string) meta.Provision {
+		return meta.Provision{File: file, Name: name, Kind: meta.Function, Signature: "func " + name + "()"}
+	}
+	helper := unit{title: "the helper", scope: []string{"project.go"}, provides: []meta.Provision{fn("project.go", "notifyStates")}, uses: []string{"notify", "Greet"}}
+	fields := unit{title: "the fields", scope: []string{"app.go"}, provides: []meta.Provision{{File: "app.go", Name: "notify", Kind: meta.Field, Of: "App", Signature: "notify notify.Sender"}}}
+	wire := unit{title: "the wiring", scope: []string{"main.go"}, uses: []string{"notifyStates"}}
+	got, why := orderByUse([]unit{wire, helper, fields})
+	if why != "" {
+		t.Fatal(why)
+	}
+	var order []string
+	for _, u := range got {
+		order = append(order, u.title)
+	}
+	if want := []string{"the fields", "the helper", "the wiring"}; !slices.Equal(order, want) {
+		t.Errorf("ordered %v, want %v", order, want)
+	}
+	fields.uses = []string{"notifyStates"}
+	if _, why := orderByUse([]unit{helper, fields}); !strings.Contains(why, "in a circle") {
+		t.Errorf("a circle of uses was ordered: %q", why)
+	}
+	helper.uses = append(helper.uses, "Nowhere")
+	fields.uses = nil
+	if got := r.orderOf([]unit{fields, helper}); !strings.Contains(got, "no unit provides and the estate does not define") {
+		t.Errorf("a name nothing provides passed: %q", got)
+	}
+}
+
+// tiring is an executor whose code unit spends its steps while the tests
+// written first are ones no code can pass, until those tests are written
+// again; then it carries the unit.
+type tiring struct {
+	goals *[]string
+	calls map[string]int
+}
+
+func (s tiring) Name() string    { return "tiring" }
+func (s tiring) Version() string { return "1" }
+func (s tiring) Run(_ context.Context, t harness.Task, _ func(harness.Event)) (harness.Result, error) {
+	*s.goals = append(*s.goals, t.Goal)
+	if t.Role == string(meta.ContractUnit) {
+		return harness.Result{Terminal: harness.Candidate, Summary: "every name is declared already"}, nil
+	}
+	scope := t.Scope[0]
+	s.calls[scope]++
+	body := "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n"
+	if scope == "shout_test.go" {
+		body = "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" || Shout(\"a\") == \"HELLO, A\" {\n\t\tt.Fatal(\"asks for two things at once\")\n\t}\n}\n"
+		if s.calls[scope] > 1 {
+			body = "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n"
+		}
+	}
+	if err := os.WriteFile(filepath.Join(t.Workspace, scope), []byte(body), 0o644); err != nil {
+		return harness.Result{}, err
+	}
+	if slices.Contains(t.Scope, LedgerFile) {
+		writeLedger(t)
+	}
+	if scope != "shout_test.go" && s.calls["shout_test.go"] == 1 {
+		return harness.Result{Terminal: harness.Exhausted, Summary: "stopped after 30 steps without finishing"}, nil
+	}
+	return harness.Result{Terminal: harness.Candidate, Summary: "wrote " + scope}, nil
+}
+
+// A code unit that spends its steps on tests no code can pass sends the
+// tests back to be written again, with where they fail, and is carried
+// again after them.
+func TestTestsNoCodeCanPassAreWrittenAgain(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	var goals []string
+	cfg := Config{Model: stubModel{answer: spec}, Executor: tiring{goals: &goals, calls: map[string]int{}}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		t.Fatalf("the run ended: %v", err)
+	}
+	if !slices.ContainsFunc(goals, func(g string) bool {
+		return strings.Contains(g, "Why you are asked again") && strings.Contains(g, "shout_test.go:")
+	}) {
+		t.Error("the tests were not written again with where they failed")
+	}
+}
+
+// Every unit's agent builds from the specification's own decisions — its
+// requirements and interfaces, and for the tests its test strategy — so
+// that what the tests check and what the code does are decided once.
+func TestEveryAgentIsHandedTheSpecificationsDecisions(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	var goals []string
+	files := map[string]string{
+		"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+	}
+	cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: files, goals: &goals}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(goals) < 2 {
+		t.Fatalf("%d units were carried", len(goals))
+	}
+	for i, g := range goals {
+		if !strings.Contains(g, "What the specification decides") || !strings.Contains(g, "func Shout(n string) string") || !strings.Contains(g, "A shouted greeting is the greeting in capitals") {
+			t.Errorf("unit %d was not handed the specification's decisions:\n%s", i, g)
+		}
+	}
+	if !slices.ContainsFunc(goals, func(g string) bool {
+		return strings.Contains(g, "Write only the tests") && strings.Contains(g, "shout_test.go calls Shout")
+	}) {
+		t.Error("the tests were not handed the test strategy")
+	}
+}
+
+// planned answers the planner with a plan of its own.
+type planned struct {
+	stubModel
+	plan string
+}
+
+func (s planned) Ask(ctx context.Context, system, prompt string) (string, model.Usage, error) {
+	if system == plannerSystem {
+		if s.handed != nil {
+			*s.handed = append(*s.handed, prompt)
+		}
+		return s.plan, model.Usage{Model: "stub"}, nil
+	}
+	return s.stubModel.Ask(ctx, system, prompt)
+}
+
+// Two code units that give each other names are preceded by a contract
+// that declares them: it is carried first, the tests are handed it, and
+// the code units come after.
+func TestTwoCodeUnitsBuildOnAContract(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	twoFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go"]`, 1)
+	twoUnits := `{"approach":{"summary":"Shout, then Loud.","steps":["test","shout","loud"],"risks":["none"]},
+"units":[
+ {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Loud."],"done_when":["it fails first"]},
+ {"title":"Shout","kind":"code","scope":["shout.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":[{"file":"shout.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}],"done_when":["builds"]},
+ {"title":"Loud","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Loud greets.","relies_on":["Shout, from the unit before"],"tasks":["Add Loud using Shout."],"provides":[{"file":"greet.go","name":"Loud","kind":"function","signature":"func Loud(n string) string"}],"uses":["Shout"],"done_when":["the suite passes"]}]}`
+	files := map[string]string{
+		"shout_test.go":     "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Loud(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"shout.go":          "package greet\n\nimport \"strings\"\n\nfunc Shout(n string) string { return strings.ToUpper(n) }\n",
+		"greet.go":          "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Loud(n string) string { return Shout(Greet(n)) }\n",
+		"declared shout.go": "package greet\n\nfunc Shout(n string) string { return \"\" }\n",
+		"declared greet.go": "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Loud(n string) string { return \"\" }\n",
+	}
+	var goals, packs []string
+	cfg := Config{Model: planned{stubModel{answer: twoFiles}, twoUnits}, Executor: stubExecutor{files: files, goals: &goals, packs: &packs}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		c, _ := artifact.Load(run.View().Dir)
+		t.Fatalf("%v: %v", err, cfg.Gate.Check(context.Background(), c).Problems())
+	}
+	if len(goals) != 3 || !strings.Contains(goals[0], "Write only the tests") || !strings.Contains(packs[0], "func Loud(n string) string") {
+		t.Fatalf("the tests were not written first, on the contract declared: %d agents, the first asked\n%.400s", len(goals), goals[0])
+	}
+	c, _ := artifact.Load(run.View().Dir)
+	if rep := cfg.Gate.Check(context.Background(), c); !rep.Passed() {
+		t.Errorf("it does not pass the gate: %v", rep.Problems())
+	}
+}
+
+// Code units that share no file are put in chains of their own; units that
+// change a file in common share one, in the plan's order.
+func TestChainsOfCodeUnits(t *testing.T) {
+	r := &Run{units: []unit{
+		{id: "c", kind: meta.ContractUnit},
+		{id: "t", kind: meta.TestsUnit},
+		{id: "a", scope: []string{"notify.go"}},
+		{id: "b", scope: []string{"settings.go"}},
+		{id: "c1", scope: []string{"app.go"}},
+		{id: "c2", scope: []string{"project.go", "app.go"}},
+		{id: "last", scope: []string{"view.go"}},
+	}}
+	got := r.chains(2, 6)
+	want := [][]int{{2}, {3}, {4, 5}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("chains %v, want %v", got, want)
+	}
+	r.units[0].kind = meta.CodeUnit
+	r.units[3].uses = []string{"Send"}
+	r.units[2].provides = []meta.Provision{{File: "notify.go", Name: "Send", Kind: meta.Function, Signature: "func Send()"}}
+	if got := r.chains(2, 6); fmt.Sprint(got) != fmt.Sprint([][]int{{2, 3}, {4, 5}}) {
+		t.Errorf("without a contract, a unit using another's name was not chained to it: %v", got)
+	}
+}
+
+// Code units in chains of their own are carried at once, and the change
+// lands as if they had been carried one by one.
+func TestChainsAreCarriedAtOnce(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	threeFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go","whisper.go"]`, 1)
+	plan := `{"approach":{"summary":"Shout and whisper, then loud.","steps":["test","shout","whisper","loud"],"risks":["none"]},
+"units":[
+ {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Loud."],"done_when":["it fails first"]},
+ {"title":"Shout","kind":"code","scope":["shout.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":[{"file":"shout.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}],"done_when":["builds"]},
+ {"title":"Whisper","kind":"code","scope":["whisper.go"],"criteria":["CR-001-01"],"objective":"Whisper.","tasks":["Add Whisper."],"provides":[{"file":"whisper.go","name":"Whisper","kind":"function","signature":"func Whisper(n string) string"}],"done_when":["builds"]},
+ {"title":"Loud","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Loud greets.","tasks":["Add Loud using Shout."],"provides":[{"file":"greet.go","name":"Loud","kind":"function","signature":"func Loud(n string) string"}],"uses":["Shout"],"done_when":["the suite passes"]}]}`
+	files := map[string]string{
+		"shout_test.go":       "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Loud(\"a\") != \"HELLO, A\" || Whisper(\"A\") != \"a\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"shout.go":            "package greet\n\nimport \"strings\"\n\nfunc Shout(n string) string { return strings.ToUpper(n) }\n",
+		"whisper.go":          "package greet\n\nimport \"strings\"\n\nfunc Whisper(n string) string { return strings.ToLower(n) }\n",
+		"greet.go":            "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Loud(n string) string { return Shout(Greet(n)) }\n",
+		"declared shout.go":   "package greet\n\nfunc Shout(n string) string { return \"\" }\n",
+		"declared whisper.go": "package greet\n\nfunc Whisper(n string) string { return \"\" }\n",
+		"declared greet.go":   "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Loud(n string) string { return \"\" }\n",
+	}
+	var goals []string
+	cfg := Config{Model: planned{stubModel{answer: threeFiles}, plan}, Executor: stubExecutor{files: files, goals: &goals}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout and whisper", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		c, _ := artifact.Load(run.View().Dir)
+		t.Fatalf("%v: %v", err, cfg.Gate.Check(context.Background(), c).Problems())
+	}
+	if len(goals) != 4 {
+		t.Errorf("%d units were handed to agents, want the tests and three code units — the contract is declared by the framework", len(goals))
+	}
+	b, _ := os.ReadFile(filepath.Join(repo, "whisper.go"))
+	if !strings.Contains(string(b), "ToLower") {
+		t.Errorf("what a chain carried did not land:\n%s", b)
+	}
+}
+
+// A specification's scope and tests are paths of files; an entry that
+// names a test in its file, or says something of it, sends the draft back.
+func TestScopeAndTestsArePaths(t *testing.T) {
+	ok := draft{Slug: "s", Statement: "s", Criteria: []draftCriterion{{}}, Class: "C3", Scope: []string{"greeting.py", "web/a.spec.ts"}, NewTests: []string{"test_greeting.py"}}
+	ok.Document.Summary, ok.Document.Flows, ok.Document.Requirements, ok.Document.Interfaces, ok.Document.Components = "s", []string{"f"}, []string{"r"}, []string{"i"}, []string{"c"}
+	if why := ok.problem(); why != "" {
+		t.Fatalf("a draft of paths was sent back: %s", why)
+	}
+	for _, bad := range []string{"test_greeting.py::FarewellTest.test_a", "greeting_test.go:TestX", "test_greeting.py — added class GreetInTest"} {
+		d := ok
+		d.NewTests = []string{bad}
+		if why := d.problem(); !strings.Contains(why, "is not the path of a file") {
+			t.Errorf("%q passed: %q", bad, why)
+		}
+	}
+}
+
+// Tests the estate's runner did not run have not passed: that they ran is
+// read from what the runner said.
+func TestTestsThatDidNotRunDidNotPass(t *testing.T) {
+	for out, none := range map[string]bool{
+		"ok  \texample.com/greeting\t0.257s [no tests to run]\n": true,
+		"Ran 0 tests in 0.000s\n\nOK\n":                          true,
+		"ℹ tests 0\nℹ pass 0\n":                                  true,
+		"ok  \texample.com/greeting\t0.2s\n":                     false,
+		"--- PASS: TestTitle (0.00s)\nok\n[no tests to run]\n":   false,
+	} {
+		if got := nothingRan(out, []string{"TestTitle"}); got != none {
+			t.Errorf("nothingRan(%q) = %v, want %v", out, got, none)
+		}
+	}
+}
+
+// The tests a file declares are read as its language declares them.
+func TestTestsAreReadInTheirLanguage(t *testing.T) {
+	for file, c := range map[string]struct {
+		content string
+		want    []string
+	}{
+		"a_test.go":  {"func TestA(t *testing.T) {}\nfunc helper() {}\nfunc TestB(t *testing.T) {}\n", []string{"TestA", "TestB"}},
+		"test_a.py":  {"class T(unittest.TestCase):\n    def test_a(self):\n        pass\n    async def test_b(self):\n        pass\n    def helper(self): pass\n", []string{"test_a", "test_b"}},
+		"a.test.js":  {"test(\"greet names the person\", () => {});\nit('says goodbye', () => {});\ndescribe(\"x\", () => {});\n", []string{"greet names the person", "says goodbye"}},
+		"lib.rs":     {"#[test]\nfn adds() {}\n#[test]\n#[should_panic]\npub fn panics() {}\nfn helper() {}\n", []string{"adds", "panics"}},
+		"ATest.java": {"@Test\nvoid greets() {}\n@Test public void bids() {}\n", []string{"greets", "bids"}},
+		"README.md":  {"func TestNothing", nil},
+	} {
+		if got := testsIn(file, c.content); !slices.Equal(got, c.want) {
+			t.Errorf("%s: %q, want %q", file, got, c.want)
+		}
+	}
+}
+
+// The estate's own runner, where it keeps one, runs the tests; its language
+// still gives an agent its build and its check of one file.
+func TestARunnerTheEstateKeepsAndItsLanguage(t *testing.T) {
+	repo := t.TempDir()
+	for f, s := range map[string]string{"go.mod": "module m\n", "test.sh": "#!/bin/sh\n"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte(s), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, ok := detect(repo)
+	if !ok || p.name != "test.sh" || p.vet == nil || p.format == nil || len(p.build) == 0 {
+		t.Fatalf("a Go estate with its own runner lost its language: %+v", p)
+	}
+	if got := p.only([]string{"TestA", "greet (names)"}); !slices.Equal(got, []string{"test.sh", "TestA", `greet \(names\)`}) {
+		t.Errorf("the runner was asked %q", got)
+	}
+	if got := quickCheck([]string{"a.py", "b.py"}); !slices.Equal(got, []string{"python3", "-m", "py_compile", "a.py", "b.py"}) {
+		t.Errorf("python's check: %q", got)
+	}
+	if got := quickCheck([]string{"a.js"}); !slices.Equal(got, []string{"node", "--check", "a.js"}) {
+		t.Errorf("node's check: %q", got)
+	}
+}
+
+// An agent asks the estate's model where a name is defined and who uses
+// it, and is answered with places and their lines.
+func TestTheEstateAnswersAnAgentByName(t *testing.T) {
+	repo := estateFixture(t)
+	g := estateGraph{repo: estate.NewLocal().Repo(repo), root: repo}
+	def, err := g.Defined("Greet")
+	if err != nil || !strings.Contains(def, "greet.go:") || !strings.Contains(def, "func Greet") {
+		t.Errorf("Greet is defined at %q (%v)", def, err)
+	}
+	if none, _ := g.Defined("Nowhere"); !strings.Contains(none, "defined nowhere") {
+		t.Errorf("a name defined nowhere: %q", none)
+	}
+	callers, err := g.Callers("Greet")
+	if err != nil || !strings.Contains(callers, "_test.go:") {
+		t.Errorf("Greet is called from %q (%v)", callers, err)
+	}
+}
+
+// overreach declares the contract with its behaviour the first time.
+type overreach struct {
+	stubExecutor
+	contracts *int
+}
+
+func (o overreach) Run(ctx context.Context, t harness.Task, emit func(harness.Event)) (harness.Result, error) {
+	if t.Role == string(meta.ContractUnit) {
+		if *o.contracts++; *o.contracts == 1 {
+			full := o.stubExecutor
+			full.files = map[string]string{}
+			for k, v := range o.files {
+				if !strings.HasPrefix(k, "declared ") {
+					full.files[k] = v
+				}
+			}
+			t.Role = string(meta.CodeUnit) // it writes as if it were the code
+			return full.Run(ctx, t, emit)
+		}
+	}
+	return o.stubExecutor.Run(ctx, t, emit)
+}
+
+// The contract is declared by the framework from the plan's provisions, so
+// it cannot do what it was only to declare: no agent is handed it — not
+// even one that would overreach — and the change lands on it.
+func TestTheContractIsDeclaredByTheFramework(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	twoFiles := strings.Replace(spec, `"scope":["greet.go"]`, `"scope":["greet.go","shout.go"]`, 1)
+	twoUnits := `{"approach":{"summary":"Shout, then Loud.","steps":["test","shout","loud"],"risks":["none"]},
+"units":[
+ {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Loud."],"done_when":["it fails first"]},
+ {"title":"Shout","kind":"code","scope":["shout.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":[{"file":"shout.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}],"done_when":["builds"]},
+ {"title":"Loud","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Loud greets.","tasks":["Add Loud using Shout."],"provides":[{"file":"greet.go","name":"Loud","kind":"function","signature":"func Loud(n string) string"}],"uses":["Shout"],"done_when":["the suite passes"]}]}`
+	files := map[string]string{
+		"shout_test.go":     "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Loud(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"shout.go":          "package greet\n\nimport \"strings\"\n\nfunc Shout(n string) string { return strings.ToUpper(n) }\n",
+		"greet.go":          "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Loud(n string) string { return Shout(Greet(n)) }\n",
+		"declared shout.go": "package greet\n\nfunc Shout(n string) string { return \"\" }\n",
+		"declared greet.go": "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Loud(n string) string { return \"\" }\n",
+	}
+	var goals []string
+	contracts := 0
+	cfg := Config{Model: planned{stubModel{answer: twoFiles}, twoUnits}, Executor: overreach{stubExecutor{files: files, goals: &goals}, &contracts}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		t.Fatalf("the run ended: %v", err)
+	}
+	if contracts != 0 {
+		t.Errorf("an agent was handed the contract %d times", contracts)
+	}
+	c, _ := artifact.Load(run.View().Dir)
+	declared, err := os.ReadFile(filepath.Join(run.View().Dir, "candidates", c.Meta.Execution.Candidates[0].ID, "files", "shout.go"))
+	if err != nil || !strings.Contains(string(declared), `panic("not yet: Shout")`) {
+		t.Errorf("the contract was not declared without behaviour (%v):\n%s", err, declared)
+	}
+}
+
+// Every language the framework knows says, from its table alone, how its
+// estates are recognised, how its tests are declared, and how its runner
+// reports each test — or, where it writes no report, how it says it ran
+// none.
+func TestEachLanguageIsOneEntry(t *testing.T) {
+	seen := map[string]bool{}
+	for _, l := range languages {
+		if l.name == "" || len(l.marks) == 0 || len(l.exts) == 0 || l.tests == nil || (l.report == nil && l.noneRan == nil) {
+			t.Errorf("%q leaves out what every language says: %+v", l.name, l)
+		}
+		for _, e := range l.exts {
+			if seen[e] {
+				t.Errorf("%s is claimed by two languages", e)
+			}
+			seen[e] = true
+		}
+	}
+	for file, want := range map[string]string{"a_test.go": "go test", "test_a.py": "pytest", "a.test.ts": "node --test", "lib.rs": "cargo test", "ATest.kt": "gradle test"} {
+		if l, ok := languageOfFile(file); !ok || l.name != want {
+			t.Errorf("%s is read as %q, want %q", file, l.name, want)
+		}
+	}
+}
+
+// Every unit waits for what it builds on: the tests for the contract, the
+// code for the contract and the tests and the unit before it in its chain,
+// the last unit for all.
+func TestEachUnitWaitsForWhatItBuildsOn(t *testing.T) {
+	r := &Run{units: []unit{
+		{kind: meta.ContractUnit},
+		{kind: meta.TestsUnit},
+		{kind: meta.CodeUnit, scope: []string{"a.go"}},
+		{kind: meta.CodeUnit, scope: []string{"b.go"}},
+		{kind: meta.CodeUnit, scope: []string{"b.go", "c.go"}},
+		{kind: meta.CodeUnit, scope: []string{"d.go"}},
+	}}
+	got := r.dependencies()
+	want := [][]int{nil, {0}, {0, 1}, {0, 1}, {0, 1, 3}, {0, 1, 2, 3, 4}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("dependencies %v, want %v", got, want)
+	}
+	r.units = []unit{{kind: meta.TestsUnit}, {kind: meta.CodeUnit, scope: []string{"a.go"}}, {kind: meta.CodeUnit, scope: []string{"b.go"}}}
+	if got := r.dependencies(); fmt.Sprint(got) != fmt.Sprint([][]int{nil, {0}, {0, 1}}) {
+		t.Errorf("one code unit before the last: %v", got)
+	}
+}
+
+// Go's build says whose fault a missing name is: one missing from a package
+// the unit does not write into is the file's that uses it; one missing from
+// a package it writes into is what the unit is to declare; a failed
+// assertion blames no file.
+func TestWhoseFaultAMissingNameIs(t *testing.T) {
+	l, _ := languageOfFile("a.go")
+	read := faultsOf(l, []string{"internal/cli/resolve.go"})
+	fs := read("internal/flow/advise_test.go:177:46: m.usage.Out undefined (type model.Usage has no field or method Out)\n" +
+		"internal/cli/resolve_test.go:12:3: undefined: cli.Resolve\n" +
+		"    advise_test.go:57: got 2 paths, want 3\n")
+	if len(fs) != 2 || fs[0].File != "internal/flow/advise_test.go" || fs[0].Missing || fs[1].File != "internal/cli/resolve_test.go" || !fs[1].Missing {
+		t.Errorf("faults %+v", fs)
+	}
+}
+
+// A code unit that finds its work done by the unit before it changes
+// nothing, and the change lands all the same.
+func TestAUnitWithNothingLeftToDo(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	twoUnits := `{"approach":{"summary":"Shout, then check.","steps":["test","shout","check"],"risks":["none"]},
+"units":[
+ {"title":"the tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge from outside.","tasks":["Test Shout."],"done_when":["it fails first"]},
+ {"title":"Shout","kind":"code","scope":["greet.go"],"criteria":["CR-001-01"],"objective":"Shout.","tasks":["Add Shout."],"provides":[{"file":"greet.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}],"done_when":["builds"]},
+ {"title":"the suite","kind":"code","scope":["greet.go"],"criteria":["CR-001-01","CR-001-02"],"objective":"Pass the suite.","tasks":["Mend what fails."],"done_when":["the suite passes"]}]}`
+	files := map[string]string{
+		"shout_test.go":     "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+		"greet.go":          "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+		"declared greet.go": "package greet\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return \"\" }\n",
+	}
+	cfg := Config{Model: planned{stubModel{answer: spec}, twoUnits}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err != nil {
+		c, _ := artifact.Load(run.View().Dir)
+		t.Fatalf("%v: %v", err, cfg.Gate.Check(context.Background(), c).Problems())
+	}
+}
+
+// Node names a failing file inside a stack frame's parentheses; the file is
+// what is between them.
+func TestANodeFaultIsTheFileInItsFrame(t *testing.T) {
+	l, _ := languageOfFile("a.js")
+	fs := faultsOf(l, []string{"greeting.js"})("    at TestContext.<anonymous> (/private/var/ws/shout.test.js:7:10)\n")
+	if len(fs) != 1 || fs[0].File != "/private/var/ws/shout.test.js" {
+		t.Errorf("faults %+v", fs)
+	}
+}
+
+// A plan whose unit provides a name its file declares already is sent
+// back: a contract that declared it again would break its users.
+func TestANameProvidedIsANewName(t *testing.T) {
+	repo := estateFixture(t)
+	r := &Run{repo: repo}
+	if why := r.providedAlready(unit{provides: []meta.Provision{{File: "greet.go", Name: "Greet", Kind: meta.Function, Signature: "func Greet(n string) string"}}}); !strings.Contains(why, "declares already") {
+		t.Errorf("a name declared already passed: %q", why)
+	}
+	if why := r.providedAlready(unit{provides: []meta.Provision{{File: "greet.go", Name: "Shout", Kind: meta.Function, Signature: "func Shout(n string) string"}, {File: "new.go", Name: "New", Kind: meta.Function, Signature: "func New()"}}}); why != "" {
+		t.Errorf("new names were sent back: %q", why)
+	}
+	// In Go a name is its package's: a method may not take the name of a
+	// field of its type declared in another file, nor a function a name
+	// another file holds; a method of another type may.
+	if err := os.WriteFile(filepath.Join(repo, "ui.go"), []byte("package greet\n\ntype UI struct{ runOf func() int }\n\nfunc (u *UI) Draw() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []meta.Provision{
+		{File: "new.go", Name: "runOf", Kind: meta.Method, Of: "*UI", Signature: "func (u *UI) runOf() int"},
+		{File: "new.go", Name: "Draw", Kind: meta.Method, Of: "greet.UI", Signature: "func (u *UI) Draw()"},
+		{File: "new.go", Name: "UI", Kind: meta.TypeDecl, Signature: "type UI int"},
+	} {
+		if why := r.providedAlready(unit{provides: []meta.Provision{p}}); !strings.Contains(why, "ui.go declares already in the same package") {
+			t.Errorf("%s, held by its package, passed: %q", p.Name, why)
+		}
+	}
+	if why := r.providedAlready(unit{provides: []meta.Provision{{File: "new.go", Name: "Draw", Kind: meta.Method, Of: "Other", Signature: "func (o Other) Draw()"}}}); why != "" {
+		t.Errorf("a method of another type was sent back: %q", why)
+	}
+}
+
+// What a Go file declares is its package's: a parameter, a result, a
+// function's own variable declare nothing.
+func TestAGoFileDeclaresWhatItsPackageDoes(t *testing.T) {
+	names, err := goDeclares([]byte("package ui\n\nvar quiet bool\n\ntype UI struct{ notify func() }\n\ntype Sender interface{ Send(m string) }\n\nfunc newUI(s *settings) (u *UI) {\n\tvar local int\n\t_ = local\n\treturn nil\n}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"quiet", "UI", "notify", "Sender", "Send", "newUI"} {
+		if !names[want] {
+			t.Errorf("%s is not read as declared", want)
+		}
+	}
+	for _, not := range []string{"s", "u", "m", "local"} {
+		if names[not] {
+			t.Errorf("%s is read as declared", not)
+		}
+	}
+}
+
+// A unit whose files do not fit what one agent is handed goes back to its
+// planner, to be divided; a unit of one file too long for it cannot be
+// divided, and its agent reads that file by parts.
+func TestAUnitTooLargeForOneAgentIsSentBack(t *testing.T) {
+	repo := estateFixture(t)
+	long := "package greet\n\n" + strings.Repeat("// a line of the long file, to give it weight\n", 200)
+	for _, f := range []string{"a.go", "b.go"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte(long), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal(), PackTokens: 3000}}
+	if why := r.oversized(unit{kind: meta.CodeUnit, scope: []string{"a.go", "b.go"}}); !strings.Contains(why, "divide it") {
+		t.Errorf("a unit changing two files over the budget was let be: %q", why)
+	}
+	if why := r.oversized(unit{kind: meta.CodeUnit, scope: []string{"greet.go"}, reads: []string{"a.go", "b.go"}}); why != "" {
+		t.Errorf("a unit was sent back for what it only reads, which is outlined where it does not fit: %q", why)
+	}
+	if why := r.oversized(unit{kind: meta.CodeUnit, scope: []string{"a.go"}}); why != "" {
+		t.Errorf("a unit of one file was sent back, though no plan can divide it: %q", why)
+	}
+	if why := r.oversized(unit{kind: meta.CodeUnit, scope: []string{"greet.go"}, reads: []string{"greet_test.go"}}); why != "" {
+		t.Errorf("a small unit was sent back: %q", why)
+	}
+}
+
+// The author of a specification is told what the project is for, in its
+// own words, within its budget, by whole paragraphs from the beginning.
+func TestTheAuthorIsToldWhatTheProjectIsFor(t *testing.T) {
+	repo := t.TempDir()
+	readme := "# Shop\n\nA shop for books.\n\n" + strings.Repeat("A long paragraph of detail. ", 400)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte(readme), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("Keep it small.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := aims(repo, 500)
+	if !strings.Contains(got, "A shop for books.") || strings.Contains(got, "long paragraph") {
+		t.Errorf("not the beginning within the budget:\n%s", got)
+	}
+	if aims(t.TempDir(), 500) != "" {
+		t.Error("a project that says nothing of itself was given words")
+	}
+}
+
+// A plan that leaves a criterion to no code unit is sent back to its
+// planner, as every plan that breaks the method is; it is never mended in
+// the planner's place.
+func TestAPlanLeavingACriterionIsSentBack(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	short := strings.Replace(plan, `"criteria":["CR-001-01","CR-001-02"]`, `"criteria":["CR-001-01"]`, 1)
+	cfg := Config{Model: planned{stubModel{answer: spec}, short}, Executor: stubExecutor{}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	err := run.Start(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "no code unit serves CR-001-02") {
+		t.Fatalf("a plan leaving a criterion to no unit was not sent back: %v", err)
+	}
+}
+
+// What a specification relies on that exists is held to the estate's own
+// declaration: the author names it, the framework copies the declaration.
+func TestWhatTheSpecificationReliesOnIsAsDeclared(t *testing.T) {
+	repo := estateFixture(t)
+	r := &Run{repo: repo, cfg: Config{Estate: estate.NewLocal()}}
+	for _, p := range []meta.Provision{
+		{File: "greet.go", Name: "Greet", Kind: meta.Function},
+		{File: "greet.go", Name: "Greet", Kind: meta.Function, Signature: "func Greet(n ...string) string"},
+		{File: "greet.go", Name: "greet.Greet", Kind: meta.Function},
+		{File: "greet.go", Name: "Greeter.Greet", Kind: meta.Function},
+	} {
+		got, why := r.relied([]meta.Provision{p})
+		if len(why) > 0 || len(got) != 1 || got[0].Signature != "func Greet(n string) string" {
+			t.Errorf("%s %q was not taken with the estate's declaration: %v %q", p.Name, p.Signature, got, why)
+		}
+	}
+	if _, why := r.relied([]meta.Provision{{File: "greet.go", Name: "Shout", Kind: meta.Function}, {File: "greet.go", Name: "Greet", Kind: "interface"}}); len(why) != 2 || !strings.Contains(why[0], "does not declare") || !strings.Contains(why[1], `the kind "interface"`) {
+		t.Errorf("not every name relied on wrongly was said, each with why: %q", why)
+	}
+	if c, why := chosen([]string{"func (a A) Model() int", "func (b *B) Model() string"}, "", "B"); c != "func (b *B) Model() string" || why != "" {
+		t.Errorf("of did not choose between two methods of one name: %q %q", c, why)
+	}
+	if _, why := chosen([]string{"func (a A) Model() int", "func (b *B) Model() string"}, "", ""); why == "" {
+		t.Error("two declarations of one name were chosen between without the author saying which")
+	}
+	for _, c := range []struct {
+		line, sig string
+		want      bool
+	}{
+		{"def greet(name: str) -> str:", "def greet(name: str) -> str", true},
+		{"def greet(name: str) -> str:", "def greet(name=None)", false},
+		{"function greet(name) {", "function greet(name)", true},
+		{"func  Greet(n string)  string {", "func Greet(n string) string", true},
+		{"func Greet(n string) string {", "func Greet(n string", false},
+	} {
+		if got := declares(c.line, c.sig); got != c.want {
+			t.Errorf("declares(%q, %q) = %v", c.line, c.sig, got)
+		}
+	}
+}
+
+// A plan with tests and no code is sent back, saying so; it does not bring
+// the run down.
+func TestAPlanWithNoCodeIsSentBack(t *testing.T) {
+	repo := estateFixture(t)
+	est := estate.NewLocal()
+	testsOnly := `{"approach":{"summary":"Test.","steps":["test"],"risks":["none"]},"units":[
+ {"title":"the shout test","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"Judge shouting.","tasks":["Test Shout."],"done_when":["it fails"]}]}`
+	cfg := Config{Model: planned{stubModel{answer: spec}, testsOnly}, Executor: stubExecutor{}, Estate: est, Gate: gate.New(est), Person: "a test"}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if run.View().Question != "" {
+			go run.Accept()
+		}
+	})
+	if err := run.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "has no code unit") {
+		t.Fatalf("a plan with no code was not sent back for it: %v", err)
+	}
+}
+
+// Tests may read a file that exists — the code they judge — though a code
+// unit writes it after them; a file that does not exist yet they may read
+// only where the contract declares in it, for nothing else is there before
+// them.
+func TestWhatTestsMayRead(t *testing.T) {
+	repo := estateFixture(t)
+	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal()}}
+	plan := func(reads string, provides string) planDraft {
+		var p planDraft
+		js := `{"units":[
+ {"title":"tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"o","tasks":["t"],"reads":["` + reads + `"]},
+ {"title":"code","kind":"code","scope":["greet.go","loud.go"],"criteria":["CR-001-01"],"objective":"o","tasks":["t"],"provides":[` + provides + `]}]}`
+		if err := json.Unmarshal([]byte(js), &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	if _, why := r.unitsOf(plan("greet.go", "")); why != "" {
+		t.Errorf("tests reading the code they judge were sent back: %s", why)
+	}
+	if _, why := r.unitsOf(plan("loud.go", "")); !strings.Contains(why, "neither exists nor is written before it") {
+		t.Errorf("tests reading what only the code will write were let be: %q", why)
+	}
+	loud := `{"file":"loud.go","name":"Loud","kind":"function","signature":"func Loud(n string) string"}`
+	if _, why := r.unitsOf(plan("loud.go", loud)); why != "" {
+		t.Errorf("tests reading what the contract declares were sent back: %s", why)
+	}
+}
+
+// A carrying that sends the change back keeps saying so through the
+// scheduler: it is not read as a failure, which would stop the run.
+func TestASentBackIsNotAFailure(t *testing.T) {
+	s := &scheduler{r: &Run{}}
+	sb := &sentBack{area: 2, unit: "WU-1", why: "the contract cannot be declared"}
+	if out, _ := s.outcomeOf(0, finished{err: fmt.Errorf("wrapped: %w", sb)}); out != outSentBack {
+		t.Errorf("a carrying sent back was read as outcome %d", out)
+	}
+}
+
+// A criterion about behaviour the change makes is judged by new tests:
+// one left to the existing tests, which pass before the change, is sent
+// back to the author.
+func TestNewBehaviourIsJudgedByNewTests(t *testing.T) {
+	var d draft
+	if err := json.Unmarshal([]byte(spec), &d); err != nil {
+		t.Fatal(err)
+	}
+	if why := d.problem(); why != "" {
+		t.Fatalf("the fixture is refused: %s", why)
+	}
+	d.Criteria[0].New = false
+	if why := d.problem(); !strings.Contains(why, "no new test judges it") {
+		t.Errorf("new behaviour left to the existing tests was let be: %q", why)
+	}
+	d.Criteria[0].New, d.NewTests = true, nil
+	if why := d.problem(); !strings.Contains(why, "no new test judges it") {
+		t.Errorf("new behaviour with no new test file was let be: %q", why)
+	}
+}
+
+// A tests unit is handed the code it exercises by its declarations, not
+// whole: what it costs to hand is what it changes and reads, and a long
+// file of the scope does not keep it from fitting one agent.
+func TestTestsAreHandedTheCodeByItsDeclarations(t *testing.T) {
+	repo := estateFixture(t)
+	long := "package greet\n\n" + strings.Repeat("// a line of the long file, to give it weight\n", 2000) + "func Long() int { return 1 }\n"
+	if err := os.WriteFile(filepath.Join(repo, "long.go"), []byte(long), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	est := estate.NewLocal()
+	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: est}, spec: draft{Scope: []string{"greet.go", "long.go"}}}
+	u := unit{kind: meta.TestsUnit, scope: []string{"long_test.go"}}
+	if why := r.oversized(u); why != "" {
+		t.Errorf("a tests unit was weighed with the code it exercises: %s", why)
+	}
+	p := r.pack(u, est.Repo(repo), nil, 16000).String()
+	if strings.Contains(p, "a line of the long file") || !strings.Contains(p, "func Long() int") || !strings.Contains(p, "func Greet(n string) string") {
+		t.Errorf("the tests were not handed the code by its declarations:\n%s", p)
+	}
+}
+
+// A name the planner qualified by the package it is declared in is that
+// package's own: a type a field is given to, a name a unit uses, a name a
+// unit provides. A field given to a type of another package is sent back.
+func TestNamesQualifiedByTheirPackageAreTheirPackagesOwn(t *testing.T) {
+	repo := estateFixture(t)
+	r := &Run{repo: repo, dir: t.TempDir(), cfg: Config{Estate: estate.NewLocal()}}
+	plan := func(of string) planDraft {
+		var p planDraft
+		js := `{"units":[
+ {"title":"tests","kind":"tests","scope":["shout_test.go"],"criteria":["CR-001-01"],"objective":"o","tasks":["t"],"uses":["greet.Shout"]},
+ {"title":"types","kind":"code","scope":["types.go"],"criteria":["CR-001-01"],"objective":"o","tasks":["t"],
+  "provides":[{"file":"types.go","name":"greet.Options","kind":"type","signature":"type Options struct{}"},
+              {"file":"types.go","name":"Loud","kind":"field","of":"` + of + `","signature":"Loud bool"}]},
+ {"title":"shout","kind":"code","scope":["greet.go"],"criteria":["CR-001-01"],"objective":"o","tasks":["t"],
+  "uses":["greet.Options","greet.Greet"],
+  "provides":[{"file":"greet.go","name":"Shout","kind":"function","signature":"func Shout(n string) string"}]}]}`
+		if err := json.Unmarshal([]byte(js), &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	units, why := r.unitsOf(plan("greet.Options"))
+	if why != "" {
+		t.Fatalf("names qualified by their own package were refused: %s", why)
+	}
+	for _, u := range units {
+		for _, n := range u.uses {
+			if strings.Contains(n, ".") {
+				t.Errorf("%s still uses %s", u.title, n)
+			}
+		}
+		for _, p := range u.provides {
+			if strings.Contains(p.Name, ".") || strings.Contains(p.Of, ".") {
+				t.Errorf("%s still provides %s of %s", u.title, p.Name, p.Of)
+			}
+		}
+	}
+	if _, why := r.unitsOf(plan("http.Request")); !strings.Contains(why, "a type of another package") {
+		t.Errorf("a field given to another package's type was let be: %q", why)
 	}
 }

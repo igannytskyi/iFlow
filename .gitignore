@@ -24,3 +24,6 @@ BACKLOG.md
 
 # Derived state, rebuilt from the code whenever the code moves.
 .estate/
+
+# The programs built from it, beside it: go build -o bin/ ./cmd/...
+/bin/

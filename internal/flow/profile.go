@@ -1,6 +1,8 @@
 package flow
 
 import (
+	"github.com/igannytskyi/iflow/internal/artifact"
+
 	"context"
 	"fmt"
 	"os"
@@ -11,45 +13,35 @@ import (
 	"time"
 )
 
-// profile is how an estate's tests are run: the whole suite, and the named
-// tests alone. It is read off the estate, not configured — a test.sh the
-// estate keeps wins, then what its language's own runner is.
+// profile is the estate's language as an estate runs it: its tests run by
+// the estate's own test.sh where it keeps one — which then names it — and
+// by the language's own runner where not; everything else the language's.
 type profile struct {
-	name string
-	// suite is the command running every test, as a record names it.
-	suite []string
-	// only is the command running the named tests.
-	only func(names []string) []string
-	// build passes when the code builds, running nothing; empty where the
-	// estate's language has no such step.
-	build []string
-	// names finds the tests a file declares.
-	names *regexp.Regexp
+	language
+	// quick checks the files named after an edit, each in its own
+	// language: an estate may hold more than one.
+	quick func(files []string) []string
 }
 
-var (
-	goTests     = regexp.MustCompile(`(?m)^func (Test\w+)\(`)
-	pythonTests = regexp.MustCompile(`(?m)^\s*def (test_\w+)\(`)
-)
-
+// detect reads off the estate how its tests are run and what its language
+// gives an agent. The second value says whether its tests can be run.
 func detect(repo string) (profile, bool) {
-	has := func(name string) bool { _, err := os.Stat(filepath.Join(repo, name)); return err == nil }
-	alternation := func(names []string) string { return "^(" + strings.Join(names, "|") + ")$" }
-	switch {
-	case has("test.sh"):
-		return profile{"test.sh", []string{"test.sh"},
-			func(n []string) []string { return []string{"test.sh", alternation(n)} }, nil, goTests}, true
-	case has("go.mod"):
-		return profile{"go test", []string{"go", "test", "-count=1", "./..."},
-			func(n []string) []string { return []string{"go", "test", "-count=1", "-run", alternation(n), "./..."} },
-			[]string{"go", "build", "./..."}, goTests}, true
-	case has("pyproject.toml") || has("pytest.ini") || has("setup.py"):
-		return profile{"pytest", []string{"python3", "-m", "pytest", "-q"},
-			func(n []string) []string {
-				return []string{"python3", "-m", "pytest", "-q", "-k", strings.Join(n, " or ")}
-			}, nil, pythonTests}, true
+	l, _ := languageOfEstate(repo)
+	p := profile{language: l, quick: quickCheck}
+	if fileExists(filepath.Join(repo, "test.sh")) {
+		// The estate's own runner: with no arguments it runs every test,
+		// with names it runs the tests of those names, one a name — each a
+		// regular expression that matches the name it stands for.
+		p.name, p.suite, p.report = "test.sh", []string{"test.sh"}, nil // a script of the estate's own reports as it pleases
+		p.only = func(n []string) []string {
+			out := []string{"test.sh"}
+			for _, name := range n {
+				out = append(out, regexp.QuoteMeta(name))
+			}
+			return out
+		}
 	}
-	return profile{}, false
+	return p, len(p.suite) > 0
 }
 
 // resolve turns a command as a record names it into one that can be run in
@@ -161,4 +153,65 @@ func decisions(repo string, budget int) string {
 		used += len(lines[i]) / 4
 	}
 	return strings.Join(out, "\n")
+}
+
+// gofmt writes the Go files named in gofmt's form; nil where none is Go.
+func gofmt(files []string) []string {
+	var goFiles []string
+	for _, f := range files {
+		if strings.HasSuffix(f, ".go") {
+			goFiles = append(goFiles, f)
+		}
+	}
+	if len(goFiles) == 0 {
+		return nil
+	}
+	return append([]string{"gofmt", "-w"}, goFiles...)
+}
+
+// goBuild builds the packages holding the Go files named, their tests
+// apart — which may wait on what a later unit provides — and has the
+// compiler say every error it finds; nil where none is Go.
+func goBuild(files []string) []string {
+	cmd := []string{"go", "build", "-gcflags=-e"}
+	seen := map[string]bool{}
+	for _, f := range files {
+		if !strings.HasSuffix(f, ".go") || strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		if d := "./" + filepath.ToSlash(filepath.Dir(f)); !seen[d] {
+			seen[d] = true
+			cmd = append(cmd, d)
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	return cmd
+}
+
+// goVet builds the tests of the packages holding the files named, running
+// none, and has the compiler say every error it finds: go vet stops at the
+// first, and a test's wrong call hides behind the names it rightly finds
+// missing.
+func goVet(files []string) []string {
+	cmd := []string{"go", "test", "-count=1", "-run", "^$", "-gcflags=-e"}
+	seen := map[string]bool{}
+	for _, f := range files {
+		if d := "./" + filepath.ToSlash(filepath.Dir(f)); !seen[d] {
+			seen[d] = true
+			cmd = append(cmd, d)
+		}
+	}
+	return cmd
+}
+
+// Settle closes an escalation of the change in dir by the person's decision,
+// and keeps the decision with the others, so that no later author raises
+// again what was settled once.
+func Settle(repo, dir, ref, person, decision string) error {
+	if err := artifact.Settle(dir, ref, person, decision); err != nil {
+		return err
+	}
+	return decide(repo, filepath.Base(dir), "settled "+ref+": "+decision)
 }

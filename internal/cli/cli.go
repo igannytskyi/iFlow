@@ -18,22 +18,46 @@ import (
 	"github.com/igannytskyi/iflow/internal/models"
 )
 
-const usage = `usage: iflow desk [project...]            the workbench: projects side by side, a task carried through each
-       iflow run [--accept] <estate> <task> carry a task along the path
-       iflow models [--try]              which model does each piece of work, and whether its key is found;
-                                         --try asks each one a one-word question
-       iflow plan <changes/slug> [--draft]  what the estate says about a specification
-       iflow baseline <estate>... [--method] the present way of working, and the method beside it
-       iflow adopt openspec|speckit <folder> read another method's change as intent and criteria
-       iflow measure <estate>...         what the estate model is worth: reach and quotation
-       iflow estate <question>           what the estate says; iflow estate for the questions
-       iflow check <changes/slug>        one change
-       iflow check --status [dir]         every change, at a glance
-       iflow check --repeat <slug>        run what claims to repeat, twice
-       iflow check --escalations          what the method owes itself
-       iflow check --arbiters             run every arbiter of the framework
-       iflow check --mutate               break each rule, see who notices
-       iflow check --unused               fields nobody reads, codes nobody checks
+const usage = `iflow — a change carried from intent to landing, by agents, checked at every step.
+
+Work — every run is carried by the service; any screen shows it, and it goes on when the screen closes
+  iflow tui [--theme light|terminal] [project]   the path in a terminal
+  iflow desk [project...]                        the workbench window
+  iflow run [--accept|--ask] <project> <task>    carry a task, printing each step; --ask answers on stdin,
+                                                 --accept answers yes without reading, which the record says
+  iflow resume [--accept|--ask] <change>         carry a stopped change on from where it stopped
+  iflow reopen [--accept|--ask] <change> <1|2> <what>
+                                                 carry a change again, from its specification (1) or plan (2)
+  iflow stop <change>                            stop the run carrying a change; resume carries it on
+  iflow close <change> <why>                     close a change that will not be finished
+  iflow settle <change> <n> <decision>           close an escalation the change raised, by your decision
+
+Service — one process carries the runs; a screen of a later build replaces it, carrying its runs on
+  iflow service status|start|stop|restart|log|run
+
+Models
+  iflow models [--try]                           which model does each piece of work; --try asks each one
+
+Changes, checked
+  iflow check <change>                           one change, against the rules
+  iflow check --status [dir]                     every change, at a glance
+  iflow check --repeat <change>                  run what claims to repeat, twice
+  iflow check --escalations                      what the method owes itself
+  iflow check --arbiters | --mutate | --unused   the framework's own: its arbiters, its rules broken, what nobody reads
+  iflow plan <change> [--draft]                  what the estate says about a specification
+
+Measuring
+  iflow bench [--only a,b] [--set role=model,review=1,...] [--label name] [--parallel n]
+                                                 carry the reference tasks (examples/bench.json) and say what each cost
+  iflow measure <estate>...                      what the estate model is worth: reach and quotation
+  iflow baseline <estate>... [--method]          the present way of working, and the method beside it
+  iflow estate <question>                        what the estate says; iflow estate for the questions
+
+Changes from elsewhere, and before
+  iflow adopt openspec|speckit <folder>          read another method's change as intent and criteria
+  iflow describe <change>...                     write the whole specification of changes carried before it was whole
+  iflow migrate [--dry] [changes...]             write every change in the data model, as JSON
+
 Exit status is 0 when nothing failed.`
 
 // Exit statuses.
@@ -64,6 +88,20 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		return app.check(ctx, args[1:])
 	case len(args) > 0 && args[0] == "desk":
 		return app.Desk(ctx, args[1:])
+	case len(args) > 0 && args[0] == "describe":
+		return app.Describe(ctx, args[1:])
+	case len(args) > 0 && args[0] == "resume":
+		return app.Resume(ctx, args[1:])
+	case len(args) > 0 && args[0] == "close":
+		return app.Close(args[1:])
+	case len(args) > 0 && args[0] == "stop":
+		return app.Stop(ctx, args[1:])
+	case len(args) > 0 && args[0] == "reopen":
+		return app.Reopen(ctx, args[1:])
+	case len(args) > 0 && args[0] == "settle":
+		return app.Settle(args[1:])
+	case len(args) > 0 && args[0] == "migrate":
+		return app.Migrate(args[1:])
 	case len(args) > 0 && args[0] == "models":
 		m, err := models.Load()
 		if err != nil {
@@ -76,6 +114,14 @@ func (app *App) Run(ctx context.Context, args []string) int {
 		return OK
 	case len(args) > 0 && args[0] == "run":
 		return app.RunTask(ctx, args[1:])
+	case len(args) > 0 && args[0] == "service":
+		return app.Service(ctx, args[1:])
+	case len(args) == 1 && args[0] == "serve": // the name it had; iflow service run
+		return app.Serve(ctx)
+	case len(args) > 0 && args[0] == "tui":
+		return app.TUI(ctx, args[1:])
+	case len(args) > 0 && args[0] == "bench":
+		return app.Bench(ctx, args[1:])
 	case len(args) > 0 && args[0] == "adopt":
 		return app.Adopt(ctx, args[1:])
 	case len(args) > 0 && args[0] == "baseline":

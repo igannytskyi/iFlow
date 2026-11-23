@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"image/png"
 	"os"
@@ -23,6 +24,8 @@ import (
 	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/method"
 	"github.com/igannytskyi/iflow/internal/model"
+	"github.com/igannytskyi/iflow/internal/service"
+	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
 // painter draws frames without a window and, when IFLOW_SHOTS names a
@@ -86,7 +89,28 @@ func testUI(t *testing.T, cfg *flow.Config, projects ...string) *UI {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	s := &settings{Widths: map[string]float32{}, path: filepath.Join(t.TempDir(), "desk.json")}
-	u := newUI(ctx, Options{Model: m, Gate: gate.New(est), Parallel: 2, Projects: projects, Flow: cfg}, s)
+	o := Options{Model: m, Gate: gate.New(est), Parallel: 2, Projects: projects, Flow: cfg}
+	if cfg != nil {
+		// The runs are carried by a service of the test's own, as the
+		// window's are by the person's.
+		dir, err := os.MkdirTemp("/tmp", "iflow-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.RemoveAll(dir) })
+		socket := filepath.Join(dir, "s.sock")
+		l, err := service.Listen(ctx, socket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			_ = service.New(ctx, service.Config{Maker: service.FlowMaker{Config: func() flow.Config { return *cfg }}, Person: "a test"}).Serve(ctx, l)
+		}()
+		o.Connect = func(changed func(string)) (*service.Client, error) {
+			return service.Dial(ctx, socket, "a test", changed)
+		}
+	}
+	u := newUI(ctx, o, s)
 	u.setTheme(os.Getenv("IFLOW_DARK") != "")
 	return u
 }
@@ -115,7 +139,19 @@ func TestHistoryRenders(t *testing.T) {
 	if _, ok := p.shownOf(); ok {
 		t.Fatal("a project opens on a task rather than on its overview")
 	}
-	newest, old := p.order[0], p.order[len(p.order)-1]
+	// The task with what it cost, and the one before it.
+	var newest, old *workspace.Change
+	for _, c := range p.order {
+		switch c.Name() {
+		case "trim-name-whitespace":
+			newest = c
+		case "greet-the-world":
+			old = c
+		}
+	}
+	if newest == nil || old == nil {
+		t.Fatal("the example's tasks are not there")
+	}
 	for _, s := range []struct {
 		name string
 		set  func()
@@ -131,7 +167,19 @@ func TestHistoryRenders(t *testing.T) {
 		{"task-older", func() { p.show(old.Change.Dir, old) }},
 		{"task-area", func() { p.area = 5 }},
 		{"task-object", func() { p.item = old.Item("VE-001-01") }},
-		{"new-intent", func() { p.selected = newKey }},
+		{"task-resolve", func() {
+			// The task that raised an escalation, its matters open, deciding.
+			for _, c := range p.order {
+				if c.Name() == "greet-the-world" {
+					p.show(c.Change.Dir, c)
+					p.open["matters/"+c.Change.Dir] = true
+					p.resolving, p.resolveMode = c.Change.Dir+"|greet-the-world#1", resolveSettle
+				}
+			}
+		}},
+		{"new-intent", func() { p.selected, p.resolving = newKey, "" }},
+		{"foundation-economy", func() { p.selected, p.foundation = "", 9 }},
+		{"foundation-estate", func() { p.foundation = 7 }},
 		{"settings", func() { u.preferring = true }},
 	} {
 		s.set()
@@ -231,7 +279,25 @@ func TestRunRenders(t *testing.T) {
 	paint.paint(u, "run-diff")
 	p.area, p.item = 4, p.live.Item("EV-001-01-01")
 	paint.paint(u, "run-execution")
-	waitFor(t, "the gate on the landed change", func() bool { return int(p.checked.Load()) == len(p.ws.Changes) })
+	// What the run wrote is taken in between frames; here no frame is
+	// drawn while waiting, so the wait takes it in itself.
+	reloads, last := 0, ""
+	waitFor(t, "the gate on the landed change", func() bool {
+		if p.stale.Load() {
+			reloads++
+		}
+		u.intake()
+		if len(p.ws.Changes) == 1 && int(p.checked.Load()) == len(p.ws.Changes) {
+			return true
+		}
+		// What it waits on is said each time it moves, so that a wait that
+		// runs out says why.
+		if seen := fmt.Sprintf("%d change(s), %d checked, %d reload(s), running %v", len(p.ws.Changes), p.checked.Load(), reloads, p.running()); seen != last {
+			t.Logf("waiting on the gate: %s", seen)
+			last = seen
+		}
+		return false
+	})
 	if len(p.ws.Changes) != 1 {
 		t.Fatalf("the landed change is not among the project's changes: %d", len(p.ws.Changes))
 	}
@@ -253,6 +319,13 @@ func TestClosingATask(t *testing.T) {
 	}
 	u := testUI(t, nil, dir)
 	p := u.cur
+	// Opening a project reads its estate and checks its changes in the
+	// background, and both write the estate's index under the project; the
+	// test ends after them.
+	t.Cleanup(func() {
+		waitFor(t, "the estate", func() bool { return p.estate.Load() != nil })
+		waitFor(t, "the gate", func() bool { u.intake(); return int(p.checked.Load()) == len(p.ws.Changes) })
+	})
 	c := p.order[len(p.order)-1]
 	before, _ := os.ReadDir(c.Change.Dir)
 	if err := u.close(p, c, "a later task does it"); err != nil {
@@ -308,8 +381,10 @@ func TestFramesAreInstant(t *testing.T) {
 	for _, v := range views {
 		v.set()
 		frame() // the first frame of a view reads and shapes what it shows
+		// The best of many frames: what the code takes, not what a machine
+		// busy with other work lets it have.
 		best := time.Hour
-		for range 5 {
+		for range 30 {
 			best = min(best, frame())
 		}
 		if best > 8*time.Millisecond {

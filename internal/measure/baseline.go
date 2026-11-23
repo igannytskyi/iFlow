@@ -369,25 +369,29 @@ func ThroughMethod(repo string) []Carried {
 			continue
 		}
 		r := Carried{Estate: filepath.Base(repo), Intent: e.Name(), Class: "unclassified", Stating: 1, Upstream: -1}
-		for _, row := range c.Doc(artifact.Specification).Rows("Field", "Value") {
-			if row.Cell("Field") == "Default class" && len(row.Cell("Value")) >= 2 {
-				r.Class = row.Cell("Value")[:2]
+		m := c.Meta
+		if m.Specification != nil && len(m.Specification.Class) >= 2 {
+			r.Class = string(m.Specification.Class)[:2]
+		}
+		if m.Admission != nil {
+			for _, v := range m.Admission.Reviews {
+				if v.Reviewed == "yes" {
+					r.Reading = 1
+				}
 			}
 		}
-		for _, row := range c.Doc(artifact.Admission).Rows("Reviewed before admission") {
-			if row.Cell("Reviewed before admission") == "yes" {
-				r.Reading = 1
-			}
-		}
-		r.Escalations = len(c.Doc(artifact.Assurance).Rows("Standing", "Ground"))
-		for _, row := range c.Doc(artifact.Assurance).Rows("Outcome", "State") {
-			if row.Cell("Outcome") == "undecided" || row.Cell("State") == "deferred" {
-				r.Left++
+		if m.Assurance != nil {
+			r.Escalations = len(m.Assurance.Raised)
+			for _, v := range m.Assurance.Verdicts {
+				if v.Outcome == "undecided" || v.State == "deferred" {
+					r.Left++
+				}
 			}
 		}
 		statement := ""
-		for _, row := range c.Doc(artifact.Intent).Rows("Field", "Value") {
-			statement += " " + row.Cell("Value")
+		if m.Intent != nil {
+			i := m.Intent
+			statement = strings.Join([]string{i.ID, i.StatedBy, i.Authority, i.Priority, i.Deadline, i.Statement, string(i.Status)}, " ")
 		}
 		if m := pullRE.FindStringSubmatch(statement); m != nil {
 			fmt.Sscan(m[1], &r.PR)

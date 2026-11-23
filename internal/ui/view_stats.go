@@ -8,17 +8,17 @@ import (
 	"strings"
 	"time"
 
-	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/unit"
 	"gioui.org/widget/material"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
+	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
-// statsPanel stands beside every task: what the task has cost, area by area,
-// and below it the object opened, or what the whole project has cost and
-// still owes. It moves while a task runs.
+// statsPanel stands beside every task: what that task has cost, in a few
+// lines — what each area cost is on the graph — and below it the object or
+// handover opened. It moves while a task runs.
 func (u *UI) statsPanel(p *project, s shown, ok bool) W {
 	return func(gtx C) D {
 		fill(gtx, u.p.Surface)
@@ -33,10 +33,8 @@ func (u *UI) statsPanel(p *project, s shown, ok bool) W {
 		case p.item != nil && s.c != nil:
 			body = append(body, u.hairline)
 			body = append(body, u.objectPanel(p, s)...)
-		default:
-			if ok {
-				body = append(body, u.hairline)
-			}
+		case !ok:
+			// No task is chosen: what the whole project has cost.
 			body = append(body, u.projectStats(p)...)
 		}
 		l := u.lists.of("stats/" + p.path)
@@ -84,66 +82,37 @@ func (u *UI) taskStats(p *project, s shown) []W {
 		who = "—"
 	}
 	hide := u.clicks.of("costs/hide")
-	out1 := []W{
+	line := func(label, value string, c colorNRGBA) W {
+		return func(gtx C) D {
+			return layout.Flex{Alignment: layout.Baseline, Gap: gtx.Dp(8)}.Layout(gtx,
+				layout.Flexed(1, u.oneLine(sizeSmall, u.p.Faint, label)),
+				layout.Rigid(u.oneLine(sizeSmall, c, value)))
+		}
+	}
+	// What the task cost, in a few lines: the money and the time first,
+	// then what was read and written. What each area cost is on the graph.
+	return []W{
 		func(gtx C) D {
 			if u.clicked(gtx, hide) {
 				u.settings.HideCosts = true
 				u.settings.save()
 			}
-			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-				layout.Flexed(1, u.text(sizeSmall, u.p.Faint, "THIS TASK")),
+			return layout.Flex{Alignment: layout.Baseline, Gap: gtx.Dp(10)}.Layout(gtx,
+				layout.Rigid(u.strong(sizeTitle, u.p.Text, money(spentUSD))),
+				layout.Flexed(1, u.oneLine(sizeSmall, u.p.Muted, clock+" · "+plural(len(s.costs), "call"))),
 				layout.Rigid(func(gtx C) D {
 					return u.pressable(gtx, hide, false, 4, inset(2, 6, u.text(sizeSmall, u.p.Muted, "fold ›")))
 				}))
 		},
-		column(1, u.strong(unit.Sp(30), u.p.Text, money(spentUSD)), u.text(sizeSmall, u.p.Faint, "spent")),
-		u.wrap(8, []W{
-			u.cell(tokens(in), "tokens in", u.p.Text),
-			u.cell(tokens(cached), "of them cached", u.p.Muted),
-			u.cell(tokens(out), "tokens out", u.p.Text),
-			u.cell(fmt.Sprint(t.Steps), "agent steps", u.p.Text),
-			u.cell(clock, "elapsed", u.p.Text),
-			u.cell(fmt.Sprint(len(s.costs)), "model calls", u.p.Text),
-			u.cell(tokens(handed(s.costs)), "handed by the framework", u.p.Accent),
-		}),
-		column(1, u.text(sizeBody, u.p.Text, who), u.text(sizeSmall, u.p.Faint, "models")),
+		column(3,
+			line("tokens in", tokens(in)+"  ("+tokens(cached)+" cached)", u.p.Text),
+			line("tokens out", tokens(out), u.p.Text),
+			line("handed by the framework", tokens(handed(s.costs)), u.p.Accent),
+			line("agent steps", fmt.Sprint(t.Steps), u.p.Text),
+			line("models", who, u.p.Muted),
+		),
+		u.byAgent(p, s),
 	}
-	// What each area cost, as a share of the most any area cost.
-	most := 0.0
-	for n := 1; n <= 6; n++ {
-		most = max(most, artifact.Total(inArea(s.costs, n)).CostUSD)
-	}
-	var rows []W
-	for n := 1; n <= 6; n++ {
-		a := artifact.Total(inArea(s.costs, n))
-		name := u.model.Area(n).Name
-		share := 0.0
-		if most > 0 {
-			share = a.CostUSD / most
-		}
-		btn := u.clicks.of(fmt.Sprintf("stats/area/%s/%d", p.path, n))
-		rows = append(rows, func(gtx C) D {
-			if u.clicked(gtx, btn) {
-				p.area = n
-			}
-			value := "—"
-			if a.CostUSD > 0 || a.ElapsedMS > 0 {
-				value = money(a.CostUSD)
-				if a.ElapsedMS > 0 {
-					value += " · " + elapsed(a.ElapsedMS)
-				}
-			}
-			return u.pressable(gtx, btn, p.area == n, 4, inset(4, 6, column(3,
-				func(gtx C) D {
-					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-						layout.Flexed(1, u.oneLine(sizeSmall, u.p.Text, fmt.Sprintf("%02d  %s", n, name))),
-						layout.Rigid(u.oneLine(sizeSmall, u.p.Muted, value)))
-				},
-				u.meter(share),
-			)))
-		})
-	}
-	return append(out1, column(2, append([]W{u.text(sizeSmall, u.p.Faint, "BY AREA")}, rows...)...), u.byAgent(p, s))
 }
 
 // roleOf is which agent a cost record was spent by, or "" for work no
@@ -299,7 +268,7 @@ func (u *UI) projectStats(p *project) []W {
 			u.cell(fmt.Sprintf("%d / %d", t.met, t.met+t.failed+t.undecided), "criteria met", u.p.Text),
 		}),
 	}
-	return append(out, u.escalations(p))
+	return out
 }
 
 // escalations is what the project's tasks left for a person, each opening
@@ -311,32 +280,27 @@ func (u *UI) escalations(p *project) W {
 	rows := []W{u.text(sizeSmall, u.p.Faint, "OPEN ESCALATIONS — what a task left for a person")}
 	for _, o := range p.led.Owed {
 		name, _, _ := strings.Cut(o.Ref, "#")
-		btn, settle := u.clicks.of("owed/"+p.path+o.Ref), u.clicks.of("owed/settle/"+p.path+o.Ref)
+		var c *workspace.Change
+		for _, x := range p.order {
+			if x.Name() == name {
+				c = x
+			}
+		}
+		btn := u.clicks.of("owed/" + p.path + o.Ref)
 		rows = append(rows, func(gtx C) D {
-			if u.clicked(gtx, settle) {
-				p.task.SetText("Close " + o.Ref + ": " + o.Ground)
-				p.settles = []string{o.Ref}
-				p.selected, p.item = newKey, nil
-				gtx.Execute(key.FocusCmd{Tag: &p.task})
+			if u.clicked(gtx, btn) && c != nil {
+				p.show(c.Change.Dir, c)
+				p.item = c.Item(o.Ref)
 			}
-			if u.clicked(gtx, btn) {
-				for _, c := range p.order {
-					if c.Name() == name {
-						p.show(c.Change.Dir, c)
-						p.item = c.Item(o.Ref)
-					}
-				}
+			parts := []W{func(gtx C) D {
+				return u.pressable(gtx, btn, false, 4, stretch(inset(5, 6, column(2,
+					u.mono(sizeSmall, u.p.Note, o.Ref),
+					u.text(sizeSmall, u.p.Text, o.Ground)))))
+			}}
+			if c != nil {
+				parts = append(parts, u.resolveActions(p, c, o.Ref, o.Ground))
 			}
-			return column(4,
-				func(gtx C) D {
-					return u.pressable(gtx, btn, false, 4, stretch(inset(5, 6, column(2,
-						u.mono(sizeSmall, u.p.Note, o.Ref),
-						u.text(sizeSmall, u.p.Text, o.Ground)))))
-				},
-				func(gtx C) D {
-					return u.pressable(gtx, settle, false, 6, box(u.p.AccentSoft, colorNRGBA{}, 6, 0,
-						inset(4, 10, u.text(sizeSmall, u.p.Accent, "Close it with a new intent"))))
-				})(gtx)
+			return column(4, parts...)(gtx)
 		})
 	}
 	return column(4, rows...)

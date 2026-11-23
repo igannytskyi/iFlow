@@ -550,18 +550,20 @@ func Unfinished(changes string) []Unit {
 			continue
 		}
 		landed := map[string]bool{}
-		for _, row := range c.Doc(artifact.Landing).Rows("Unit", "Entered at") {
-			if row.Cell("Entered at") != "" {
-				landed[row.Cell("Unit")] = true
+		if l := c.Meta.Landing; l != nil {
+			for _, en := range l.Entries {
+				if en.EnteredAt != "" {
+					landed[en.Unit] = true
+				}
 			}
 		}
-		for _, row := range c.Doc(artifact.Plan).Rows("Scope", "Id") {
-			if id := row.Cell("Id"); strings.HasPrefix(id, "WU-") && !landed[id] {
+		for _, u := range c.Meta.Plan.Units {
+			if strings.HasPrefix(u.ID, "WU-") && !landed[u.ID] {
 				var holds []string
-				for p := range strings.FieldsFuncSeq(row.Cell("Scope"), func(r rune) bool { return r == ',' || r == ' ' }) {
-					holds = append(holds, p)
+				for _, sc := range u.Scope {
+					holds = append(holds, strings.Fields(sc)...)
 				}
-				out = append(out, Unit{e.Name(), id, holds})
+				out = append(out, Unit{e.Name(), u.ID, holds})
 			}
 		}
 	}

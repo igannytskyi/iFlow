@@ -104,7 +104,16 @@ func (r *Repo) PackFor(change, read []string, budget int) Pack {
 	var p Pack
 	left := budget
 	for _, s := range whole {
-		if Tokens(s.Body) > left*2/3 {
+		// A file to change is shown whole whenever it fits the whole budget
+		// — an agent edits best what it sees — and only one longer than an
+		// agent is handed at all is reduced to its outline, to be read by
+		// parts; a file only read is reduced as soon as it would crowd out
+		// what is left.
+		bound := left * 2 / 3
+		if strings.HasPrefix(s.Title, "May change: ") {
+			bound = budget
+		}
+		if Tokens(s.Body) > bound {
 			rel := strings.TrimPrefix(strings.TrimPrefix(s.Title, "May change: "), "Read: ")
 			s.Body = r.outline(rel) + "\n(too long to show whole here: its outline, each part with the line it starts on)"
 		}
@@ -215,17 +224,80 @@ func (r *Repo) besideSection(files []string) Section {
 		if !dirs[path.Dir(s)] || slices.Contains(files, s) {
 			continue
 		}
-		line := s
+		// Each name by the first line of its definition: a signature an
+		// agent can call, not a name it must guess the arguments of.
+		lines = append(lines, s+":")
 		if err == nil && ix.Files[s] != nil {
-			var ns []string
+			seen := map[int]bool{}
 			for _, sym := range ix.Files[s].Symbols {
-				ns = append(ns, sym.Name)
-			}
-			if len(ns) > 0 {
-				line += ": " + strings.Join(slices.Compact(ns), ", ")
+				if seen[sym.Start] {
+					continue
+				}
+				seen[sym.Start] = true
+				if ex := r.Excerpt(s, sym.Start, sym.Start, 1); len(ex) == 1 {
+					lines = append(lines, "  "+strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(ex[0].Text), "{")))
+				}
 			}
 		}
-		lines = append(lines, line)
 	}
-	return Section{"Beside it, in the same directory", strings.Join(lines, "\n")}
+	return Section{"Beside it, in the same directory — every definition by its first line", strings.Join(lines, "\n")}
+}
+
+// Signatures is what exists where a change works — every file of the
+// directories the paths name, its tests and their helpers among them, each
+// definition by its first line — within budget tokens. A plan built on it
+// relies on what is there, not on what its author assumes is.
+func (r *Repo) Signatures(paths []string, budget int) string {
+	dirs := map[string]bool{}
+	for _, f := range paths {
+		dirs[path.Dir(f)] = true
+	}
+	return r.declared(func(s string) bool { return dirs[path.Dir(s)] }, budget)
+}
+
+// Declarations is every definition in the files named, by its first line,
+// within budget tokens: how the code is called, without its bodies.
+func (r *Repo) Declarations(files []string, budget int) string {
+	return r.declared(func(s string) bool { return slices.Contains(files, s) }, budget)
+}
+
+// declared is every definition of the sources that is chosen, by its first
+// line, within budget tokens.
+func (r *Repo) declared(is func(string) bool, budget int) string {
+	ix, err := r.Index()
+	var b strings.Builder
+	for _, s := range r.Sources() {
+		if !is(s) {
+			continue
+		}
+		b.WriteString(s + ":\n")
+		if err != nil || ix.Files[s] == nil {
+			continue
+		}
+		seen := map[int]bool{}
+		for _, sym := range ix.Files[s].Symbols {
+			if seen[sym.Start] {
+				continue
+			}
+			seen[sym.Start] = true
+			if ex := r.Excerpt(s, sym.Start, sym.Start, 1); len(ex) == 1 {
+				b.WriteString("  " + Signature(ex[0].Text) + "\n")
+			}
+		}
+		if Tokens(b.String()) > budget {
+			b.WriteString("[cut: more than the budget]\n")
+			break
+		}
+	}
+	return b.String()
+}
+
+// Signature is a definition's first line without its body: a one-line
+// function shows how it is called, not what it does.
+func Signature(line string) string {
+	line = strings.TrimSpace(line)
+	if i := strings.Index(line, " {"); i >= 0 {
+		line = line[:i]
+	}
+	return strings.TrimSpace(strings.TrimSuffix(line, "{"))
 }

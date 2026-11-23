@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,10 +35,52 @@ type Task struct {
 	// Check is a command the agent may run to see where it stands — the
 	// estate's own tests. It is not what judges the unit.
 	Check []string
+	// First, where given, is run before Check — the change's own tests,
+	// seconds where the whole check takes minutes — and while it fails it
+	// is what the check says; Check runs only once it passes.
+	First []string
+	// Judge, where given, decides whether the check's outcome is acceptable
+	// in place of its exit status, and says why not: tests written before
+	// their code fail to build, and only some of those failures are theirs.
+	Judge func(passed bool, output string) (ok bool, why string)
+	// Role is what the unit writes — "contract", "tests" or "code" — for an
+	// executor that does its work differently by it.
+	Role string
+	// Faults, where given, reads a check's output as its language writes a
+	// fault: the file blamed, the line said, and whether what it says is a
+	// name missing that this unit's work is to declare. Without it, no
+	// output is read for whom it blames.
+	Faults func(output string) []Fault
+	// Libraries are folders of libraries' source the agent may read, as a
+	// person reads a library rather than guess its interface.
+	Libraries []string
+	// Unprovided, where given, is what the unit's contract says it gives
+	// the others that the workspace's code does not declare: the unit is
+	// not done, whatever the check says, until it is nothing.
+	Unprovided func(workspace string) []string
+	// Graph, where given, answers from the estate's model of its code where
+	// a name is defined and who calls it — what an agent would otherwise
+	// search the text for, and miss.
+	Graph Graph
+	// Quick, where given, is the fast check of the files named — whether
+	// they build — run after every write or edit, so that the agent sees
+	// a mistake one step after it makes it, not at the next whole check.
+	Quick func(files []string) []string
+	// Focus, where given, runs the tests matching a pattern under a path,
+	// saying of each whether it passed: what the agent runs to see which
+	// test fails, and why.
+	Focus func(pattern, path string) []string
+	// Tests is the tests the unit must pass, by name: those its agent may
+	// hold wrong.
+	Tests []string
 	// BudgetUSD and MaxSteps bound the run; a run that reaches either stops
 	// with what it has and says which it reached.
 	BudgetUSD float64
 	MaxSteps  int
+	// MaxRead, when set, bounds the tokens the agent reads, all its turns
+	// together; unbounded when zero, the run then bounded by its budget and
+	// its steps.
+	MaxRead int
 }
 
 // Kind says what a step was.
@@ -78,10 +121,18 @@ const (
 type Result struct {
 	Terminal string
 	Summary  string
-	Steps    int
-	Turns    int
-	Usage    model.Usage
-	Elapsed  time.Duration
+	// Cannot, where set, is why the agent said the unit cannot be done as it
+	// is asked; Blames, the files it named as the cause, or the files outside
+	// the unit's scope the check failed in.
+	Cannot string
+	Blames []string
+	// BlamedTests is the tests the agent holds wrong, by name: each one of
+	// the tests it was to pass.
+	BlamedTests []string
+	Steps       int
+	Turns       int
+	Usage       model.Usage
+	Elapsed     time.Duration
 }
 
 // Executor carries out a task. Run returns when the task has ended, and
@@ -126,4 +177,62 @@ func ReadTrace(path string) ([]Event, error) {
 		out = append(out, e)
 	}
 	return out, nil
+}
+
+// unprovidedSaid is what an agent is told of the names it was to give and
+// did not.
+func unprovidedSaid(missing []string) string {
+	return "The check passes, but you are not done: the contract between the units says this unit provides " + strings.Join(missing, ", ") +
+		", and your files do not have them. The units after you call them by these names — add each, exactly as the contract states it."
+}
+
+// Graph is the estate's model of its code, asked by name: each answer is
+// lines a person could read, file:line first.
+type Graph interface {
+	Defined(name string) (string, error)
+	Callers(name string) (string, error)
+}
+
+// unprovided is what the task's contract says the unit gives and its code
+// does not declare.
+func unprovided(t Task) []string {
+	if t.Unprovided == nil {
+		return nil
+	}
+	return t.Unprovided(t.Workspace)
+}
+
+// Fault is one place a check's output blames: the file, what it said there,
+// and whether it says a name is missing that the unit's work is to declare
+// — which is no fault of the file that uses it.
+type Fault struct {
+	File    string
+	Text    string
+	Missing bool
+}
+
+// faults is what a task's language reads of a check's output, or nothing:
+// each file named as the workspace holds it, a runner's absolute path to it
+// made the path within.
+func faults(t Task, out string) []Fault {
+	if t.Faults == nil {
+		return nil
+	}
+	fs := t.Faults(out)
+	roots := []string{filepath.Clean(t.Workspace)}
+	if real, err := filepath.EvalSymlinks(t.Workspace); err == nil {
+		roots = append(roots, real)
+	}
+	for i, f := range fs {
+		if !filepath.IsAbs(f.File) {
+			continue
+		}
+		for _, root := range roots {
+			if rel, err := filepath.Rel(root, f.File); err == nil && !strings.HasPrefix(rel, "..") {
+				fs[i].File = filepath.ToSlash(rel)
+				break
+			}
+		}
+	}
+	return fs
 }

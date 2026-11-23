@@ -1,0 +1,60 @@
+{
+  "$id": "https://github.com/igannytskyi/iflow/docs/method/schema/00-intent.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "deadline": {
+      "description": "when it is wanted by, or none",
+      "type": "string"
+    },
+    "deciding_authority": {
+      "description": "who may decide this intent against a competing one",
+      "type": "string"
+    },
+    "id": {
+      "description": "INT-\u003cnnn\u003e",
+      "pattern": "^INT-\\d{3}$",
+      "type": "string"
+    },
+    "name": {
+      "description": "the change's folder name, its slug",
+      "type": "string"
+    },
+    "priority": {
+      "description": "how this intent ranks against others",
+      "type": "string"
+    },
+    "schema": {
+      "description": "the version of the data model this was written in",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "stated_by": {
+      "description": "who stated the intent",
+      "type": "string"
+    },
+    "statement": {
+      "description": "what is to be achieved, in the vocabulary of the domain",
+      "type": "string"
+    },
+    "status": {
+      "description": "where the intent stands",
+      "enum": [
+        "open",
+        "satisfied",
+        "withdrawn"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "name",
+    "stated_by",
+    "statement",
+    "status"
+  ],
+  "title": "Intent",
+  "type": "object"
+}

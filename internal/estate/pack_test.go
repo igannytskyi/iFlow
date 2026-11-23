@@ -28,7 +28,7 @@ func TestAPackHoldsWhatTheWorkNeedsAndNothingElse(t *testing.T) {
 // is named so the new file joins it.
 func TestAPackForANewFileNamesItsNeighbours(t *testing.T) {
 	p := shop(t).PackFor([]string{"shop/refund.py"}, nil, 4000).String()
-	if !strings.Contains(p, "does not exist yet") || !strings.Contains(p, "shop/core.py: total") {
+	if !strings.Contains(p, "does not exist yet") || !strings.Contains(p, "shop/core.py:\n  def total(items):") {
 		t.Errorf("the pack for a new file says too little:\n%s", p)
 	}
 }

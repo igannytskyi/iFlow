@@ -10,6 +10,7 @@ package flow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,12 +19,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/gate"
 	"github.com/igannytskyi/iflow/internal/harness"
+	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
@@ -57,15 +60,22 @@ type Config struct {
 	Reviewer model.Model
 	Planner  model.Model
 	Executor harness.Executor
-	Estate   *estate.Local
-	Gate     *gate.Gate
+	// Estate and Gate read and judge the estate; where left out, the
+	// estate on disk and the gate over it.
+	Estate *estate.Local
+	Gate   *gate.Gate
 	// Person is who accepts criteria and is named where a person acted.
 	Person string
 	// BudgetUSD bounds each unit's execution.
 	BudgetUSD float64
-	// PackTokens bounds what one agent is handed of the estate; 8000 when
-	// zero.
+	// PackTokens bounds what one agent is handed — its goal, the tests it
+	// must pass, its files and what surrounds them — and so how large a
+	// unit the planner may make; 16000 when zero.
 	PackTokens int
+	// ReviewRounds, Attempts and RepeatOnce are described at reviewRounds.
+	ReviewRounds int
+	Attempts     int
+	RepeatOnce   bool
 }
 
 func (c Config) reviewer() model.Model { return orModel(c.Reviewer, c.Model) }
@@ -78,11 +88,28 @@ func orModel(m, otherwise model.Model) model.Model {
 	return otherwise
 }
 
+// Rounds of review, attempts of the first rung, and how a claim to repeat
+// is tested at landing: what the bench varies to learn what each is worth.
+// Zero is the default.
+//
+//	ReviewRounds  how often a specification or a plan is reviewed and
+//	              written again before the person or the executor sees it; 2
+//	Attempts      how many one-shot answers a unit gets before its agent; 2
+//	RepeatOnce    a claim to repeat is run once more at landing and set
+//	              against the output its evidence kept, not run twice
+
+func (c Config) reviewRounds() int {
+	if c.ReviewRounds > 0 {
+		return c.ReviewRounds
+	}
+	return reviewRounds
+}
+
 func (c Config) packBudget() int {
 	if c.PackTokens > 0 {
 		return c.PackTokens
 	}
-	return 8000
+	return 16000
 }
 
 // Run is one task on its way along the path.
@@ -116,13 +143,39 @@ type Run struct {
 	// which the person is shown beside it.
 	reviewLeft review
 	units      []unit
-	ev         []artifact.EvidenceRow
 	cands      map[string]string // unit → candidate folder
+	ledger     []meta.TestRecord // the test ledger: every test kept, the criterion it judges, the unit that wrote it
+	// again is, for a tests unit carried again, what the code that could
+	// not pass its tests found wrong with them.
+	again map[string]string
+	// from is the area a reopened change is carried again from, 0 for a new
+	// one; reopened is what its author or planner is handed of why.
+	from     int
+	reopened string
+	// resumed says the specification already written is put to the person
+	// as it is, not written again.
+	resumed bool
+	// back is the areas a later step has sent the change back to in this
+	// run: each, once.
+	back map[int]bool
+	// refusals is how many times the person did not affirm the finished
+	// change, and mend what they said the last time.
+	refusals int
+	mend     string
 }
 
 type decision struct {
 	ok     bool
 	ground string
+	by     string // who answered, and how, where not the person reading it
+}
+
+// who is who gave d: as the answer says, or the person.
+func (r *Run) who(d decision) string {
+	if d.by != "" {
+		return d.by
+	}
+	return r.cfg.Person
 }
 
 // New prepares a run of a task against the estate at repo. changed is called
@@ -130,6 +183,14 @@ type decision struct {
 func New(cfg Config, repo, statement string, changed func()) *Run {
 	if abs, err := filepath.Abs(repo); err == nil {
 		repo = abs
+	}
+	// A configuration that leaves the estate or the gate out reads the
+	// estate on disk and judges with the gate over it: the zero value works.
+	if cfg.Estate == nil {
+		cfg.Estate = estate.NewLocal()
+	}
+	if cfg.Gate == nil {
+		cfg.Gate = gate.New(cfg.Estate)
 	}
 	r := &Run{cfg: cfg, repo: repo, statement: statement, agent: map[string][]harness.Event{},
 		answer: make(chan decision, 1), changed: changed, cands: map[string]string{}}
@@ -174,6 +235,10 @@ func (r *Run) Settles(refs ...string) { r.settles = append(r.settles, refs...) }
 
 // Accept answers the question the run is waiting on, yes.
 func (r *Run) Accept() { r.reply(decision{ok: true}) }
+
+// AcceptAs answers the question yes, as by says it was given: "accepted
+// with --accept, without reading", which the record then says.
+func (r *Run) AcceptAs(by string) { r.reply(decision{ok: true, by: by}) }
 
 // Refuse answers it no, with the ground. A refusal is the producer's
 // failure, not a request to try again.
@@ -306,6 +371,9 @@ func (r *Run) ask(ctx context.Context, area int, question string) (decision, err
 	defer func() {
 		r.mu.Lock()
 		r.question = ""
+		if r.areas[area] == Waiting {
+			r.areas[area] = Working // answered: the area goes on
+		}
 		r.mu.Unlock()
 		r.changed()
 	}()
@@ -320,18 +388,202 @@ func (r *Run) ask(ctx context.Context, area int, question string) (decision, err
 // Start carries the task along the path, and returns when it has landed or
 // stopped. What stopped it is the last step.
 func (r *Run) Start(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go r.watchStop(ctx, cancel)
 	defer func() {
 		r.mu.Lock()
 		r.finished = true
+		dir := r.dir
 		r.mu.Unlock()
+		if dir != "" {
+			_ = os.Remove(filepath.Join(dir, RunningFile))
+		}
 		r.changed()
 	}()
-	for _, area := range []func(context.Context) error{r.intent, r.plan, r.admit, r.execute, r.assure, r.land} {
-		if err := area(ctx); err != nil {
+	if r.from > 0 {
+		_ = os.WriteFile(filepath.Join(r.dir, RunningFile), []byte(fmt.Sprint(os.Getpid())), 0o644)
+	}
+	areas := []func(context.Context) error{r.intent, r.plan, r.admit, r.execute, r.assure, r.land}
+	for i := 0; i < len(areas); i++ {
+		if i+1 < r.from {
+			r.set(i+1, Done) // carried before, and kept: the change is reopened after it
+			continue
+		}
+		err := areas[i](ctx)
+		var sb *sentBack
+		if errors.As(err, &sb) && !r.back[sb.area] {
+			// A later step cannot build on what an earlier one decided: the
+			// change goes back to that step, once, with why, and what the
+			// areas from it on wrote is kept under superseded/.
+			if err = r.sendBack(sb); err == nil {
+				i = sb.area - 2 // that area, next
+				continue
+			}
+		}
+		var rf *refused
+		if errors.As(err, &rf) {
+			// The person did not affirm the finished change: it is carried
+			// again from admission with what they said, and what the areas
+			// from admission on wrote is kept under superseded/.
+			if err = r.mendFrom(rf); err == nil {
+				i = 1 // the admission, next
+				continue
+			}
+		}
+		var h *holds
+		if errors.As(err, &h) {
+			// Nothing to change: the change is closed saying why, and that
+			// is an answer, not a failure — unless the tests miss what was
+			// meant, which reopening it says.
+			_ = r.record("closed", r.id("INT"), "nothing to change: what was asked holds already — "+h.Error()+"; if it does not, reopen it saying what the tests miss")
+			r.say(i+1, r.id("INT"), "what was asked holds already: %s", h.Error())
+			r.set(i+1, Done)
+			return ErrHolds
+		}
+		if err != nil {
+			r.stopped(i+1, err)
 			return err
 		}
 	}
 	return nil
+}
+
+// ErrHolds is a run that found what was asked true already: its tests,
+// written first, pass on the estate as it stands. The change is closed
+// saying so; nothing was changed.
+var ErrHolds = errors.New("what was asked holds already; nothing was changed")
+
+// StopFile asks the run carrying a change to stop, from wherever the run
+// was started: it says who asked.
+const StopFile = ".stop"
+
+// Stop asks the run carrying the change in dir to stop; the run stops within
+// a second, between steps, and its record says who stopped it. Resume
+// carries it on from there.
+func Stop(dir, person string) error {
+	if !Running(dir) {
+		return errors.New("nothing is carrying the change now")
+	}
+	return os.WriteFile(filepath.Join(dir, StopFile), []byte(person), 0o644)
+}
+
+// mendNote begins the crossing that carries a change again with what the
+// person said; a run resumed before it was admitted again reads it back.
+const mendNote = "carried again: the person did not affirm the change: "
+
+// mendFrom carries the change again from admission, with what the person
+// said when they did not affirm it.
+func (r *Run) mendFrom(rf *refused) error {
+	r.refusals++
+	if err := supersedeFrom(r.dir, 3); err != nil {
+		return err
+	}
+	_ = r.record("execution", r.id("SPEC"), mendNote+rf.why)
+	r.say(5, r.id("SPEC"), "carried again from admission, with what %s said", r.cfg.Person)
+	r.from, r.mend, r.cands, r.again = 3, rf.why, map[string]string{}, nil
+	for n := 3; n <= 6; n++ {
+		r.set(n, Idle)
+	}
+	return nil
+}
+
+// sendBack carries the change again from the area sb names, which is
+// handed what it decided before and why a later step could not build on it.
+func (r *Run) sendBack(sb *sentBack) error {
+	if r.back == nil {
+		r.back = map[int]bool{}
+	}
+	r.back[sb.area] = true
+	var stage, reopened string
+	switch sb.area {
+	case 1:
+		stage = "specification"
+		reopened = "\n\n# Your previous specification\n\n" + r.specText() +
+			"\n# What could not be built from it\n\n" + sb.why +
+			"\n\nWrite the specification again, whole. Decide again exactly what this shows cannot be built as written — " +
+			"an existing name, as the estate declares it; a behaviour, as the estate can give it — and leave the rest as it was."
+	case 2:
+		stage = "plan"
+		reopened = "\n\n# The plan before could not be carried out\n\n" + sb.unit + ": " + sb.why +
+			"\n\nPlan again, whole, so that no unit is asked for what cannot be done: what a unit relies on must exist or be provided by an earlier unit, and what it must change must be in its scope."
+	default:
+		return fmt.Errorf("a change is sent back to its specification (1) or its plan (2), not area %d", sb.area)
+	}
+	if err := supersedeFrom(r.dir, sb.area); err != nil {
+		return err
+	}
+	_ = r.record(stage, r.id("SPEC"), "sent back: "+sb.Error())
+	r.say(sb.area, sb.unit, "sent back to area %d: %s", sb.area, sb.why)
+	// A specification sent back is written again, even in a run that was
+	// resumed with the one written before.
+	r.from, r.reopened, r.units, r.cands, r.again, r.resumed = sb.area, reopened, nil, map[string]string{}, nil, false
+	for n := sb.area; n <= 6; n++ {
+		r.set(n, Idle)
+	}
+	return nil
+}
+
+// stopped records that the run stopped in an area, and why — unless a
+// person stopping it said so already — so that the record of a change that
+// stopped says where and why, and not only how far it got.
+func (r *Run) stopped(area int, err error) {
+	r.mu.Lock()
+	dir := r.dir
+	r.mu.Unlock()
+	if dir == "" {
+		return
+	}
+	if rec, _ := artifact.ReadRecord(dir); len(rec) > 0 && rec[len(rec)-1].Stage == "stopped" {
+		return
+	}
+	_ = r.record("stopped", r.id("INT"), fmt.Sprintf("stopped in area %d: %v; it can be resumed from where it stopped", area, err))
+}
+
+// watchStop stops the run when asked to through StopFile.
+func (r *Run) watchStop(ctx context.Context, cancel context.CancelFunc) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		r.mu.Lock()
+		dir := r.dir
+		r.mu.Unlock()
+		if dir == "" {
+			continue
+		}
+		who, err := os.ReadFile(filepath.Join(dir, StopFile))
+		if err != nil {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, StopFile))
+		_ = r.record("stopped", r.id("INT"), "stopped by "+strings.TrimSpace(string(who))+"; it can be resumed from where it stopped")
+		cancel()
+		return
+	}
+}
+
+// RunningFile marks a change a run is carrying now, wherever that run was
+// started — the workbench, a terminal, another window — with its process:
+// what is in it is not a stopped task but one at work.
+const RunningFile = ".running"
+
+// Running reports whether a live process is carrying the change in dir.
+func Running(dir string) bool {
+	b, err := os.ReadFile(filepath.Join(dir, RunningFile))
+	if err != nil {
+		return false
+	}
+	var pid int
+	if _, err := fmt.Sscan(string(b), &pid); err != nil || pid <= 0 {
+		return false
+	}
+	p, err := os.FindProcess(pid)
+	return err == nil && p.Signal(syscall.Signal(0)) == nil
 }
 
 func today() string { return time.Now().Format("2006-01-02") }
@@ -341,7 +593,32 @@ var intentID = regexp.MustCompile(`\bINT-(\d{3})\b`)
 // nextNumber is one more than the highest intent number any change of this
 // estate carries.
 func nextNumber(repo string) int {
+	// Runs started side by side would each see the same highest number; a
+	// number is taken by creating its reservation, which only one can do.
+	dir := filepath.Join(repo, "changes")
+	_ = os.MkdirAll(dir, 0o755)
+	for n := highestNumber(repo) + 1; ; n++ {
+		f, err := os.OpenFile(filepath.Join(dir, fmt.Sprintf(".taken-%03d", n)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			f.Close()
+			return n
+		}
+		if !os.IsExist(err) {
+			return n
+		}
+	}
+}
+
+// highestNumber is the largest intent number any change here has used or
+// reserved.
+func highestNumber(repo string) int {
 	n := 0
+	taken, _ := filepath.Glob(filepath.Join(repo, "changes", ".taken-*"))
+	for _, t := range taken {
+		if v, err := strconv.Atoi(strings.TrimPrefix(filepath.Base(t), ".taken-")); err == nil && v > n {
+			n = v
+		}
+	}
 	entries, _ := os.ReadDir(filepath.Join(repo, "changes"))
 	for _, e := range entries {
 		b, err := os.ReadFile(filepath.Join(repo, "changes", e.Name(), "00-intent.md"))
@@ -354,7 +631,7 @@ func nextNumber(repo string) int {
 			}
 		}
 	}
-	return n + 1
+	return n
 }
 
 func (r *Run) id(prefix string, parts ...int) string {

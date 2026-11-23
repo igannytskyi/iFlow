@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "name": "greet-the-world",
+  "entries": [
+    {
+      "order": 1,
+      "unit": "WU-001-01",
+      "verdict_state": "settled",
+      "evidence_still_valid": "yes",
+      "entered_at": "2026-11-14",
+      "invalidated_by_this_entry": "nothing"
+    },
+    {
+      "order": 2,
+      "unit": "WU-001-02",
+      "verdict_state": "settled",
+      "evidence_still_valid": "yes",
+      "entered_at": "2026-11-14",
+      "invalidated_by_this_entry": "nothing the reproduction relies on"
+    }
+  ]
+}

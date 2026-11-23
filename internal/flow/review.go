@@ -104,6 +104,7 @@ const specReviewSystem = `You review a specification before anyone builds from i
 Judge it as they will need it:
 - Is every way a person uses it described, with its edge cases (wrong input, repetition, expiry, absence, refusal, concurrency)?
 - Is every requirement judged by some criterion, and does every criterion judge something a person can observe, at the estate's own entry point?
+- Does at least one test go through the way the behaviour is really reached — the window's input router for a key or a click, the command line for a command, the HTTP handler for a route — and not only call an inner function by hand? A wiring nobody exercises is where a change that passes its tests still does nothing; its absence is a major finding.
 - Is the design concrete enough to build without guessing: data kept, interfaces with their methods, routes or commands, which file holds what, what tests stand in for?
 - Does it fit the estate as its names show, without inventing what is there or missing what must change?
 - Is anything contradictory, vague, or left to taste that should be decided?
@@ -116,6 +117,7 @@ Judge each unit as its agent will need it:
 - Could it be carried out from its brief alone, without guessing names, signatures or behaviour?
 - Do the tests units and the code units use the same names and signatures?
 - Is every requirement and criterion of the specification served by some unit, and nothing done twice or by no one?
+- Does any unit rely on a helper, a method or an ability that is neither in what exists — the definitions you are given — nor provided by an earlier unit? A test that needs machinery the estate does not have, assumed to be there, is blocking: name what is missing.
 - Is the order right: does each unit have what it relies on from the units before it, and leave the estate building? A unit that uses a type or function another unit provides must come after it; two units defining the same name is blocking.
 - Is any unit too large for one agent in one answer, or split where it should not be?
 

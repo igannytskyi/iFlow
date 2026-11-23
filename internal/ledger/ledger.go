@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strings"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
 )
@@ -36,8 +35,6 @@ type Ledger struct {
 	Problems []string
 }
 
-func digits(s string) bool { return s != "" && strings.Trim(s, "0123456789") == "" }
-
 // Read builds the ledger from the changes under root/changes.
 func Read(root string) (*Ledger, error) {
 	type raised struct{ standing, ground string }
@@ -52,21 +49,27 @@ func Read(root string) (*Ledger, error) {
 		if !e.IsDir() {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(root, "changes", e.Name(), string(artifact.Assurance)+".md"))
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
+		dir := filepath.Join(root, "changes", e.Name())
+		if _, err := os.Stat(filepath.Join(dir, string(artifact.Assurance)+".md")); errors.Is(err, fs.ErrNotExist) {
+			if _, err := os.Stat(artifact.JSONFile(dir, artifact.Assurance)); errors.Is(err, fs.ErrNotExist) {
+				continue // nothing raised or settled here
+			}
 		}
+		c, err := artifact.Load(dir)
 		if err != nil {
 			return nil, err
 		}
-		doc := artifact.ParseDoc(string(b))
-		for _, row := range doc.Rows("Standing", "Ground") {
-			if n := row.Cell("#"); digits(n) {
-				owedBy[e.Name()+"#"+n] = raised{row.Cell("Standing"), row.Cell("Ground")}
+		as := c.Meta.Assurance
+		if as == nil {
+			continue
+		}
+		for _, x := range as.Raised {
+			if x.N > 0 {
+				owedBy[fmt.Sprintf("%s#%d", e.Name(), x.N)] = raised{x.Standing, x.Ground}
 			}
 		}
-		for _, row := range doc.Rows("Escalation", "Resolved by") {
-			ref := row.Cell("Escalation")
+		for _, x := range as.Settled {
+			ref := x.Escalation
 			if ref == "" {
 				continue
 			}

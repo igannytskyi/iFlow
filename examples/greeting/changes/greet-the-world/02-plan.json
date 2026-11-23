@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "name": "greet-the-world",
+  "specification": "SPEC-001",
+  "phases": 1,
+  "intermediate_states_valid": "yes — the reproduction alone fails and nothing ships on it; the repair alone is untested",
+  "residue_on_abandonment": "none — remove the reproduction",
+  "units": [
+    {
+      "id": "WU-001-01",
+      "phase": 1,
+      "class": "C2",
+      "scope": [
+        "greeting_world_test.go"
+      ],
+      "area_of_effect": "the arbiter only, derived, high",
+      "criteria": [
+        "CR-001-01"
+      ],
+      "preparatory_for": [
+        "WU-001-02"
+      ]
+    },
+    {
+      "id": "WU-001-02",
+      "phase": 1,
+      "class": "C2",
+      "scope": [
+        "greeting.go"
+      ],
+      "area_of_effect": "the package, derived, high — one file, one function",
+      "criteria": [
+        "CR-001-01",
+        "CR-001-02",
+        "CR-001-03"
+      ],
+      "depends_on": [
+        "WU-001-01"
+      ]
+    }
+  ],
+  "coverage_text": "The two units cover all three criteria. The package is one file and everything in it is reached."
+}

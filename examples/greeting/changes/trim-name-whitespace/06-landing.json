@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "name": "trim-name-whitespace",
+  "entries": [
+    {
+      "order": 1,
+      "unit": "WU-002-01",
+      "verdict_state": "settled",
+      "evidence_still_valid": "yes",
+      "entered_at": "2026-11-15",
+      "invalidated_by_this_entry": "nothing the evidence relies on"
+    },
+    {
+      "order": 2,
+      "unit": "WU-002-02",
+      "verdict_state": "settled",
+      "evidence_still_valid": "yes",
+      "entered_at": "2026-11-15",
+      "invalidated_by_this_entry": "nothing the evidence relies on"
+    }
+  ]
+}

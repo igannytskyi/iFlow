@@ -26,14 +26,22 @@ func (u *UI) specBlock(p *project, s shown) []W {
 	waiting := s.live && s.v.Question != ""
 	state := s.state(p)
 	fold := u.clicks.of("spec/fold/" + p.path)
+	// The specification is open while its own area is chosen on the graph,
+	// or while it waits for the person; choosing another area folds it to
+	// its heading, so that what that area holds is what is read.
+	folded := (p.area != 1 || p.specFolded) && !waiting
 	var out []W
 	out = append(out, func(gtx C) D {
 		if u.clicked(gtx, fold) {
-			p.specFolded = !p.specFolded
+			if folded {
+				p.area, p.specFolded = 1, false
+			} else {
+				p.specFolded = true
+			}
 		}
 		label := "fold ▴"
-		if p.specFolded && !waiting {
-			label = "unfold ▾"
+		if folded {
+			label = "open ▾"
 		}
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Flexed(1, u.text(sizeSmall, u.p.Faint, "SPECIFICATION — what is wanted, how, with what, and how it is judged")),
@@ -45,27 +53,29 @@ func (u *UI) specBlock(p *project, s shown) []W {
 	if c != nil {
 		facts = append(facts, u.mono(sizeSmall, u.p.Faint, c.Name()))
 		if !s.live || s.v.Finished {
-			facts = append(facts, u.gateBadge(c))
+			facts = append(facts, u.mattersChip(p, c))
 		}
 	}
-	if c == nil || !u.docs.exists(filepath.Join(c.Change.Dir, artifact.ChangeFile)) {
+	if folded {
+		out = append(out, u.oneLine(sizeBody, u.p.Text, s.title()))
+	} else if c == nil || !u.docs.exists(filepath.Join(c.Change.Dir, artifact.ChangeFile)) {
 		// Without a document of its own, the intent is all there is to show
 		// of what was wanted; with one, the document begins with it.
 		out = append(out, u.strong(sizeTitle, u.p.Text, s.title()))
 	}
-	out = append(out, u.wrap(12, facts))
+	out = append(out, u.wrap(12, facts), u.mattersPanel(p, c), u.lifecycle(p, s))
 	if waiting {
 		out = append(out, u.waitingBar(p, s))
 		if s.v.Reviewed != "" {
 			out = append(out, u.reviewLeft(s.v.Reviewed)...)
 		}
-	} else if !(s.live && !s.v.Finished) {
+	} else if !(s.live && !s.v.Finished) && !folded {
 		out = append(out, u.specActions(p, s))
 	}
 	if c == nil {
 		return append(out, u.text(sizeSmall, u.p.Faint, "being written…"))
 	}
-	if p.specFolded && !waiting {
+	if folded {
 		return out
 	}
 	path := filepath.Join(c.Change.Dir, artifact.ChangeFile)
@@ -97,18 +107,30 @@ func (u *UI) waitingBar(p *project, s shown) W {
 			p.editing = s.c.Change.Dir
 			gtx.Execute(key.FocusCmd{Tag: &p.docEdit})
 		}
+		// The specification asks whether it is the change wanted; assurance
+		// whether the finished change holds what only the person can judge.
+		judging := s.status[5] == flow.Waiting
+		title, hint := "Waiting for you — is this the change you want?", "notes: what is wrong or missing, your answers to the questions — a new author rewrites it from them"
+		buttons := []W{
+			u.button(yes, "Accept — run the rest", u.p.OK, u.p.Surface),
+			u.button(no, "Send back with notes", u.p.FailSoft, u.p.Fail),
+			u.button(edit, "Change it myself", u.p.AccentSoft, u.p.Accent),
+		}
+		if judging {
+			title, hint = "Waiting for you — does the finished change hold?", "what does not hold, and how it looks instead"
+			buttons = []W{
+				u.button(yes, "It holds — land it", u.p.OK, u.p.Surface),
+				u.button(no, "It does not — say why", u.p.FailSoft, u.p.Fail),
+			}
+		}
 		return box(u.p.NoteSoft, colorNRGBA{}, 8, 12, column(8,
-			u.strong(sizeBody, u.p.Note, "Waiting for you — is this the change you want?"),
+			u.strong(sizeBody, u.p.Note, title),
 			u.text(sizeSmall, u.p.Text, s.v.Question),
 			box(u.p.Bg, u.p.Line, 6, 8, func(gtx C) D {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return material.Editor(u.th, &p.ground, "notes: what is wrong or missing, your answers to the questions — a new author rewrites it from them").Layout(gtx)
+				return material.Editor(u.th, &p.ground, hint).Layout(gtx)
 			}),
-			row(10,
-				u.button(yes, "Accept — run the rest", u.p.OK, u.p.Surface),
-				u.button(no, "Send back with notes", u.p.FailSoft, u.p.Fail),
-				u.button(edit, "Change it myself", u.p.AccentSoft, u.p.Accent),
-			),
+			row(10, buttons...),
 		))(gtx)
 	}
 }

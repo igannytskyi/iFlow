@@ -3,58 +3,150 @@ package harness
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
-// Loop is this method's own harness: a model that calls tools, in a loop the
+// Chatter is a model that holds a conversation and calls tools: what an
+// agent in a loop is made of.
+type Chatter interface {
+	Name() string
+	Chat(ctx context.Context, msgs []model.Message, tools []model.Tool) (model.Message, model.Usage, error)
+}
+
+// Loop is this method's own agent: a model that calls tools, in a loop the
 // harness owns. It runs on any model served over the chat-completions
-// protocol, so an open model on a local server does the work as well as a
-// hosted one, and what bounds the run is decided here rather than by the
-// model's own judgement of when it is done.
+// protocol. What it borrows from the agents that work — Claude Code, Aider,
+// SWE-agent — is that the agent reads before it writes, edits rather than
+// rewrites, runs the check itself and goes on until it passes; and that the
+// harness, not the agent, decides when it is done: an agent that says it is
+// done while the check fails is told so and goes on.
 type Loop struct {
-	Model model.OpenAI
+	Model Chatter
 }
 
 // Name implements Executor.
-func (l Loop) Name() string { return "iflow loop" }
+func (l Loop) Name() string { return "agent " + l.Model.Name() }
 
 // Version implements Executor.
-func (l Loop) Version() string { return "loop/1 on " + l.Model.Model }
+func (l Loop) Version() string { return "loop/2" }
 
-const loopSystem = `You carry out one unit of work in a repository, using the tools you are given. Read before you change anything. Change only files in the unit's scope; the harness refuses anything else. Run the check when you think you are done. When the unit is done, answer without calling a tool, in two sentences: what you changed and why.`
+const loopSystem = `You carry out one unit of work in a repository, with tools, until it is done.
+
+How to work:
+- Read before you change anything: read_file the files you will change and the ones they use. To find where a name is defined or who uses it, ask find_definition or find_callers — the estate's model of its code — before searching its text; never guess where it is.
+- Change the least that reaches the goal. Prefer edit_file, with old text copied exactly from read_file's output (without the line numbers) and enough of it to occur once. Write a whole file only when it is new or short.
+- Change only files in the unit's scope; the harness refuses anything else. If the goal cannot be reached without changing a file outside the scope, say so and stop.
+- Each write and edit answers whether the code still builds: mend what it names before anything else.
+- After changing files, call run_check. Read what fails, fix it, and run it again. To see which test fails and why — a panic names no test — run_tests runs the tests matching a name under a folder, each with its output. Do not stop while it fails because of your files.
+- Do not change tests to make them pass unless the unit is the one that writes them.
+- Tests written for this change before you are not yours to change, and may be wrong. If the check fails in them — a test's own setup or fakes (a config missing what the code needs, a fake that does not do what it stands for), a panic whose cause is what a test handed in — and no change to your files can pass them, call cannot at once, naming the test file and the line and what is wrong there; that file is written again, and you are carried again after it.
+- If the unit cannot be done as it is asked — what it relies on does not exist, what it must change is outside its scope — call cannot with why, at once; do not search on for what is not there.
+- When the check passes, answer without calling a tool, in two sentences: what you changed and why. The harness runs the check once more; if it fails, you are told and go on.`
+
+// idleNudge and idleStop are how many steps without a change an agent is
+// told it has read enough, and stopped; maxFresh is how many calls that ask
+// something new — a file not read, a test not run — count as finding out
+// rather than idling, in a whole run.
+const (
+	idleNudge = 6
+	idleStop  = 12
+	maxFresh  = 15
+)
+
+// maxRead is the most a unit's agent may read, all its turns together;
+// none unless the task says. What one turn holds is kept small by compact
+// and yours; the turns together re-send the same context, so their sum
+// measures spending, which BudgetUSD and the steps bound already do —
+// a bound on it stopped agents that were making progress.
+func maxRead(t Task) int {
+	return t.MaxRead
+}
+
+// turnTokens bounds what one turn holds of the unit and the conversation
+// so far; the files the unit changes come on top, within yoursTokens.
+// Within it nothing is cut, so an agent does not read again what it has
+// read; beyond it the oldest tool answers are cut first. Frontier models
+// hold near parity up to about 128k (MRCR v2, 2026); an agent that reads
+// the same file again for want of it loses more than length costs it. To
+// be measured per model (backlog 82).
+const turnTokens = 100_000
+
+// keepWhole is how many of the latest messages keep their tool answers
+// whole, whatever the bound: what the agent just asked for, it is shown.
+const keepWhole = 4
 
 // Run implements Executor.
 func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error) {
-	if l.Model.Model == "" {
+	if l.Model == nil {
 		return Result{Terminal: FailedSubstrate}, errNoModel
 	}
-	ws := &workspace{dir: t.Workspace, scope: t.Scope, check: t.Check, ctx: ctx}
-	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t)}}
+	ws := &workspace{dir: t.Workspace, tests: t.Tests, faults: t.Faults, libraries: t.Libraries, scope: t.Scope, check: t.Check, first: t.First, graph: t.Graph, judge: t.Judge, quick: t.Quick, focus: t.Focus, ctx: ctx}
+	msgs := []model.Message{{Role: "system", Content: loopSystem}, {Role: "user", Content: prompt(t) + libraryNote(t.Libraries)}}
+	// What the estate says is read once: from the agent's third turn on it
+	// is sent as an index of what it held, and the agent reads what it
+	// needs again, so that every turn does not carry every file.
+	slim := msgs[1]
+	slim.Content = prompt(Task{Goal: t.Goal, Scope: t.Scope, Check: t.Check, Context: index(t.Context)}) + libraryNote(t.Libraries)
 	maxSteps := t.MaxSteps
 	if maxSteps <= 0 {
-		maxSteps = 40
+		maxSteps = 30
 	}
 	var res Result
 	started := time.Now()
-	done := func() Result { res.Elapsed = time.Since(started); return res }
-	repeats := map[string]int{}
+	end := func(terminal, summary string) (Result, error) {
+		res.Terminal, res.Summary, res.Elapsed = terminal, summary, time.Since(started)
+		emit(Event{At: time.Now(), Kind: Ended, Detail: terminal + ": " + summary, Usage: res.Usage})
+		return res, nil
+	}
+	// A loop is the same call made again and again with nothing between:
+	// reading a file again later — after other reading, or after its old
+	// answer was cut from the conversation — is work, not a loop.
+	last, again := "", 0
+	// Reading is how an agent starts; reading on and on without changing
+	// anything, while the check fails, is how a weak model goes round. It is
+	// told so once, and stopped if it goes on.
+	idle, nudged := 0, false
+	asked, fresh := map[string]bool{}, 0
+	refusedDone := 0
 	for res.Steps < maxSteps {
 		if ctx.Err() != nil {
-			res.Terminal = Cancelled
-			break
+			return end(Cancelled, "stopped")
 		}
-		msg, u, err := l.Model.Chat(ctx, msgs, specs())
+		if t.BudgetUSD > 0 && res.Usage.CostUSD >= t.BudgetUSD {
+			return end(Exhausted, fmt.Sprintf("the budget of $%.2f was spent", t.BudgetUSD))
+		}
+		if read := res.Usage.In(); maxRead(t) > 0 && read >= maxRead(t) {
+			return end(Exhausted, fmt.Sprintf("read %d tokens, the most one unit may; a unit that needs more is too large or cannot be done as it is asked", read))
+		}
+		sent := compact(msgs)
+		if res.Turns >= 2 {
+			// What the estate says is an index by now; what the unit is
+			// writing is never cut — the files it may change, as they stand,
+			// so that it does not read its own work again and again.
+			sent[1] = slim
+			if mine := yours(ws.dir, t.Scope, yoursTokens); mine != "" {
+				sent[1].Content += mine
+			}
+		}
+		msg, u, err := l.Model.Chat(ctx, sent, specs())
 		res.Usage = res.Usage.Add(u)
 		res.Turns++
 		emit(Event{At: time.Now(), Kind: Spent, Usage: u})
 		if err != nil {
-			res.Terminal = FailedSubstrate
+			if ctx.Err() != nil {
+				return end(Cancelled, "stopped")
+			}
+			res.Elapsed = time.Since(started)
+			res.Terminal, res.Summary = FailedSubstrate, err.Error()
 			emit(Event{At: time.Now(), Kind: Ended, Detail: err.Error(), Usage: res.Usage})
-			return done(), err
+			return res, err
 		}
 		msg.Role = "assistant"
 		msgs = append(msgs, msg)
@@ -62,54 +154,248 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 			emit(Event{At: time.Now(), Kind: Said, Detail: s})
 		}
 		if len(msg.ToolCalls) == 0 {
-			res.Terminal, res.Summary = Candidate, strings.TrimSpace(msg.Content)
-			break
+			// The agent says it is done; the harness sees for itself.
+			if len(t.Check) == 0 {
+				return end(Candidate, strings.TrimSpace(msg.Content))
+			}
+			ok, out, judged := ws.run()
+			res.Steps++
+			emit(Event{At: time.Now(), Kind: Called, Tool: "Check", Detail: strings.Join(t.Check, " ")})
+			emit(Event{At: time.Now(), Kind: Got, Detail: tail(out, 6)})
+			if missing := unprovided(t); ok && len(missing) > 0 {
+				if refusedDone++; refusedDone >= 3 {
+					return end(Exhausted, "said it was done three times without what it was to provide: "+strings.Join(missing, ", "))
+				}
+				msgs = append(msgs, model.Message{Role: "user", Content: unprovidedSaid(missing)})
+				continue
+			}
+			if ok {
+				return end(Candidate, strings.TrimSpace(msg.Content))
+			}
+			if judged == "" {
+				if outside := faultsOutside(faults(t, out), t.Scope); len(outside) > 0 {
+					res.Blames = outside
+					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+faultsIn(out, outside))
+				}
+			}
+			if refusedDone++; refusedDone >= 3 {
+				return end(Exhausted, "said it was done three times while the check failed: "+tail(out, 8))
+			}
+			why := judged
+			if why == "" {
+				why = tail(out, 60)
+			}
+			msgs = append(msgs, model.Message{Role: "user", Content: "You are not done: the check `" + strings.Join(t.Check, " ") + "` fails.\n\n" + why + "\n\nFix it and run the check again."})
+			continue
 		}
 		for _, call := range msg.ToolCalls {
 			res.Steps++
 			emit(Event{At: time.Now(), Kind: Called, Tool: call.Function.Name, Detail: clip(call.Function.Arguments, 240)})
-			// The same call made three times is a loop, not progress: the
-			// run stops rather than paying for a fourth.
 			key := call.Function.Name + call.Function.Arguments
-			if repeats[key]++; repeats[key] >= 3 {
-				res.Terminal = Terminated
-				res.Summary = "stopped: the same call was made three times — " + call.Function.Name
-				emit(Event{At: time.Now(), Kind: Ended, Detail: res.Summary, Usage: res.Usage})
-				return done(), nil
+			if key == last {
+				again++
+			} else {
+				last, again = key, 1
 			}
-			answer, kind := l.call(ws, call)
+			if again >= 3 {
+				return end(Terminated, "the same call was made three times in a row — "+call.Function.Name)
+			}
+			ws.last.ran = false
+			ws.calls++
+			answer, kind, changed, blocked := l.call(ws, call)
+			if blocked != nil {
+				emit(Event{At: time.Now(), Kind: Said, Detail: blocked.Error()})
+				res.Cannot, res.Blames, res.BlamedTests = blocked.Why, blocked.Files, blocked.Tests
+				return end(FailedTask, blocked.Why) // the agent says it cannot be done as asked
+			}
+			switch {
+			case changed:
+				last = "" // the workspace changed: the same call now asks something new
+				idle, nudged = 0, false
+				asked = map[string]bool{}
+			case kind == Got && !asked[key] && fresh < maxFresh:
+				// Something not asked before since the last change — a file
+				// not read, a test not run — is finding out, not going round:
+				// it counts against the idle steps only once enough of it has
+				// been done.
+				asked[key] = true
+				fresh++
+			default:
+				idle++
+			}
 			emit(Event{At: time.Now(), Kind: kind, Tool: call.Function.Name, Detail: clip(answer, 2000)})
 			msgs = append(msgs, model.Message{Role: "tool", ToolCallID: call.ID, Name: call.Function.Name, Content: answer})
+			if idle >= idleStop {
+				return end(Exhausted, fmt.Sprintf("read for %d steps without changing anything", idle))
+			}
+			// What fails only in files this unit may not change, no agent of
+			// this unit can mend: the run says so now, so that what wrote
+			// them is carried again, rather than spend its steps.
+			if ws.last.ran && !ws.last.ok && ws.last.why == "" {
+				if outside := faultsOutside(faults(t, ws.last.out), t.Scope); len(outside) > 0 {
+					res.Blames = outside
+					return end(FailedTask, "the check fails in "+strings.Join(outside, ", ")+", which this unit may not change: "+faultsIn(ws.last.out, outside))
+				}
+			}
+		}
+		// After the turn's answers, never between them: the protocol wants
+		// each call answered before anything else is said.
+		if idle >= idleNudge && !nudged {
+			nudged = true
+			nudge := fmt.Sprintf("You have taken %d steps without changing anything. You have read enough: change the file that makes the check pass now, or say in one sentence why no change in your scope can.", idle)
+			if f := firstFaults(faults(t, ws.last.out), 3); !ws.last.ok && f != "" { // the check as it last ran
+				nudge += "\n\nThe check fails here — change these lines first:\n" + f
+			}
+			msgs = append(msgs, model.Message{Role: "user", Content: nudge})
 		}
 	}
-	if res.Terminal == "" {
-		res.Terminal = Exhausted
-		res.Summary = fmt.Sprintf("stopped after %d steps without finishing", res.Steps)
-	}
-	emit(Event{At: time.Now(), Kind: Ended, Detail: res.Terminal, Usage: res.Usage})
-	return done(), nil
+	return end(Exhausted, fmt.Sprintf("stopped after %d steps without finishing", res.Steps))
 }
 
-func (l Loop) call(ws *workspace, call model.ToolCall) (string, Kind) {
+// libraryNote says where the source of the libraries the estate uses can
+// be read.
+func libraryNote(dirs []string) string {
+	if len(dirs) == 0 {
+		return ""
+	}
+	return "\n# Libraries\n\nThe source of the libraries this estate uses can be read under " + strings.Join(dirs, " and ") + ". Read a library's source before you use a name of it you are not sure of.\n"
+}
+
+// compact is the conversation as sent: the system, the unit and the
+// latest turns whole, and the older tool answers whole too while the turn
+// fits turnTokens — cut to their first lines, oldest first, only as far as
+// it does not.
+func compact(msgs []model.Message) []model.Message {
+	out := make([]model.Message, len(msgs))
+	copy(out, msgs)
+	size := 0
+	for _, m := range out {
+		size += tokens(m.Content)
+	}
+	for i := 2; i < len(out)-keepWhole && size > turnTokens; i++ {
+		if out[i].Role == "tool" && len(out[i].Content) > 240 {
+			was := tokens(out[i].Content)
+			out[i].Content = clip(out[i].Content, 160) + "\n[cut: this answer is old; call the tool again if you need it]"
+			size -= was - tokens(out[i].Content)
+		}
+	}
+	return out
+}
+
+// tokens is about how many tokens s is, as the estate counts them.
+func tokens(s string) int { return (len(s) + 3) / 4 }
+
+// call carries out one tool call, and says what it answered, what kind of
+// step that was, and whether the agent said its unit cannot be done.
+func (l Loop) call(ws *workspace, call model.ToolCall) (answer string, kind Kind, changed bool, blocked *Blocked) {
 	t, ok := lookup(call.Function.Name)
 	if !ok {
-		return "there is no tool called " + call.Function.Name, Refused
+		return "there is no tool called " + call.Function.Name, Refused, false, nil
 	}
 	args := map[string]string{}
 	var raw map[string]any
-	if call.Function.Arguments != "" && json.Unmarshal([]byte(call.Function.Arguments), &raw) != nil {
-		return "the arguments are not JSON", Refused
+	if call.Function.Arguments != "" && json.Unmarshal([]byte(repairArgs(call.Function.Arguments)), &raw) != nil {
+		return "the arguments are not JSON", Refused, false, nil
 	}
 	for k, v := range raw {
-		args[k] = fmt.Sprint(v)
+		args[k] = argument(v)
 	}
 	out, err := t.run(ws, args)
-	switch err.(type) {
-	case nil:
-		return out, Got
-	case errRefused:
-		return "refused: " + err.Error(), Refused
+	var b Blocked
+	switch {
+	case errors.As(err, &b):
+		return "", Got, false, &b
+	case err == nil:
+		return out, Got, t.writes, nil
+	case errors.As(err, new(errRefused)):
+		return "refused: " + err.Error(), Refused, false, nil
 	default:
-		return "error: " + err.Error(), Got
+		return "error: " + err.Error(), Got, false, nil
 	}
+}
+
+// argument is a tool argument as a tool reads it: a list one item a line,
+// anything else as it prints.
+func argument(v any) string {
+	if list, ok := v.([]any); ok {
+		items := make([]string, len(list))
+		for i, item := range list {
+			items[i] = fmt.Sprint(item)
+		}
+		return strings.Join(items, "\n")
+	}
+	return fmt.Sprint(v)
+}
+
+// index is what the estate said, with each long section cut to its heading:
+// the agent has read it whole once, and reads again what it needs.
+func index(context string) string {
+	if context == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, sec := range sections(context) {
+		head, _, _ := strings.Cut(sec, "\n")
+		if len(sec) <= 600 {
+			b.WriteString(sec)
+		} else {
+			b.WriteString(head + "\n\n[shown to you at the start; read_file or search it again for what you need]\n\n")
+		}
+	}
+	return b.String()
+}
+
+// sections splits Markdown at its headings, each section with its heading.
+func sections(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '#' && (i == 0 || s[i-1] == '\n') && i > start {
+			out = append(out, s[start:i])
+			start = i
+		}
+	}
+	return append(out, s[start:])
+}
+
+// firstFaults is what the first n faults said.
+func firstFaults(fs []Fault, n int) string {
+	var got []string
+	for _, f := range fs[:min(n, len(fs))] {
+		got = append(got, f.Text)
+	}
+	return strings.Join(got, "\n")
+}
+
+// yoursTokens bounds the files a unit may change, as they stand, in every
+// turn: past it a file is shown by its outline, to be read by parts.
+const yoursTokens = 12_000
+
+// yours is the files of scope as they stand in the workspace at dir, whole
+// while they fit within budget tokens, by their first lines past it; ""
+// while none is written.
+func yours(dir string, scope []string, budget int) string {
+	var b strings.Builder
+	for _, rel := range scope {
+		src, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			continue
+		}
+		text := string(src)
+		if (len(text)+3)/4 > budget {
+			var heads []string
+			for i, line := range strings.Split(text, "\n") {
+				if t := strings.TrimSpace(line); line != "" && line[0] != ' ' && line[0] != '\t' && t != "}" && t != ")" {
+					heads = append(heads, fmt.Sprintf("%d: %s", i+1, line))
+				}
+			}
+			text = strings.Join(heads, "\n") + "\n(too long to show whole in every turn: its top-level lines, each with its number — read it by parts)"
+		}
+		budget -= (len(text) + 3) / 4
+		fmt.Fprintf(&b, "\n## %s, as it stands now\n\n```\n%s\n```\n", rel, strings.TrimRight(text, "\n"))
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\n# The files you may change, as they stand now — never cut; do not read them again\n" + b.String()
 }

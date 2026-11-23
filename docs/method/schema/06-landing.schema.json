@@ -1,0 +1,149 @@
+{
+  "$id": "https://github.com/igannytskyi/iflow/docs/method/schema/06-landing.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "description": "each unit entering the estate, in order",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "entered_at": {
+            "description": "when it entered",
+            "type": "string"
+          },
+          "evidence_still_valid": {
+            "description": "yes or no: whether its evidence still held when it entered",
+            "type": "string"
+          },
+          "invalidated_by_this_entry": {
+            "description": "what this entry voided of other units' evidence",
+            "type": "string"
+          },
+          "order": {
+            "description": "its place in the order of entry",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reestablished_before_next": {
+            "description": "how what it voided was established again before the next entry",
+            "type": "string"
+          },
+          "unit": {
+            "description": "a work unit, WU-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          },
+          "verdict_state": {
+            "description": "the state of the verdicts it entered on",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order",
+          "unit",
+          "verdict_state",
+          "evidence_still_valid",
+          "entered_at",
+          "invalidated_by_this_entry"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "name": {
+      "description": "the change's folder name, its slug",
+      "type": "string"
+    },
+    "notes": {
+      "description": "what the document says in prose beside its tables, by heading",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "tables": {
+            "description": "its tables",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "headers": {
+                  "description": "the column headings",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "rows": {
+                  "description": "the rows, each cell under its heading",
+                  "items": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "headers",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "text": {
+            "description": "its prose",
+            "type": "string"
+          },
+          "title": {
+            "description": "the heading",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "description": "the version of the data model this was written in",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "unplanned_state": {
+      "description": "states no plan foresaw, and how each was resolved",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "area_of_effect_halted": {
+            "description": "what was halted",
+            "type": "string"
+          },
+          "occurred": {
+            "description": "what occurred",
+            "type": "string"
+          },
+          "resolved_by": {
+            "description": "what resolved it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "occurred",
+          "area_of_effect_halted",
+          "resolved_by"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "name",
+    "entries"
+  ],
+  "title": "Landing",
+  "type": "object"
+}

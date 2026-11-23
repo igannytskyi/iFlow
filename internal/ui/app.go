@@ -8,9 +8,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gioui.org/app"
+	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/system"
 	"gioui.org/layout"
@@ -22,6 +24,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/gate"
 	"github.com/igannytskyi/iflow/internal/method"
+	"github.com/igannytskyi/iflow/internal/service"
 	"github.com/igannytskyi/iflow/internal/workspace"
 )
 
@@ -37,6 +40,15 @@ type UI struct {
 	gate     *gate.Gate
 
 	flowConfig *flow.Config
+	// client is the window's side of the service that carries its runs;
+	// serviceErr why there is none, where there is none.
+	client     *service.Client
+	serviceErr string
+	// runOf is the project each run the window started belongs to, so that
+	// what the service tells of a run reaches its project: told from the
+	// client's goroutine, it is guarded.
+	runsMu     sync.Mutex
+	runOf      map[string]*project
 	rebuild    func() (flow.Config, string)
 	modelsNote string
 	settings   *settings
@@ -77,12 +89,24 @@ type Options struct {
 	// anything; Rebuild makes Flow again after the choice changes.
 	ModelsProblem string
 	Rebuild       func() (flow.Config, string)
+	// Connect speaks to the service that carries the runs, telling changed
+	// whenever one the window watches moves; nil leaves the window able to
+	// show but not to run.
+	Connect func(changed func(run string)) (*service.Client, error)
 }
 
 func newUI(ctx context.Context, o Options, s *settings) *UI {
 	u := &UI{model: o.Model, gate: o.Gate, flowConfig: o.Flow, rebuild: o.Rebuild, modelsNote: o.ModelsProblem, settings: s, ctx: ctx, parallel: max(o.Parallel, 1),
 		clicks: clicks{}, lists: lists{}, docs: newDocs(), splits: map[string]*split{}}
 	u.adding.SingleLine, u.adding.Submit = true, true
+	u.serviceErr = "no service is configured"
+	if o.Connect != nil {
+		if c, err := o.Connect(u.moved); err != nil {
+			u.serviceErr = err.Error()
+		} else {
+			u.client, u.serviceErr = c, ""
+		}
+	}
 	u.chosen = make(chan chosen, 1)
 	u.setTheme(s.Dark)
 	named := o.Projects
@@ -135,10 +159,9 @@ func Run(ctx context.Context, o Options) error {
 	}
 }
 
-// frame draws one frame. While any task runs, the next frame is asked for a
-// second later, so that clocks move even when nothing else does.
-func (u *UI) frame(gtx C) {
-	u.keys(gtx)
+// intake starts reading again every project that went stale and takes in
+// what was read, and reports whether any task is running.
+func (u *UI) intake() (running bool) {
 	for _, p := range u.projects {
 		if p.stale.Swap(false) {
 			u.reload(p)
@@ -146,9 +169,17 @@ func (u *UI) frame(gtx C) {
 		if l := p.pending.Swap(nil); l != nil {
 			u.take(p, l)
 		}
-		if p.running() {
-			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
-		}
+		running = running || p.running()
+	}
+	return running
+}
+
+// frame draws one frame. While any task runs, the next frame is asked for a
+// second later, so that clocks move even when nothing else does.
+func (u *UI) frame(gtx C) {
+	u.keys(gtx)
+	if u.intake() {
+		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
 	}
 	if u.cur != nil && u.cur.ws != nil {
 		u.cur.ws.RLock()
@@ -179,14 +210,90 @@ func (u *UI) setTheme(dark bool) {
 	u.th = newTheme(u.p)
 }
 
-// keys: Escape closes what was opened last.
+// shortcut is the whole keyboard contract of the workbench in one
+// dispatcher, free of input, output, rendering and logging: it answers for
+// the keys the workbench claims — the platform shortcut modifier with N,
+// with the digits 1 to 9, and Escape — and reports whether it handled the
+// key. When it returns false, whatever handling follows applies unchanged.
+func (u *UI) shortcut(e key.Event) bool {
+	if e.State != key.Press {
+		return false // a key let go is never a shortcut
+	}
+	switch {
+	// Escape is judged on its name alone: whatever modifiers ride along,
+	// it still closes what was opened last, one layer per press.
+	case e.Name == key.NameEscape:
+		if u.cur == nil {
+			return false
+		}
+		if u.cur.closeTop() {
+			return true
+		}
+		if u.preferring {
+			u.preferring = false
+			return true
+		}
+		return false
+	case e.Modifiers.Contain(key.ModShortcut):
+		switch e.Name {
+		case "N":
+			if u.cur == nil {
+				return false
+			}
+			u.cur.selected = newKey
+			return true
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			n := int(e.Name[0] - '0')
+			if n > len(u.projects) {
+				return false
+			}
+			// The same sequence a project row in the sidebar runs: make
+			// the project current, then clear what it has on view. Its
+			// handover view is left exactly as it was, whether the project
+			// was current already or not.
+			chosen := u.projects[n-1]
+			u.select_(chosen)
+			chosen.selected, chosen.item, chosen.foundation = "", nil, 0
+			return true
+		}
+	}
+	return false
+}
+
+// shortcutKeys are the keys the workbench claims, each named: a filter with
+// no name matches only keys pressed without modifiers, so Cmd+N would never
+// arrive through one.
+var shortcutKeys = func() []event.Filter {
+	fs := []event.Filter{
+		key.Filter{Name: key.NameEscape, Optional: key.ModShift | key.ModCtrl | key.ModAlt | key.ModCommand | key.ModSuper},
+		key.Filter{Name: "N", Required: key.ModShortcut},
+	}
+	for d := '1'; d <= '9'; d++ {
+		fs = append(fs, key.Filter{Name: key.Name(string(d)), Required: key.ModShortcut})
+	}
+	return fs
+}()
+
+// keys: the shortcut dispatcher speaks first for the keys the workbench
+// claims; Escape closes what was opened last.
 func (u *UI) keys(gtx C) {
 	for {
-		ev, ok := gtx.Event(key.Filter{Name: key.NameEscape})
+		ev, ok := gtx.Event(shortcutKeys...)
 		if !ok {
 			return
 		}
-		if e, ok := ev.(key.Event); ok && e.State == key.Press && u.cur != nil {
+		e, ok := ev.(key.Event)
+		if !ok {
+			continue
+		}
+		if u.shortcut(e) {
+			u.acted = true
+			if e.Name == "N" && u.cur != nil {
+				gtx.Execute(key.FocusCmd{Tag: &u.cur.task})
+			}
+			continue
+		}
+		if e.State == key.Press && u.cur != nil && e.Name == key.NameEscape {
 			u.acted = true
 			u.cur.item = nil
 		}
@@ -348,7 +455,7 @@ func (u *UI) projectRow(p *project) W {
 		btn := u.clicks.of("project/" + p.path)
 		if u.clicked(gtx, btn) {
 			u.select_(p)
-			p.selected, p.item = "", nil
+			p.selected, p.item, p.foundation = "", nil, 0
 		}
 		state := p.state()
 		line := state
@@ -378,14 +485,16 @@ func (u *UI) taskRows(p *project) []W {
 	if p.run != nil {
 		v := p.run.View()
 		runDir = v.Dir
-		out = append(out, u.taskRow(p, runKey, v.Statement, p.state(), money(v.Spent.CostUSD), nil))
+		// The run this window carries is shown with the change it is writing,
+		// so that it is stopped, or resumed once it stopped, like any other.
+		out = append(out, u.taskRow(p, runKey, v.Statement, p.state(), money(v.Spent.CostUSD), p.live))
 	}
 	var done []W
 	for _, c := range p.order {
 		if c.Change.Dir == runDir {
 			continue
 		}
-		s := shown{c: c}
+		s := shown{c: c, running: p.at(c.Change.Dir)}
 		for n := 1; n <= 6; n++ {
 			s.status[n] = statusOf(c, n)
 		}
@@ -450,26 +559,57 @@ func (u *UI) taskRow(p *project, key, title, state, spent string, c *workspace.C
 				return layout.Flex{Alignment: layout.Middle, Gap: gtx.Dp(8)}.Layout(gtx,
 					layout.Rigid(dot(u.stateColor(state), 7)),
 					layout.Flexed(1, u.oneLine(sizeSmall, u.p.Text, title)),
+					layout.Rigid(u.attention(p, state, c)),
 					layout.Rigid(u.oneLine(sizeSmall, u.p.Faint, spent)),
 				)
 			})))
 		}
-		// A task that stopped and will not be finished is closed from where
-		// it is seen: the cross opens it with the form to close it.
-		if state != "stopped" || c == nil {
-			return layout.Inset{Left: 18}.Layout(gtx, line)
+		// What is done to a task as it stands is done from where it is seen:
+		// ■ stops one at work, wherever it runs; ▶ carries on one that
+		// stopped, from where it stopped; close opens the form to close it.
+		var controls []layout.FlexChild
+		icon := func(btn *widget.Clickable, mark string, fg colorNRGBA) layout.FlexChild {
+			return layout.Rigid(func(gtx C) D {
+				return u.pressable(gtx, btn, false, 5, inset(3, 6, u.strong(sizeSmall, fg, mark)))
+			})
 		}
-		closer := u.clicks.of("task/close/" + c.Change.Dir)
-		if u.clicked(gtx, closer) {
-			p.show(key, c)
-			p.closing = c.Change.Dir
+		switch {
+		case state == "working" || state == "waiting for you":
+			stop := u.clicks.of("task/stop/" + p.path + "/" + key)
+			if u.clicked(gtx, stop) {
+				dir := key
+				if c != nil {
+					dir = c.Change.Dir
+				}
+				if key == runKey || (p.run != nil && p.run.View().Dir == dir) {
+					if p.run != nil {
+						p.run.Stop()
+					}
+				} else if err := flow.Stop(dir, u.person()); err != nil {
+					p.resolveErr = err.Error()
+				}
+			}
+			controls = append(controls, icon(stop, "■", u.p.Fail))
+		case state == "stopped" && c != nil:
+			resume := u.clicks.of("task/resume/" + c.Change.Dir)
+			if u.clicked(gtx, resume) {
+				p.show(key, c)
+				p.resolveErr = ""
+				if err := u.resume(p, c); err != nil {
+					p.resolveErr = err.Error()
+				}
+			}
+			closer := u.clicks.of("task/close/" + c.Change.Dir)
+			if u.clicked(gtx, closer) {
+				p.show(key, c)
+				p.closing = c.Change.Dir
+			}
+			controls = append(controls, icon(resume, "▶", u.p.Accent), layout.Rigid(func(gtx C) D {
+				return u.pressable(gtx, closer, p.closing == c.Change.Dir, 5, inset(4, 7, u.text(sizeSmall, u.p.Muted, "close")))
+			}))
 		}
 		return layout.Inset{Left: 18}.Layout(gtx, func(gtx C) D {
-			return layout.Flex{Alignment: layout.Middle, Gap: gtx.Dp(2)}.Layout(gtx,
-				layout.Flexed(1, line),
-				layout.Rigid(func(gtx C) D {
-					return u.pressable(gtx, closer, p.closing == c.Change.Dir, 5, inset(4, 7, u.text(sizeSmall, u.p.Muted, "close")))
-				}))
+			return layout.Flex{Alignment: layout.Middle, Gap: gtx.Dp(2)}.Layout(gtx, append([]layout.FlexChild{layout.Flexed(1, line)}, controls...)...)
 		})
 	}
 }
@@ -491,7 +631,10 @@ func (u *UI) main(gtx C) D {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Flexed(1, u.newIntentView(p)),
 			layout.Rigid(u.hairline),
-			layout.Rigid(inset(pad, gutter, u.composer(p))),
+			layout.Rigid(func(gtx C) D {
+				fill(gtx, u.p.Surface)
+				return inset(pad, gutter, u.composer(p))(gtx)
+			}),
 		)
 	}
 	s, ok := p.shownOf()
@@ -503,7 +646,10 @@ func (u *UI) main(gtx C) D {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Flexed(1, func(gtx C) D { return u.taskView(gtx, p, s, ok) }),
 			layout.Rigid(u.hairline),
-			layout.Rigid(inset(pad, gutter, u.composer(p))),
+			layout.Rigid(func(gtx C) D {
+				fill(gtx, u.p.Surface)
+				return inset(pad, gutter, u.composer(p))(gtx)
+			}),
 		)
 	}
 	if u.settings.HideCosts {

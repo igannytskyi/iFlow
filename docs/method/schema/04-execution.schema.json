@@ -1,0 +1,173 @@
+{
+  "$id": "https://github.com/igannytskyi/iflow/docs/method/schema/04-execution.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "candidates": {
+      "description": "what each unit proposes, kept apart from the estate",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "artefacts": {
+            "description": "what the candidate proposes, never applied here",
+            "type": "string"
+          },
+          "id": {
+            "description": "CA-\u003cnnn\u003e-\u003cnn\u003e",
+            "pattern": "^CA-\\d{3}-\\d{2}$",
+            "type": "string"
+          },
+          "produced_at": {
+            "description": "when it was produced",
+            "type": "string"
+          },
+          "stored_at": {
+            "description": "the candidate's folder, inside the change",
+            "type": "string"
+          },
+          "unit": {
+            "description": "a work unit, WU-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "unit",
+          "stored_at",
+          "artefacts",
+          "produced_at"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "name": {
+      "description": "the change's folder name, its slug",
+      "type": "string"
+    },
+    "prose": {
+      "description": "what the document says besides its fields, for one written before the model held it",
+      "type": "string"
+    },
+    "reproductions": {
+      "description": "for a repair, how each criterion stood before it",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "before_repair": {
+            "description": "how the criterion stood before the repair",
+            "type": "string"
+          },
+          "criterion": {
+            "description": "a criterion, CR-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          },
+          "unit": {
+            "description": "a work unit, WU-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit",
+          "criterion",
+          "before_repair"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "runs": {
+      "description": "each unit's run by its executor",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate": {
+            "description": "the candidate it left, CA-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          },
+          "executor": {
+            "description": "what carried the unit out",
+            "type": "string"
+          },
+          "terminal_state": {
+            "description": "how the unit's run ended",
+            "enum": [
+              "candidate",
+              "terminated",
+              "exhausted",
+              "failed-substrate",
+              "failed-task",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "trace": {
+            "description": "where the run's steps are kept",
+            "type": "string"
+          },
+          "unit": {
+            "description": "a work unit, WU-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          },
+          "version": {
+            "description": "the executor's version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit",
+          "executor",
+          "version",
+          "terminal_state"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "description": "the version of the data model this was written in",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "tests": {
+      "description": "the test ledger: every test written first, its file, the criterion it judges and the unit that wrote it",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "criterion": {
+            "description": "the criterion it judges, CR-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          },
+          "file": {
+            "description": "the file it is declared in",
+            "type": "string"
+          },
+          "test": {
+            "description": "the test's name, as its runner names it",
+            "type": "string"
+          },
+          "unit": {
+            "description": "the tests unit that wrote it, WU-\u003cnnn\u003e-\u003cnn\u003e",
+            "type": "string"
+          }
+        },
+        "required": [
+          "test",
+          "file",
+          "criterion",
+          "unit"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "name",
+    "runs",
+    "candidates"
+  ],
+  "title": "Execution",
+  "type": "object"
+}

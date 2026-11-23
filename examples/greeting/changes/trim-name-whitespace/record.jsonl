@@ -1,0 +1,15 @@
+{"n":1,"at":"2026-11-15","stage":"intent","object":"INT-002","note":"Когда имя передано с пробелами по краям, приветствие использует имя без этих пробелов. Имя только из пробелов считается отсутствующим, и тогда приветствуется мир."}
+{"n":2,"at":"2026-11-15","stage":"specification","object":"SPEC-002","note":"class C3; 3 criteria"}
+{"n":3,"at":"2026-11-15","stage":"plan","object":"SPEC-002","note":"2 unit(s)"}
+{"n":4,"at":"2026-11-15","stage":"admission","object":"WU-002-01","note":"admitted"}
+{"n":5,"at":"2026-11-15","stage":"admission","object":"WU-002-02","note":"admitted"}
+{"n":6,"at":"2026-11-15","stage":"execution","object":"CA-002-01","note":"I don't have approval to run commands in this session. The test file is written and ready — please run `/private/var/folders/vk/hkg1rbx97bg5h8bs6f7cyhyh0000gn/T/iflow-ws-1177295712/test.sh` yourself to confirm it fails as expected against the current `Greet` implementation (which does no trimming).  I added `greeting_trim_test.go` with two tests: `TestGreetTrimsSurroundingWhitespaceFromName` (CR-002-01, checks names with leading/trailing whitespace are greeted trimmed) and `TestGreetTreatsWhitespaceOnlyNameAsAbsent` (CR-002-02, checks whitespace-only names fall back to \"Hello, world!\"). Both should fail against the current `Greet` implementation since it only special-cases the exact empty string and never trims."}
+{"n":7,"at":"2026-11-15","stage":"execution","object":"CA-002-02","note":"All tests pass. I added `strings.TrimSpace(name)` before the empty-check in `Greet`, so whitespace-padded names are trimmed and whitespace-only names fall through to the existing \"world\" default."}
+{"n":8,"at":"2026-11-15","stage":"assurance","object":"VE-002-01","note":"met"}
+{"n":9,"at":"2026-11-15","stage":"assurance","object":"VE-002-02","note":"met"}
+{"n":10,"at":"2026-11-15","stage":"assurance","object":"VE-002-03","note":"met"}
+{"n":11,"at":"2026-11-15","stage":"assurance","object":"VE-002-04","note":"met"}
+{"n":12,"at":"2026-11-15","stage":"assurance","object":"VE-002-05","note":"met"}
+{"n":13,"at":"2026-11-15","stage":"landing","object":"WU-002-01","note":"entered"}
+{"n":14,"at":"2026-11-15","stage":"landing","object":"WU-002-02","note":"entered"}
+{"n":15,"at":"2026-11-16","stage":"migrated","object":"the data model","digest":"54dd1f4eeee1ec75","note":"its documents written in the data model, schema 1; the Markdown they were read from is kept under legacy/"}

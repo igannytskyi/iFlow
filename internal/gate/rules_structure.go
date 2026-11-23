@@ -3,27 +3,10 @@ package gate
 import (
 	"os"
 	"path/filepath"
-	"slices"
-	"strconv"
-	"strings"
 
 	a "github.com/igannytskyi/iflow/internal/artifact"
+	"github.com/igannytskyi/iflow/internal/meta"
 )
-
-// requiredHeaders are the columns the checks bind to. A check whose column is
-// absent cannot run, and a check that cannot run must say so rather than pass
-// by looking at nothing.
-var requiredHeaders = []struct {
-	stage  a.Stage
-	groups [][]string
-}{
-	{a.Specification, [][]string{{"Criterion", "Procedure"}, {"Included"}, {"Path", "What it arbitrates"}}},
-	{a.Plan, [][]string{{"Class"}, {"Preparatory for"}}},
-	{a.Admission, [][]string{{"Outcome"}, {"Field", "Value"}}},
-	{a.Execution, [][]string{{"Terminal state"}, {"Stored at", "Artefacts"}}},
-	{a.Assurance, [][]string{{"Independence"}, {"Outcome", "State"}}},
-	{a.Landing, [][]string{{"Entered at"}}},
-}
 
 // stageOrder — B1: the stages are written in order, from the intent.
 func stageOrder(r *run) {
@@ -42,62 +25,47 @@ func stageOrder(r *run) {
 	}
 }
 
-// headersPresent — B1: every column a check binds to is there, or the gate
-// says which is not.
-func headersPresent(r *run) {
-	for _, rh := range requiredHeaders {
-		if !r.has(rh.stage) {
-			continue
-		}
-		seen := r.doc(rh.stage).Headers()
-		for _, group := range rh.groups {
-			missing := slices.DeleteFunc(slices.Clone(group), func(h string) bool { return seen[h] })
-			if len(missing) > 0 {
-				slices.Sort(missing)
-				r.fail("B1", "%s: column %s is absent, so the check binding to it would not run",
-					rh.stage, strings.Join(missing, ", "))
-			}
-		}
+// readable — B1: every document reads into the data model whole. A table or
+// a section a document cannot place, or JSON that does not decode, is a
+// document the checks after this one would judge in part.
+func readable(r *run) {
+	for _, p := range r.c.Meta.Problems {
+		r.fail("B1", "%s", p)
 	}
 }
 
-// vocabulary — every coded cell holds a defined code.
+// vocabulary — every code holds one of its defined values, every identifier
+// has its defined form: the data model, checked.
 func vocabulary(r *run) {
-	for _, v := range []struct {
-		stage  a.Stage
-		header string
-		code   string
+	m := r.c.Meta
+	for _, d := range []struct {
+		stage a.Stage
+		doc   any
+		ok    bool
 	}{
-		{a.Specification, "Procedure", "procedure"},
-		{a.Plan, "Class", "class"},
-		{a.Admission, "Outcome", "admission"},
-		{a.Admission, "Confidence of the edges relied on", "confidence"},
-		{a.Execution, "Terminal state", "terminal"},
-		{a.Assurance, "Subject", "subject"},
-		{a.Assurance, "Kind", "kind"},
-		{a.Assurance, "Independence", "independence"},
-		{a.Assurance, "Outcome", "outcome"},
-		{a.Assurance, "State", "state"},
+		{a.Intent, m.Intent, m.Intent != nil}, {a.Specification, m.Specification, m.Specification != nil},
+		{a.Plan, m.Plan, m.Plan != nil}, {a.Admission, m.Admission, m.Admission != nil},
+		{a.Execution, m.Execution, m.Execution != nil}, {a.Assurance, m.Assurance, m.Assurance != nil},
+		{a.Landing, m.Landing, m.Landing != nil},
 	} {
-		for _, cell := range r.doc(v.stage).Column(v.header) {
-			if !Codes[v.code].allows(cell) {
-				r.fail("CONVENTIONS", "%s: %s = %s is not a defined value", v.stage, v.header, quote(cell))
-			}
+		if !d.ok {
+			continue
+		}
+		for _, p := range meta.Validate(d.doc) {
+			r.fail("CONVENTIONS", "%s: %s", d.stage, p)
 		}
 	}
 }
 
 // recordComplete — B4: every stage present has its crossing recorded.
 func recordComplete(r *run) {
-	if r.c.Record == nil {
-		r.fail("B4", "no record.md — crossings are not recorded")
+	if len(r.c.Meta.Record) == 0 {
+		r.fail("B4", "no record — crossings are not recorded")
 		return
 	}
 	logged := map[string]bool{}
-	for _, row := range r.c.Record.Rows("Stage") {
-		if s := row.Cell("Stage"); s != "" {
-			logged[s] = true
-		}
+	for _, c := range r.c.Meta.Record {
+		logged[c.Stage] = true
 	}
 	for _, s := range r.c.Present() {
 		if !logged[s.Name()] {
@@ -106,23 +74,13 @@ func recordComplete(r *run) {
 	}
 }
 
-func digits(s string) bool {
-	return s != "" && strings.Trim(s, "0123456789") == ""
-}
-
 // recordAppendOnly — R4: ordinals form 1..N, in order, with no gap and no
 // repeat. A line removed from the tail is not detected: that needs a digest
 // chain the record does not yet carry, and rules.md says so.
 func recordAppendOnly(r *run) {
 	var seen []int
-	for _, row := range r.c.Record.Rows("#", "Stage") {
-		if n := row.Cell("#"); digits(n) {
-			v, _ := strconv.Atoi(n)
-			seen = append(seen, v)
-		}
-	}
-	if len(seen) == 0 {
-		return
+	for _, c := range r.c.Meta.Record {
+		seen = append(seen, c.N)
 	}
 	for i, n := range seen {
 		if n != i+1 {
@@ -145,10 +103,8 @@ func handedKept(r *run) {
 		if c.Input+c.CacheRead+c.CacheWrite+c.Output == 0 {
 			continue // no model read or wrote anything: a test run, the gate
 		}
-		if c.Kept != "" {
-			if _, err := os.Stat(filepath.Join(r.c.Dir, filepath.FromSlash(c.Kept))); err != nil {
-				r.fail("R23", "%q says what it was handed is kept at %s, and nothing is there", c.What, c.Kept)
-			}
+		if c.Kept != "" && !kept(r.c.Dir, c.Kept) {
+			r.fail("R23", "%q says what it was handed is kept at %s, and nothing is there", c.What, c.Kept)
 		}
 		if c.Handed == 0 {
 			unmeasured++
@@ -157,4 +113,15 @@ func handedKept(r *run) {
 	if unmeasured > 0 {
 		r.note("R23", "%d cost record(s) of model work say nothing of what the model was handed — work measured before handovers were", unmeasured)
 	}
+}
+
+// kept reports whether what was handed is kept where its cost says — or
+// under superseded/, where a change carried again keeps what the areas it
+// carried again had made.
+func kept(dir, at string) bool {
+	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(at))); err == nil {
+		return true
+	}
+	again, _ := filepath.Glob(filepath.Join(dir, "superseded", "*", filepath.FromSlash(at)))
+	return len(again) > 0
 }

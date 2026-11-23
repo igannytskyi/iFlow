@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
+	"github.com/igannytskyi/iflow/internal/ledger"
 )
 
 // Standing is one change at a glance: how far it got, and what holds it.
@@ -64,6 +66,20 @@ func (g *Gate) Status(ctx context.Context, where string) ([]Standing, error) {
 			return nil, err
 		}
 	}
+	// What a change still owes is what it raised that no change — itself, a
+	// later one, a person's decision — has settled: the ledger's to say.
+	if abs, err := filepath.Abs(where); err == nil {
+		if l, err := ledger.Read(filepath.Dir(abs)); err == nil {
+			owed := map[string]int{}
+			for _, o := range l.Owed {
+				name, _, _ := strings.Cut(o.Ref, "#")
+				owed[name]++
+			}
+			for i := range out {
+				out[i].Owed = owed[out[i].Name]
+			}
+		}
+	}
 	return out, ctx.Err()
 }
 
@@ -72,22 +88,21 @@ func (g *Gate) standing(ctx context.Context, c *artifact.Change) Standing {
 	if p := c.Present(); len(p) > 0 {
 		s.Reached = string(p[len(p)-1])
 	}
-	for _, row := range c.Doc(artifact.Admission).Rows("Outcome") {
-		switch row.Cell("Outcome") {
-		case "held":
-			s.Held++
-		case "awaiting-authority":
-			s.Waiting++
+	if ad := c.Meta.Admission; ad != nil {
+		for _, d := range ad.Decisions {
+			switch d.Outcome {
+			case "held":
+				s.Held++
+			case "awaiting-authority":
+				s.Waiting++
+			}
 		}
 	}
-	for _, row := range c.Doc(artifact.Assurance).Rows("Outcome", "Criterion") {
-		if row.Cell("Outcome") == "undecided" {
-			s.Undecided++
-		}
-	}
-	for _, row := range c.Doc(artifact.Assurance).Rows("Standing") {
-		if row.Cell("Standing") == "open" {
-			s.Owed++
+	if as := c.Meta.Assurance; as != nil {
+		for _, v := range as.Verdicts {
+			if v.Outcome == "undecided" {
+				s.Undecided++
+			}
 		}
 	}
 	return s

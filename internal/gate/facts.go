@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
+	"github.com/igannytskyi/iflow/internal/meta"
 )
 
 // ordered is a mapping that remembers the order keys first arrived in.
@@ -54,52 +55,76 @@ func nonEmpty(items []string) []string {
 
 // scope is what the specification says the change may touch.
 func scope(c *artifact.Change) []string {
-	return distinct(c.Doc(artifact.Specification).Column("Included"))
+	if c.Meta.Specification == nil {
+		return nil
+	}
+	return distinct(nonEmpty(c.Meta.Specification.Scope.Included))
 }
 
 // arbiter is what the specification says will judge the change.
 func arbiter(c *artifact.Change) []string {
-	return distinct(c.Doc(artifact.Specification).Column("Path", "What it arbitrates"))
+	if c.Meta.Specification == nil {
+		return nil
+	}
+	var out []string
+	for _, a := range c.Meta.Specification.Arbiters {
+		out = append(out, a.Path)
+	}
+	return distinct(nonEmpty(out))
 }
 
 // criteria is every criterion the specification fixes.
 func criteria(c *artifact.Change) []string {
-	var out []string
-	for _, r := range c.Doc(artifact.Specification).Rows("Criterion", "Procedure") {
-		if id := r.Cell("Id"); id != "" {
-			out = append(out, id)
-		}
+	if c.Meta.Specification == nil {
+		return nil
 	}
-	return distinct(out)
+	var out []string
+	for _, cr := range c.Meta.Specification.Criteria {
+		out = append(out, cr.ID)
+	}
+	return distinct(nonEmpty(out))
 }
 
 // candidates is every candidate execution produced.
 func candidates(c *artifact.Change) []string {
-	var out []string
-	for _, r := range c.Doc(artifact.Execution).Rows("Stored at") {
-		if id := r.Cell("Id"); id != "" {
-			out = append(out, id)
-		}
+	if c.Meta.Execution == nil {
+		return nil
 	}
-	return distinct(out)
+	var out []string
+	for _, ca := range c.Meta.Execution.Candidates {
+		out = append(out, ca.ID)
+	}
+	return distinct(nonEmpty(out))
 }
 
-// repeatable is every evidence row and what it says about repeating.
+// stated reports whether the change's evidence says, for any run, whether
+// it repeats: evidence written before the method asked says it of none.
+func stated(c *artifact.Change) bool {
+	return c.Meta.Assurance != nil && slices.ContainsFunc(c.Meta.Assurance.Evidence, func(e meta.Evidence) bool { return e.Repeatable != "" })
+}
+
+// repeatable is every piece of evidence and what it says about repeating;
+// nothing, for evidence written before the method asked.
 func repeatable(c *artifact.Change) *ordered[string] {
 	out := newOrdered[string]()
-	for _, r := range c.Doc(artifact.Assurance).Rows("Repeatable") {
-		out.put(r.Cell("Id"), r.Cell("Repeatable"))
+	if !stated(c) {
+		return out
+	}
+	for _, e := range c.Meta.Assurance.Evidence {
+		out.put(e.ID, string(e.Repeatable))
 	}
 	return out
 }
 
-// Producers is evidence that claims to repeat, and what each row says
-// produced it.
+// Producers is evidence that claims to repeat, and what each says produced
+// it.
 func Producers(c *artifact.Change) (ids []string, said map[string]string) {
 	o := newOrdered[string]()
-	for _, r := range c.Doc(artifact.Assurance).Rows("Repeatable", "Producer") {
-		if r.Cell("Repeatable") == "yes" {
-			o.put(r.Cell("Id"), r.Cell("Producer"))
+	if c.Meta.Assurance != nil {
+		for _, e := range c.Meta.Assurance.Evidence {
+			if e.Repeatable == meta.Yes {
+				o.put(e.ID, e.Producer)
+			}
 		}
 	}
 	return o.keys, o.vals
@@ -123,6 +148,11 @@ func ProducerCommand(c *artifact.Change, id string) []string {
 		// estate is judged by whatever it is judged by.
 		for _, base := range []string{".", c.Dir, c.Root} {
 			if p := filepath.Join(base, parts[0]); isFile(p) {
+				// Absolute, so that the command is the same command — and its
+				// repeat the same note — wherever the gate is run from.
+				if abs, err := filepath.Abs(p); err == nil {
+					p = abs
+				}
 				return append([]string{p}, parts[1:]...)
 			}
 		}
@@ -135,12 +165,30 @@ func ProducerCommand(c *artifact.Change, id string) []string {
 	return nil
 }
 
+// producerNamed reports whether an evidence names, in backticks, something
+// to re-run — whether or not it can be found now.
+func producerNamed(c *artifact.Change, id string) bool {
+	_, said := Producers(c)
+	return backticked.MatchString(said[id])
+}
+
+// migratedAs reports whether the record says the change was migrated into
+// the data model with its specification at this digest.
+func migratedAs(c *artifact.Change, digest string) bool {
+	for _, r := range c.Meta.Record {
+		if r.Stage == "migrated" && r.Digest == digest {
+			return true
+		}
+	}
+	return false
+}
+
 // readmissionRecorded reports whether the record shows the specification
 // written again after an admission.
 func readmissionRecorded(c *artifact.Change) bool {
 	admitted := false
-	for _, r := range c.Record.Rows("Stage") {
-		switch r.Cell("Stage") {
+	for _, r := range c.Meta.Record {
+		switch r.Stage {
 		case "admission":
 			admitted = true
 		case "specification":
@@ -190,3 +238,11 @@ func regionOf(root, p string) string {
 }
 
 func base(p string) string { return path.Base(pure(p)) }
+
+// or is an identifier as a message names it: None for one left empty.
+func or(id string) string {
+	if id == "" {
+		return "None"
+	}
+	return id
+}

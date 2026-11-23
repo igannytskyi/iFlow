@@ -41,6 +41,9 @@ type Roles struct {
 	Reviewer string `json:"reviewer"`
 	Planner  string `json:"planner"`
 	Executor string `json:"executor"`
+	// Stronger takes a unit's last attempt when the executor's failed; none
+	// when empty.
+	Stronger string `json:"executor_stronger,omitempty"`
 }
 
 // Provider is a server speaking the OpenAI chat protocol, and where its key
@@ -75,7 +78,7 @@ func Default() Config {
 				Prices: map[string]model.Price{"deepseek-chat": {In: 0.30, Cached: 0.03, Out: 1.20}}},
 		},
 		Roles: Roles{Author: "openrouter:z-ai/glm-5.3-flash", Reviewer: "openrouter:z-ai/glm-5.3-flash",
-			Planner: "openrouter:z-ai/glm-5.3-flash", Executor: "openrouter:z-ai/glm-5.3-flash"},
+			Planner: "openrouter:z-ai/glm-5.3-flash", Executor: "openrouter:z-ai/glm-5.3-flash", Stronger: "openrouter:z-ai/glm-5.3"},
 		Effort: Roles{Author: "medium", Reviewer: "medium", Planner: "medium", Executor: "low"},
 	}
 }
@@ -142,7 +145,11 @@ func (m Config) Describe(w io.Writer) {
 	for _, r := range []struct{ role, spec, effort string }{
 		{"author", m.Roles.Author, m.Effort.Author}, {"reviewer", m.Roles.Reviewer, m.Effort.Reviewer},
 		{"planner", m.Roles.Planner, m.Effort.Planner}, {"executor", m.Roles.Executor, m.Effort.Executor},
+		{"agent", m.Roles.Stronger, m.Effort.Executor}, // the executor's second rung, where set
 	} {
+		if r.spec == "" {
+			continue
+		}
 		state := "ready"
 		if _, err := m.Model(r.spec, r.effort); err != nil {
 			state = err.Error()
@@ -175,7 +182,7 @@ func (m Config) Save() error {
 func (m Config) Flow(base flow.Config) (flow.Config, string) {
 	roles := m.Roles
 	if all := os.Getenv("IFLOW_MODEL"); all != "" {
-		roles = Roles{all, all, all, all}
+		roles = Roles{all, all, all, all, ""}
 	}
 	var problems []string
 	pick := func(role, spec, effort string) model.Model {
@@ -189,11 +196,34 @@ func (m Config) Flow(base flow.Config) (flow.Config, string) {
 	base.Model = pick("author", roles.Author, m.Effort.Author)
 	base.Reviewer = pick("reviewer", roles.Reviewer, m.Effort.Reviewer)
 	base.Planner = pick("planner", roles.Planner, m.Effort.Planner)
-	base.Executor = harness.Oneshot{Model: pick("executor", roles.Executor, m.Effort.Executor)}
+	cheap := pick("executor", roles.Executor, m.Effort.Executor)
+	agent := cheap
+	if roles.Stronger != "" {
+		agent = pick("stronger executor", roles.Stronger, m.Effort.Executor)
+	}
+	// A unit goes first to one question of the cheap model; what that cannot
+	// carry goes to an agent that reads, runs the check and tries again.
+	attempts := base.Attempts
+	if attempts <= 0 {
+		attempts = 2
+	}
+	base.Executor = harness.Ladder{First: harness.Oneshot{Model: cheap, Attempts: attempts}, Then: Agent(agent)}
 	if os.Getenv("IFLOW_EXECUTOR") == "agent" {
 		base.Executor = harness.ClaudeCode{Model: "sonnet"}
 	}
 	return base, strings.Join(problems, "\n")
+}
+
+// Agent is the executor that works with tools on a model: Claude Code's own
+// agent for a model it runs, this method's loop for any other.
+func Agent(m model.Model) harness.Executor {
+	switch md := m.(type) {
+	case model.ClaudeCode:
+		return harness.ClaudeCode{Model: md.Model}
+	case harness.Chatter:
+		return harness.Loop{Model: md}
+	}
+	return harness.Oneshot{Model: m}
 }
 
 // Choice is a model one can pick for a role, with what it costs.
@@ -218,8 +248,8 @@ func (m Config) Try(ctx context.Context, w io.Writer) int {
 	fmt.Fprintln(w)
 	seen := map[string]bool{}
 	failed := false
-	for _, spec := range []string{m.Roles.Author, m.Roles.Reviewer, m.Roles.Planner, m.Roles.Executor} {
-		if seen[spec] {
+	for _, spec := range []string{m.Roles.Author, m.Roles.Reviewer, m.Roles.Planner, m.Roles.Executor, m.Roles.Stronger} {
+		if spec == "" || seen[spec] {
 			continue
 		}
 		seen[spec] = true

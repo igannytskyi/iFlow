@@ -10,6 +10,8 @@ import (
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/gate"
 	"github.com/igannytskyi/iflow/internal/method"
+	"github.com/igannytskyi/iflow/internal/protocol"
+	"github.com/igannytskyi/iflow/internal/service"
 	"github.com/igannytskyi/iflow/internal/ui"
 )
 
@@ -30,7 +32,12 @@ func (app *App) Desk(ctx context.Context, projects []string) int {
 	cfg, problems := app.FlowConfig()
 	err = ui.Run(ctx, ui.Options{Model: model, Gate: app.Gate, Parallel: runtime.GOMAXPROCS(0),
 		Projects: projects, Examples: examples, Flow: &cfg, ModelsProblem: problems,
-		Rebuild: func() (flow.Config, string) { return app.FlowConfig() }})
+		Rebuild: func() (flow.Config, string) { return app.FlowConfig() },
+		// The window is a screen of the service like any other: its runs go
+		// on when it closes, and a terminal sees them as it does.
+		Connect: func(changed func(string)) (*service.Client, error) {
+			return service.Connect(ctx, protocol.Socket(), "iflow desk", changed)
+		}})
 	if err != nil {
 		return app.fatal(err)
 	}

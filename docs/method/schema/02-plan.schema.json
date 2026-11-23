@@ -1,0 +1,277 @@
+{
+  "$id": "https://github.com/igannytskyi/iflow/docs/method/schema/02-plan.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "coverage": {
+      "description": "the plan's answers to what the method asks of every plan",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "description": "the answer",
+            "type": "string"
+          },
+          "question": {
+            "description": "the question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "answer"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "coverage_text": {
+      "description": "how the units cover the specification, in prose",
+      "type": "string"
+    },
+    "intermediate_states_valid": {
+      "description": "whether every phase boundary leaves a shippable system, and why",
+      "type": "string"
+    },
+    "name": {
+      "description": "the change's folder name, its slug",
+      "type": "string"
+    },
+    "notes": {
+      "description": "what the document says in prose beside its tables, by heading",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "tables": {
+            "description": "its tables",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "headers": {
+                  "description": "the column headings",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "rows": {
+                  "description": "the rows, each cell under its heading",
+                  "items": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "headers",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "text": {
+            "description": "its prose",
+            "type": "string"
+          },
+          "title": {
+            "description": "the heading",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "phases": {
+      "description": "how many phases the change lands in; 1 if everything can land at once",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "planner": {
+      "description": "who divided the work",
+      "type": "string"
+    },
+    "residue_on_abandonment": {
+      "description": "what is left if the change is abandoned: a rollback, or the intent that disposes of it",
+      "type": "string"
+    },
+    "schema": {
+      "description": "the version of the data model this was written in",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "specification": {
+      "description": "SPEC-\u003cnnn\u003e",
+      "pattern": "^SPEC-\\d{3}$",
+      "type": "string"
+    },
+    "units": {
+      "description": "the units of work",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "area_of_effect": {
+            "description": "how it was computed, and at what confidence",
+            "type": "string"
+          },
+          "brief": {
+            "description": "its ticket: objective, what it serves and relies on, tasks, constraints, edge cases, when it is done",
+            "type": "string"
+          },
+          "class": {
+            "description": "the unit's change class",
+            "enum": [
+              "C1P",
+              "C1T",
+              "C2",
+              "C3",
+              "C4",
+              "C5"
+            ],
+            "type": "string"
+          },
+          "criteria": {
+            "description": "the acceptance criteria",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "depends_on": {
+            "description": "the units it relies on",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "WU-\u003cnnn\u003e-\u003cnn\u003e",
+            "pattern": "^WU-\\d{3}-\\d{2}$",
+            "type": "string"
+          },
+          "kind": {
+            "description": "what the unit writes: the contract, the tests that judge the change, or its code",
+            "enum": [
+              "contract",
+              "tests",
+              "code"
+            ],
+            "type": "string"
+          },
+          "phase": {
+            "description": "the phase it lands in",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "preparatory_for": {
+            "description": "the criteria whose arbiter this unit writes, before their code",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "provides": {
+            "description": "the names it gives the other units: the contract between them",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "the file it is declared in; empty only for one described",
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "what the code declares it as",
+                  "enum": [
+                    "function",
+                    "method",
+                    "type",
+                    "field",
+                    "variable",
+                    "constant",
+                    "described"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "description": "the name the other units call it by; empty only for one described",
+                  "type": "string"
+                },
+                "of": {
+                  "description": "the type a field or method belongs to",
+                  "type": "string"
+                },
+                "signature": {
+                  "description": "its declaration as the estate's language writes it, or, described, what was said of it",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "signature"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "reads": {
+            "description": "files of the estate outside its scope that it builds on, handed to its agent whole",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "description": "what the change may touch, as paths",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "description": "the unit in a few words",
+            "type": "string"
+          },
+          "uses": {
+            "description": "the names other units of the plan provide that it uses",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "phase",
+          "class",
+          "scope",
+          "criteria",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "upgraded_from": {
+      "description": "the version of the data model it was written in, where it was carried forward from an older one",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema",
+    "name",
+    "specification",
+    "phases",
+    "intermediate_states_valid",
+    "units"
+  ],
+  "title": "Plan",
+  "type": "object"
+}

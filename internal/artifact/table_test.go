@@ -40,6 +40,8 @@ func TestPlaceholder(t *testing.T) {
 		{"one chosen", []string{"CR-001-01", "machine · human", ""}, false},
 		{"empty", []string{"", "", ""}, true},
 		{"prose with a bound", []string{"CR-001-01", "machine", "0 < x < 10"}, false},
+		{"a whole slot", []string{"CR-001-01", "<what must be true>", ""}, true},
+		{"prose naming a slot", []string{"CR-001-01", "machine", "the title is iFlow — <project name>, carrying out <u.id>"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := newRow(headers, tc.cells).Placeholder(); got != tc.want {

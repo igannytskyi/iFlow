@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "name": "trim-name-whitespace",
+  "specification_digest": "9f0f6ead216c8a5e",
+  "criteria_review": [
+    {
+      "reviewed_before_admission": "yes",
+      "by": "Illia Gannytskyi (accepted with --accept, without reading)",
+      "at": "2026-11-15",
+      "note": "accepted in the workbench before any work"
+    }
+  ],
+  "decisions": [
+    {
+      "unit": "WU-002-01",
+      "outcome": "admitted",
+      "deciding_condition": "permission",
+      "confidence_of_edges": "medium"
+    },
+    {
+      "unit": "WU-002-02",
+      "outcome": "admitted",
+      "deciding_condition": "conflict",
+      "confidence_of_edges": "medium"
+    }
+  ],
+  "conflicts": [
+    {
+      "units": "WU-002-01, WU-002-02",
+      "intersecting_region": "none",
+      "evidence_it_would_invalidate": "none",
+      "resolution": "ordering"
+    }
+  ],
+  "evidence_plan": [
+    {
+      "criterion": "CR-002-01",
+      "observed": "greeting.go — the behaviour the criterion names",
+      "method": "the tests written first, run once before the change and once after",
+      "unchanged_means": "the behaviour stands as it does now",
+      "derived_from": "the area of effect of greeting.go, derived, medium",
+      "fixed_at": "2026-11-15"
+    },
+    {
+      "criterion": "CR-002-02",
+      "observed": "greeting.go — the behaviour the criterion names",
+      "method": "the tests written first, run once before the change and once after",
+      "unchanged_means": "the behaviour stands as it does now",
+      "derived_from": "the area of effect of greeting.go, derived, medium",
+      "fixed_at": "2026-11-15"
+    }
+  ],
+  "prior_state": [
+    {
+      "criterion": "CR-002-01",
+      "artefact": "greeting.go as it stood",
+      "captured_to": "baseline/greeting.go.before"
+    }
+  ]
+}

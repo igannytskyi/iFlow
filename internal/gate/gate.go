@@ -139,8 +139,7 @@ func (r *run) add(rule string, s Severity, format string, args ...any) {
 	r.findings = append(r.findings, Finding{Rule: rule, Severity: s, Message: fmt.Sprintf(format, args...)})
 }
 
-func (r *run) doc(s artifact.Stage) *artifact.Doc { return r.c.Doc(s) }
-func (r *run) has(s artifact.Stage) bool          { return r.c.Has(s) }
+func (r *run) has(s artifact.Stage) bool { return r.c.Has(s) }
 
 // Check runs every check against one change, in the order the rules were
 // written.
@@ -152,7 +151,42 @@ func (g *Gate) Check(ctx context.Context, c *artifact.Change) Report {
 		}
 		ch.run(r)
 	}
+	if why, ok := Closed(c); ok {
+		// A change closed by a person will not be finished: what it still
+		// owed is history, kept as notes, and what it is judged on is that
+		// its record holds — in order, and saying why it was closed.
+		for i, f := range r.findings {
+			if f.Severity == Fail && !slices.Contains(recordRules, f.Rule) {
+				r.findings[i].Severity = Note
+				r.findings[i].Message = "closed, so owed no more: " + f.Message
+			}
+		}
+		if strings.TrimSpace(why) == "" {
+			r.fail("B4", "the change is closed without saying why")
+		}
+	}
 	return Report{Change: c, Findings: r.findings}
+}
+
+// recordRules are the rules a closed change is still held to: its stages
+// in order and its record whole.
+var recordRules = []string{"B1", "B4", "R4"}
+
+// Closed reports whether a person closed the change — the last line of its
+// record says so — and why.
+func Closed(c *artifact.Change) (why string, ok bool) {
+	// The last crossing of the change itself: a migration into the data
+	// model is not one.
+	// The last crossing of the change's own path: a migration into the data
+	// model, or an escalation settled by a decision, is bookkeeping after it.
+	for i := len(c.Meta.Record) - 1; i >= 0; i-- {
+		switch cr := c.Meta.Record[i]; cr.Stage {
+		case "migrated", "settled":
+		default:
+			return cr.Note, cr.Stage == "closed"
+		}
+	}
+	return "", false
 }
 
 // AreaOf is the area of responsibility a rule's check judges the output of,
@@ -179,7 +213,7 @@ func Rules() []string {
 // registry is every check, in the order the rules were written.
 var registry = []check{
 	{"stage order", 0, []string{"B1"}, stageOrder},
-	{"headers present", 0, []string{"B1"}, headersPresent},
+	{"documents read whole", 0, []string{"B1"}, readable},
 	{"criteria vocabulary", 1, []string{"R19"}, criteriaVocabulary},
 	{"evidence plan", 3, []string{"R16", "CONVENTIONS"}, evidencePlan},
 	{"arbiter inputs", 3, []string{"R7b"}, arbiterInputs},
@@ -201,4 +235,5 @@ var registry = []check{
 	{"landing taught", 7, []string{"R21"}, landingTaught},
 	{"verified before entry", 6, []string{"R22"}, verifiedBeforeEntry},
 	{"what was handed is kept", 9, []string{"R23"}, handedKept},
+	{"plan invariants", 2, []string{"R24"}, planInvariants},
 }

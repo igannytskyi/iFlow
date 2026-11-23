@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "name": "trim-name-whitespace",
+  "evidence": [
+    {
+      "id": "EV-002-01-01",
+      "subject": "candidate",
+      "kind": "test-run",
+      "producer": "`test.sh ^(TestGreetTreatsWhitespaceOnlyNameAsAbsent|TestGreetTrimsSurroundingWhitespaceFromName)$`",
+      "independence": "independent-by-precommitment",
+      "how_established": "written by WU-002-01 and failed against the unchanged estate before the change existed — candidates/CA-002-01/failing-before.txt",
+      "repeatable": "yes",
+      "obtained_at": "2026-11-15",
+      "valid_until": "next change to greeting.go"
+    },
+    {
+      "id": "EV-002-02-01",
+      "subject": "candidate",
+      "kind": "test-run",
+      "producer": "`test.sh`",
+      "independence": "independent-by-executor",
+      "how_established": "the estate's own suite, written before this change and outside everything it touched",
+      "repeatable": "yes",
+      "obtained_at": "2026-11-15",
+      "valid_until": "next change to the estate"
+    }
+  ],
+  "verdicts": [
+    {
+      "id": "VE-002-01",
+      "unit": "WU-002-01",
+      "criterion": "CR-002-01",
+      "outcome": "met",
+      "evidence": [
+        "EV-002-01-01"
+      ],
+      "state": "settled"
+    },
+    {
+      "id": "VE-002-02",
+      "unit": "WU-002-01",
+      "criterion": "CR-002-02",
+      "outcome": "met",
+      "evidence": [
+        "EV-002-01-01"
+      ],
+      "state": "settled"
+    },
+    {
+      "id": "VE-002-03",
+      "unit": "WU-002-02",
+      "criterion": "CR-002-01",
+      "outcome": "met",
+      "evidence": [
+        "EV-002-01-01"
+      ],
+      "state": "settled"
+    },
+    {
+      "id": "VE-002-04",
+      "unit": "WU-002-02",
+      "criterion": "CR-002-02",
+      "outcome": "met",
+      "evidence": [
+        "EV-002-01-01"
+      ],
+      "state": "settled"
+    },
+    {
+      "id": "VE-002-05",
+      "unit": "WU-002-02",
+      "criterion": "CR-002-03",
+      "outcome": "met",
+      "evidence": [
+        "EV-002-02-01"
+      ],
+      "state": "settled"
+    }
+  ]
+}

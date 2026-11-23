@@ -9,14 +9,18 @@ import (
 
 	a "github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/estate"
+	"github.com/igannytskyi/iflow/internal/meta"
 )
 
 // entered is every unit the landing says entered.
 func entered(c *a.Change) []string {
+	if c.Meta.Landing == nil {
+		return nil
+	}
 	var out []string
-	for _, row := range c.Doc(a.Landing).Rows("Unit", "Entered at") {
-		if row.Cell("Entered at") != "" {
-			out = append(out, row.Cell("Unit"))
+	for _, e := range c.Meta.Landing.Entries {
+		if e.EnteredAt != "" {
+			out = append(out, e.Unit)
 		}
 	}
 	return distinct(out)
@@ -29,33 +33,33 @@ func landingBacked(r *run) {
 		return
 	}
 	states := map[string]map[string]bool{}
-	for _, row := range r.doc(a.Assurance).Rows("Unit", "State") {
-		u := row.Cell("Unit")
-		if states[u] == nil {
-			states[u] = map[string]bool{}
-		}
-		switch o := row.Cell("Outcome"); o {
-		case "failed", "undecided":
-			states[u][o] = true
-		default:
-			states[u][row.Cell("State")] = true
+	if r.c.Meta.Assurance != nil {
+		for _, v := range r.c.Meta.Assurance.Verdicts {
+			if states[v.Unit] == nil {
+				states[v.Unit] = map[string]bool{}
+			}
+			switch v.Outcome {
+			case meta.Failed, meta.Undecided:
+				states[v.Unit][string(v.Outcome)] = true
+			default:
+				states[v.Unit][string(v.State)] = true
+			}
 		}
 	}
-	for _, row := range r.doc(a.Landing).Rows("Unit", "Entered at") {
-		if row.Cell("Entered at") == "" {
+	for _, e := range r.c.Meta.Landing.Entries {
+		if e.EnteredAt == "" {
 			continue
 		}
-		u := row.Cell("Unit")
-		st, ok := states[u]
+		st, ok := states[e.Unit]
 		switch {
 		case !ok:
-			r.fail("A6", "%s entered with no verdict", orNone(row.Get("Unit")))
+			r.fail("A6", "%s entered with no verdict", or(e.Unit))
 		case st["failed"]:
-			r.fail("A6", "%s entered on a failed verdict", u)
+			r.fail("A6", "%s entered on a failed verdict", e.Unit)
 		case st["undecided"]:
-			r.fail("R10", "%s entered with an undecided criterion — acceptance was not established", u)
-		case row.Cell("Evidence still valid") == "no":
-			r.fail("A6", "%s entered on evidence no longer valid", u)
+			r.fail("R10", "%s entered with an undecided criterion — acceptance was not established", e.Unit)
+		case e.StillValid == "no":
+			r.fail("A6", "%s entered on evidence no longer valid", e.Unit)
 		}
 	}
 }
@@ -76,9 +80,9 @@ func landingTaught(r *run) {
 		return
 	}
 	scopeOf := map[string][]string{}
-	for _, row := range r.doc(a.Plan).Rows("Scope", "Id") {
+	for _, u := range r.c.Meta.Plan.Units {
 		var here []string
-		for _, w := range scopeWords.Split(row.Cell("Scope"), -1) {
+		for _, w := range scopeWords.Split(strings.Join(u.Scope, ", "), -1) {
 			p := strings.Trim(w, " ,")
 			if p == "" {
 				continue
@@ -89,13 +93,17 @@ func landingTaught(r *run) {
 			}
 			// Not a refusal — a scope may name ground this estate does not
 			// hold — but what was not read is said.
-			r.note("R21", "%s is scoped to %s, which names nothing here, so what it reaches is not asked", row.Cell("Id"), p)
+			r.note("R21", "%s is scoped to %s, which names nothing here, so what it reaches is not asked", u.ID, p)
 		}
-		scopeOf[row.Cell("Id")] = here
+		scopeOf[u.ID] = here
 	}
 	touched := map[string][]string{}
-	for _, row := range r.doc(a.Execution).Rows("Stored at", "Unit") {
-		where := filepath.Join(r.c.Dir, row.Cell("Stored at"))
+	var cands []meta.Candidate
+	if r.c.Meta.Execution != nil {
+		cands = r.c.Meta.Execution.Candidates
+	}
+	for _, ca := range cands {
+		where := filepath.Join(r.c.Dir, ca.StoredAt)
 		if !isDir(where) {
 			continue
 		}
@@ -107,7 +115,7 @@ func landingTaught(r *run) {
 			// patch, a note, the output of a run, and none of that is ground
 			// the model could reach or fail to reach.
 			if ok, _ := r.gate.estate.Readable(r.ctx, p); ok {
-				touched[row.Cell("Unit")] = append(touched[row.Cell("Unit")], d.Name())
+				touched[ca.Unit] = append(touched[ca.Unit], d.Name())
 			}
 			return nil
 		})
@@ -161,7 +169,9 @@ func verifiedBeforeEntry(r *run) {
 		return
 	}
 	held := Verified(r.gate.home)
-	if _, ok := held[ArbitersKey(r.gate.home)]; !ok {
+	if _, ok := held[ArbitersKey(r.gate.home)]; !ok && ArbitersRunning(r.gate.home) {
+		r.note("R22", "the arbiters are being run against this framework as it is now; this is checked again when they end")
+	} else if !ok {
 		r.fail("R22", "this entered before the arbiters were run against this framework, so nothing here knows whether what judges it still passes; run `iflow check --arbiters`")
 	}
 	ev := repeatable(r.c)

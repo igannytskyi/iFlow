@@ -16,6 +16,9 @@ import (
 // stand, and the foundations — areas 7 to 13 — that hold for every task
 // rather than for one.
 func (u *UI) projectView(gtx C, p *project) D {
+	if p.foundation != 0 {
+		return u.foundationView(gtx, p)
+	}
 	t := tallyOf(p.ws)
 	active := 0
 	for _, c := range p.order {
@@ -32,6 +35,12 @@ func (u *UI) projectView(gtx C, p *project) D {
 	}
 	body := []W{
 		column(4, u.strong(sizeHead, u.p.Text, p.name), u.mono(sizeSmall, u.p.Faint, p.path)),
+		func(gtx C) D {
+			if a := p.arbiters.Load(); a != nil {
+				return u.text(sizeSmall, u.p.Note, *a)(gtx)
+			}
+			return D{}
+		},
 		u.wrap(8, []W{
 			u.cell(money(t.spent), "spent", u.p.Text),
 			u.cell(tokens(t.tokens), "tokens", u.p.Text),
@@ -73,7 +82,7 @@ func (u *UI) projectView(gtx C, p *project) D {
 	var cards []func(int) W
 	e := p.estate.Load()
 	for _, f := range memo(u.docs, "foundations|"+p.path, func() []foundation { return foundationsOf(p, e) }) {
-		cards = append(cards, u.foundationCard(f))
+		cards = append(cards, u.openable(p, f.n, u.foundationCard(f)))
 	}
 	body = append(body, u.grid(280, 10, cards))
 	body = append(body, u.hairline, u.escalations(p))
@@ -88,7 +97,7 @@ func (u *UI) taskLine(p *project, c *workspace.Change) W {
 		if u.clicked(gtx, btn) {
 			p.show(c.Change.Dir, c)
 		}
-		s := shown{c: c}
+		s := shown{c: c, running: p.at(c.Change.Dir)}
 		for n := 1; n <= 6; n++ {
 			s.status[n] = statusOf(c, n)
 		}
@@ -228,5 +237,18 @@ func (u *UI) grid(minW, gap unit.Dp, cards []func(minH int) W) W {
 			y += tallest + g
 		}
 		return D{Size: image.Pt(total, max(0, y-g))}
+	}
+}
+
+// openable is a card that opens the foundation it sums up.
+func (u *UI) openable(p *project, n int, card func(minH int) W) func(minH int) W {
+	return func(minH int) W {
+		return func(gtx C) D {
+			btn := u.clicks.of(fmt.Sprintf("foundation/open/%s/%d", p.path, n))
+			if u.clicked(gtx, btn) {
+				p.foundation = n
+			}
+			return btn.Layout(gtx, card(minH))
+		}
 	}
 }

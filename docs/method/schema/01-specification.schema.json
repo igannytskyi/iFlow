@@ -1,0 +1,320 @@
+{
+  "$id": "https://github.com/igannytskyi/iflow/docs/method/schema/01-specification.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "arbiter_inputs": {
+      "description": "what the arbiters read, and whether each is in the scope",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "in_scope": {
+            "description": "yes or no, and why",
+            "type": "string"
+          },
+          "input": {
+            "description": "a path an arbiter reads",
+            "type": "string"
+          }
+        },
+        "required": [
+          "input",
+          "in_scope"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "arbiters": {
+      "description": "the paths holding what judges the change",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "arbitrates": {
+            "description": "the criteria it judges",
+            "type": "string"
+          },
+          "path": {
+            "description": "a path, relative to the estate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "arbitrates"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "criteria": {
+      "description": "the acceptance criteria",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "criterion": {
+            "description": "one line, in the vocabulary of the intent, never of the implementation",
+            "type": "string"
+          },
+          "id": {
+            "description": "CR-\u003cnnn\u003e-\u003cnn\u003e",
+            "pattern": "^CR-\\d{3}-\\d{2}$",
+            "type": "string"
+          },
+          "judged_by_new_tests": {
+            "description": "whether tests written for this change, before its code, judge it"
+          },
+          "plan": {
+            "description": "whether settling it needs an evidence plan",
+            "enum": [
+              "required",
+              "not-required"
+            ],
+            "type": "string"
+          },
+          "procedure": {
+            "description": "how the criterion is decided",
+            "enum": [
+              "machine",
+              "human"
+            ],
+            "type": "string"
+          },
+          "required_evidence": {
+            "description": "what kind of evidence settles the criterion",
+            "enum": [
+              "test-run",
+              "static-analysis",
+              "runtime-observation",
+              "human-affirmation",
+              "transformation-proof"
+            ],
+            "type": "string"
+          },
+          "then": {
+            "description": "what must be true",
+            "type": "string"
+          },
+          "threshold": {
+            "description": "the bound a result must meet",
+            "type": "string"
+          },
+          "when": {
+            "description": "the conditions under which it is judged",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "criterion",
+          "procedure",
+          "required_evidence"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "default_class": {
+      "description": "the class a unit of the change has unless the plan gives it another",
+      "enum": [
+        "C1P",
+        "C1T",
+        "C2",
+        "C3",
+        "C4",
+        "C5"
+      ],
+      "type": "string"
+    },
+    "existing_tests": {
+      "description": "the tests already there that judge it",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "id": {
+      "description": "SPEC-\u003cnnn\u003e",
+      "pattern": "^SPEC-\\d{3}$",
+      "type": "string"
+    },
+    "intent": {
+      "description": "the intent it specifies, INT-\u003cnnn\u003e",
+      "type": "string"
+    },
+    "name": {
+      "description": "the change's folder name, its slug",
+      "type": "string"
+    },
+    "new_tests": {
+      "description": "the tests written for this change, before its code",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "prose": {
+      "description": "what the document says besides its fields, for one written before the model held it",
+      "type": "string"
+    },
+    "relies_on": {
+      "description": "the existing names the change builds on, each exactly as the estate declares it",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "description": "the file it is declared in; empty only for one described",
+            "type": "string"
+          },
+          "kind": {
+            "description": "what the code declares it as",
+            "enum": [
+              "function",
+              "method",
+              "type",
+              "field",
+              "variable",
+              "constant",
+              "described"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "the name the other units call it by; empty only for one described",
+            "type": "string"
+          },
+          "of": {
+            "description": "the type a field or method belongs to",
+            "type": "string"
+          },
+          "signature": {
+            "description": "its declaration as the estate's language writes it, or, described, what was said of it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "description": "the version of the data model this was written in",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "scope": {
+      "additionalProperties": false,
+      "description": "what the change may touch, as paths",
+      "properties": {
+        "excluded": {
+          "description": "paths it may not touch, though near",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "included": {
+          "description": "paths the change may touch",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "included"
+      ],
+      "type": "object"
+    },
+    "sections": {
+      "description": "headed parts the model has no field for, kept as they were written",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "tables": {
+            "description": "its tables",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "headers": {
+                  "description": "the column headings",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "rows": {
+                  "description": "the rows, each cell under its heading",
+                  "items": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "headers",
+                "rows"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "text": {
+            "description": "its prose",
+            "type": "string"
+          },
+          "title": {
+            "description": "the heading",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "termination": {
+      "description": "the conditions on which work stops without acceptance",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "stop, or escalate",
+            "type": "string"
+          },
+          "condition": {
+            "description": "the condition",
+            "type": "string"
+          }
+        },
+        "required": [
+          "condition",
+          "action"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "name",
+    "intent",
+    "default_class",
+    "criteria",
+    "termination",
+    "scope",
+    "arbiters"
+  ],
+  "title": "Specification",
+  "type": "object"
+}

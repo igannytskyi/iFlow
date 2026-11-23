@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -40,13 +41,15 @@ func (u Usage) Zero() bool { return u.In() == 0 && u.Output == 0 && u.CostUSD ==
 // Add returns the sum of two usages; the model is kept where both name the
 // same one, and both are named where they differ.
 func (u Usage) Add(o Usage) Usage {
-	m := u.Model
-	switch {
-	case m == "":
-		m = o.Model
-	case o.Model != "" && !strings.Contains(m, o.Model):
-		m += ", " + o.Model
+	// Each model named once, compared whole: one model's name may hold
+	// another's (glm-5.3 and glm-5.3-flash).
+	names := slices.DeleteFunc(strings.Split(u.Model, ", "), func(n string) bool { return n == "" })
+	for _, n := range strings.Split(o.Model, ", ") {
+		if n != "" && !slices.Contains(names, n) {
+			names = append(names, n)
+		}
 	}
+	m := strings.Join(names, ", ")
 	return Usage{m, u.Input + o.Input, u.CacheRead + o.CacheRead, u.CacheWrite + o.CacheWrite, u.Output + o.Output, u.CostUSD + o.CostUSD}
 }
 
@@ -195,6 +198,46 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
+	// Annotations are what the server attached to the answer: the pages a
+	// search it ran found, each cited. They are read, never sent back.
+	Annotations []Annotation `json:"annotations,omitempty"`
+}
+
+// Annotation is one thing a server attached to an answer.
+type Annotation struct {
+	Type string `json:"type"` // url_citation for a page cited
+	// URLCitation is the page, as servers nest it; some write its fields
+	// beside Type instead, and Source reads either.
+	URLCitation *Citation `json:"url_citation,omitempty"`
+	Citation
+}
+
+// Citation is a page an answer cites.
+type Citation struct {
+	URL   string `json:"url,omitempty"`
+	Title string `json:"title,omitempty"`
+}
+
+// Source is the page an annotation cites, if it cites one.
+func (a Annotation) Source() (Citation, bool) {
+	if a.Type != "url_citation" {
+		return Citation{}, false
+	}
+	if a.URLCitation != nil && a.URLCitation.URL != "" {
+		return *a.URLCitation, true
+	}
+	return a.Citation, a.URL != ""
+}
+
+// Sources is every page the annotations cite, each once, in order.
+func Sources(as []Annotation) []Citation {
+	var out []Citation
+	for _, a := range as {
+		if c, ok := a.Source(); ok && !slices.ContainsFunc(out, func(o Citation) bool { return o.URL == c.URL }) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // ToolCall is a model asking for a tool to be run.
@@ -207,15 +250,31 @@ type ToolCall struct {
 	} `json:"function"`
 }
 
-// Tool describes a tool a model may call.
+// Tool describes a tool a model may call: a function the caller runs, or,
+// of a type the server names, one the server runs itself.
 type Tool struct {
 	Type     string `json:"type"`
 	Function struct {
 		Name        string          `json:"name"`
 		Description string          `json:"description"`
 		Parameters  json.RawMessage `json:"parameters"`
-	} `json:"function"`
+	} `json:"function,omitzero"`
+	// Parameters configure a tool the server runs.
+	Parameters map[string]any `json:"parameters,omitempty"`
 }
+
+// WebSearch is OpenRouter's search of the web, run by the server: native
+// search for the models that have it, Exa's for the rest. What it finds
+// comes back as the answer's annotations.
+func WebSearch() Tool {
+	return Tool{Type: "openrouter:web_search", Parameters: map[string]any{"max_results": 5}}
+}
+
+// served says whether a tool is one the server runs.
+func (t Tool) served() bool { return strings.HasPrefix(t.Type, "openrouter:") }
+
+// Searches says whether the server can search the web for this model.
+func (o OpenAI) Searches() bool { return o.openRouter() }
 
 // Ask implements Model.
 func (o OpenAI) Ask(ctx context.Context, system, prompt string) (string, Usage, error) {
@@ -238,12 +297,70 @@ func (o OpenAI) Chat(ctx context.Context, msgs []Message, tools []Tool) (Message
 }
 
 func (o OpenAI) chat(ctx context.Context, msgs []Message, tools []Tool, format map[string]any) (Message, Usage, error) {
+	body, err := o.body(msgs, tools, format, false)
+	if err != nil {
+		return Message{}, Usage{}, err
+	}
+	raw, err := o.post(ctx, body)
+	if err != nil {
+		return Message{}, Usage{}, err
+	}
+	var r struct {
+		Choices []struct {
+			Message Message `json:"message"`
+		} `json:"choices"`
+		Model string `json:"model"`
+		Usage served `json:"usage"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return Message{}, Usage{}, fmt.Errorf("model: unreadable answer: %w", err)
+	}
+	if len(r.Choices) == 0 {
+		return Message{}, Usage{}, errors.New("model: the answer held no choice")
+	}
+	return r.Choices[0].Message, o.usage(r.Usage), nil
+}
+
+// served is what a server says an answer used.
+type served struct {
+	Prompt     int      `json:"prompt_tokens"`
+	Completion int      `json:"completion_tokens"`
+	Cost       *float64 `json:"cost"`
+	Details    struct {
+		Cached int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+	CacheHit int `json:"prompt_cache_hit_tokens"` // DeepSeek's own name for it
+}
+
+// usage is what an answer cost: as the server says, or by the price given.
+func (o OpenAI) usage(s served) Usage {
+	cached := max(s.Details.Cached, s.CacheHit)
+	u := Usage{Model: o.Name(), Input: s.Prompt - cached, CacheRead: cached, Output: s.Completion}
+	if s.Cost != nil {
+		u.CostUSD = *s.Cost
+	} else {
+		u.CostUSD = (float64(u.Input)*o.Price.In + float64(cached)*o.Price.Cached + float64(u.Output)*o.Price.Out) / 1e6
+	}
+	return u
+}
+
+// body is a request for the model's next turn.
+func (o OpenAI) body(msgs []Message, tools []Tool, format map[string]any, stream bool) ([]byte, error) {
 	req := map[string]any{"model": o.Model, "messages": msgs, "max_tokens": cmp.Or(o.MaxTokens, 32000)}
 	if format != nil {
 		req["response_format"] = format
 	}
+	if !o.openRouter() {
+		// A tool only OpenRouter runs is not offered to a server that would
+		// not run it.
+		tools = slices.DeleteFunc(slices.Clone(tools), Tool.served)
+	}
 	if len(tools) > 0 {
 		req["tools"] = tools
+	}
+	if stream {
+		req["stream"] = true
+		req["stream_options"] = map[string]any{"include_usage": true}
 	}
 	if o.openRouter() {
 		// OpenRouter says what an answer cost when asked to account for it.
@@ -254,63 +371,90 @@ func (o OpenAI) chat(ctx context.Context, msgs []Message, tools []Tool, format m
 	} else if o.Effort != "" {
 		req["reasoning_effort"] = o.Effort
 	}
-	body, err := json.Marshal(req)
+	return json.Marshal(req)
+}
+
+// retries is how many times a request a server turned away for now — too
+// many requests, overloaded, a gateway that timed out — is sent again.
+const retries = 5
+
+// post sends a request, again after a pause where the server says to try
+// later, and returns the body of the answer.
+func (o OpenAI) post(ctx context.Context, body []byte) ([]byte, error) {
+	resp, err := o.send(ctx, body)
 	if err != nil {
-		return Message{}, Usage{}, err
+		return nil, err
 	}
-	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(o.BaseURL, "/")+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return Message{}, Usage{}, err
-	}
-	hr.Header.Set("Content-Type", "application/json")
-	if o.Key != "" {
-		hr.Header.Set("Authorization", "Bearer "+o.Key)
-	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
+// send sends a request, again after a pause where the server says to try
+// later, and returns the answer whose body is still to be read.
+func (o OpenAI) send(ctx context.Context, body []byte) (*http.Response, error) {
 	client := o.Client
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Minute}
 	}
-	resp, err := client.Do(hr)
-	if err != nil {
-		return Message{}, Usage{}, fmt.Errorf("model: %s: %w", o.BaseURL, err)
+	for attempt := 0; ; attempt++ {
+		hr, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(o.BaseURL, "/")+"/chat/completions", bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		hr.Header.Set("Content-Type", "application/json")
+		if o.Key != "" {
+			hr.Header.Set("Authorization", "Bearer "+o.Key)
+		}
+		resp, err := client.Do(hr)
+		if err != nil {
+			if ctx.Err() == nil && attempt < retries {
+				if wait(ctx, backoff(attempt, "")) == nil {
+					continue
+				}
+			}
+			return nil, fmt.Errorf("model: %s: %w", o.BaseURL, err)
+		}
+		if resp.StatusCode/100 == 2 {
+			return resp, nil
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if again(resp.StatusCode) && attempt < retries {
+			if wait(ctx, backoff(attempt, resp.Header.Get("Retry-After"))) == nil {
+				continue
+			}
+		}
+		return nil, fmt.Errorf("model: %s answered %s: %s", o.BaseURL, resp.Status, strings.TrimSpace(string(raw)))
 	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return Message{}, Usage{}, err
+}
+
+// again says whether a status means: not now, later.
+func again(status int) bool {
+	switch status {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
+		return true
 	}
-	if resp.StatusCode/100 != 2 {
-		return Message{}, Usage{}, fmt.Errorf("model: %s answered %s: %s", o.BaseURL, resp.Status, strings.TrimSpace(string(raw)))
+	return false
+}
+
+// backoff is how long to wait before an attempt: what the server asked,
+// or two, four, eight… seconds, never more than a minute.
+func backoff(attempt int, retryAfter string) time.Duration {
+	if s, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && s > 0 {
+		return min(time.Duration(s)*time.Second, time.Minute)
 	}
-	var r struct {
-		Choices []struct {
-			Message Message `json:"message"`
-		} `json:"choices"`
-		Model string `json:"model"`
-		Usage struct {
-			Prompt     int      `json:"prompt_tokens"`
-			Completion int      `json:"completion_tokens"`
-			Cost       *float64 `json:"cost"`
-			Details    struct {
-				Cached int `json:"cached_tokens"`
-			} `json:"prompt_tokens_details"`
-			CacheHit int `json:"prompt_cache_hit_tokens"` // DeepSeek's own name for it
-		} `json:"usage"`
+	return min(time.Duration(2<<attempt)*time.Second, time.Minute)
+}
+
+func wait(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
 	}
-	if err := json.Unmarshal(raw, &r); err != nil {
-		return Message{}, Usage{}, fmt.Errorf("model: unreadable answer: %w", err)
-	}
-	if len(r.Choices) == 0 {
-		return Message{}, Usage{}, errors.New("model: the answer held no choice")
-	}
-	cached := max(r.Usage.Details.Cached, r.Usage.CacheHit)
-	u := Usage{Model: o.Name(), Input: r.Usage.Prompt - cached, CacheRead: cached, Output: r.Usage.Completion}
-	if r.Usage.Cost != nil {
-		u.CostUSD = *r.Usage.Cost
-	} else {
-		u.CostUSD = (float64(u.Input)*o.Price.In + float64(cached)*o.Price.Cached + float64(u.Output)*o.Price.Out) / 1e6
-	}
-	return r.Choices[0].Message, u, nil
 }
 
 // JSON extracts the first JSON object or array from a model's answer, which

@@ -3,10 +3,10 @@ package ui
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"slices"
 
 	"github.com/igannytskyi/iflow/internal/fsx"
+	"github.com/igannytskyi/iflow/internal/home"
 )
 
 // settings is what the workbench remembers between sessions: the projects a
@@ -27,12 +27,10 @@ type settings struct {
 }
 
 func loadSettings() *settings {
-	s := &settings{Widths: map[string]float32{}}
-	dir, err := os.UserConfigDir()
-	if err != nil {
+	s := &settings{Widths: map[string]float32{}, path: home.DeskFile()}
+	if s.path == "" {
 		return s
 	}
-	s.path = filepath.Join(dir, "iflow", "desk.json")
 	if b, err := os.ReadFile(s.path); err == nil {
 		_ = json.Unmarshal(b, s)
 	}
