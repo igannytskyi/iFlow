@@ -443,4 +443,3 @@ func lay(estate, repo, commit string) error {
 	}
 	return untar.Wait()
 }
-
