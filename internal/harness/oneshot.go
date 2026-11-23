@@ -64,6 +64,7 @@ Then, last, one line:
 
 If the unit cannot be done as it is asked — something it relies on does not exist, or what it must change is outside what you may change — write no file, only:
 === CANNOT: <why, in one sentence>
+=== FILES: <the files that keep it from being done, comma-separated: a test written before you, a file outside what you may change that must change>
 
 Write only files you are allowed to change. Write nothing outside these blocks.`
 
@@ -232,7 +233,7 @@ func (o Oneshot) Run(ctx context.Context, t Task, emit func(Event)) (Result, err
 			break
 		}
 		if why, ok := cannot(answer); ok {
-			res.Terminal, res.Summary, res.Cannot = FailedTask, why, why
+			res.Terminal, res.Summary, res.Cannot, res.Blames = FailedTask, why, why, cannotFiles(answer)
 			break
 		}
 		files, summary := parseFiles(answer)
@@ -419,4 +420,20 @@ func cannot(answer string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// cannotFiles is the files an agent names as keeping its unit from being
+// done, where it says it cannot be.
+func cannotFiles(answer string) []string {
+	var out []string
+	for _, l := range strings.Split(answer, "\n") {
+		if list, ok := strings.CutPrefix(strings.TrimSpace(l), "=== FILES:"); ok {
+			for _, f := range strings.Split(list, ",") {
+				if f = strings.Trim(strings.TrimSpace(f), "`"); f != "" {
+					out = append(out, f)
+				}
+			}
+		}
+	}
+	return out
 }

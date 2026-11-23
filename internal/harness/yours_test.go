@@ -60,3 +60,14 @@ func TestOldAnswersAreCutOnlyBeyondTheTurnsBound(t *testing.T) {
 		t.Errorf("a turn of about 128k tokens came to %d, with %d answers cut", size, cut)
 	}
 }
+
+// A one-shot agent that cannot do its unit names the files why.
+func TestAOneShotCannotNamesItsFiles(t *testing.T) {
+	answer := "=== CANNOT: the hook lives in remote.go\n=== FILES: internal/ui/remote.go, `internal/ui/feed_test.go`\n"
+	if why, ok := cannot(answer); !ok || why != "the hook lives in remote.go" {
+		t.Errorf("cannot was not read: %q", why)
+	}
+	if got := cannotFiles(answer); len(got) != 2 || got[0] != "internal/ui/remote.go" || got[1] != "internal/ui/feed_test.go" {
+		t.Errorf("the files were not read: %q", got)
+	}
+}

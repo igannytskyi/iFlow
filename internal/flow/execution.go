@@ -455,8 +455,34 @@ func (r *Run) failingTestFiles(out string) []string {
 				break
 			}
 		}
+		// A test that panics, or a goroutine it started, may fail with no
+		// test named; its trace names the file, as the copy it ran in
+		// holds it: by its path in the estate, at the end of that.
+		if !slices.ContainsFunc(u.scope, func(f string) bool { return slices.Contains(files, f) }) {
+			for _, f := range u.scope {
+				if namesFile(out, f) {
+					files = append(files, f)
+				}
+			}
+		}
 	}
 	return files
+}
+
+// namesFile says whether out names file, a path in the estate, at a line:
+// as it is, or at the end of the path of the copy it ran in.
+func namesFile(out, file string) bool {
+	for at := 0; ; {
+		i := strings.Index(out[at:], file+":")
+		if i < 0 {
+			return false
+		}
+		i += at
+		if i == 0 || strings.ContainsRune(" \t\n/(", rune(out[i-1])) {
+			return true
+		}
+		at = i + 1
+	}
 }
 
 // specDecisions is what the specification of the change in dir decides that

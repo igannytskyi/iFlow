@@ -58,7 +58,8 @@ const (
 
 // dependencies is, for every unit, the units it waits for: the contract
 // first; the tests on the contract; a code unit on the contract, the
-// tests, and the unit before it in its chain; the last unit on all.
+// tests, the unit before it in its chain, and every earlier code unit
+// whose files it reads or whose names it calls; the last unit on all.
 func (r *Run) dependencies() [][]int {
 	deps := make([][]int, len(r.units))
 	var contract, tests []int
@@ -81,6 +82,22 @@ func (r *Run) dependencies() [][]int {
 	for _, chain := range r.chains(first, last) {
 		for k := 1; k < len(chain); k++ {
 			deps[chain[k]] = append(deps[chain[k]], chain[k-1])
+		}
+	}
+	// A code unit that reads a file an earlier one writes, or calls a name
+	// it gives, waits for it: the contract declares the name, but only the
+	// earlier unit's candidate gives it behaviour, and the tests the later
+	// unit must pass ask for that behaviour.
+	for i := first; i < last; i++ {
+		for j := first; j < i; j++ {
+			if slices.Contains(deps[i], j) {
+				continue
+			}
+			reads := slices.ContainsFunc(r.units[i].reads, func(f string) bool { return slices.Contains(r.units[j].scope, f) })
+			uses := slices.ContainsFunc(r.units[i].uses, func(n string) bool { return slices.Contains(r.units[j].names(), n) })
+			if reads || uses {
+				deps[i] = append(deps[i], j)
+			}
 		}
 	}
 	if last >= first {
@@ -291,7 +308,10 @@ func (s *scheduler) outcomeOf(i int, f finished) (outcome, int) {
 	if j := s.r.blamed(f.carried, s.results); j >= 0 {
 		return outTestsWrong, j
 	}
-	if f.carried.res.Cannot != "" && !s.r.back[2] {
+	// A unit that cannot be done goes back to the step at fault while that
+	// step has not been gone back to: the specification, where what must
+	// change is outside its scope; the plan, where not.
+	if c := f.carried.res; c.Cannot != "" && (!s.r.back[2] || (!s.r.back[1] && len(s.r.outsideScope(c.Blames)) > 0)) {
 		return outCannot, -1
 	}
 	return outFailed, -1

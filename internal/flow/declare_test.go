@@ -194,3 +194,15 @@ func TestGoDeclarationsImportWhatTheyName(t *testing.T) {
 	}
 	run(t, dir, "go", "build", "./...")
 }
+
+// A test that panics names its file in its trace, as the copy it ran in
+// holds it: that is the file blamed, not a file of a like name.
+func TestAPanickingTestNamesItsFile(t *testing.T) {
+	out := "panic: runtime error\n\ngoroutine 7 [running]:\ngithub.com/x/ui.feed()\n\t/private/var/folders/T/iflow-ws-1/internal/ui/feed_test.go:61 +0xc4\n"
+	if !namesFile(out, "internal/ui/feed_test.go") {
+		t.Error("the panicking test's file was not seen in its trace")
+	}
+	if namesFile(out, "ui/feed_test.go2") || namesFile("xinternal/ui/feed_test.go:3", "internal/ui/feed_test.go") {
+		t.Error("a file was seen in a path that is not its own")
+	}
+}
