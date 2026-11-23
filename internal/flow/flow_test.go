@@ -902,6 +902,59 @@ func TestAUnitThatCannotBeDoneIsPlannedAgain(t *testing.T) {
 	}
 }
 
+// saysOutside says, the first time it is handed the code unit, that it
+// cannot be done unless a file outside the specification's scope changes.
+type saysOutside struct {
+	stubExecutor
+	said *bool
+}
+
+func (s saysOutside) Run(ctx context.Context, t harness.Task, emit func(harness.Event)) (harness.Result, error) {
+	if !*s.said && !strings.HasSuffix(t.Scope[0], "_test.go") {
+		*s.said = true
+		why := "the shout must be bound in main.go, outside my scope"
+		return harness.Result{Terminal: harness.FailedTask, Summary: why, Cannot: why, Blames: []string{"main.go", "greet.go"}}, nil
+	}
+	return s.stubExecutor.Run(ctx, t, emit)
+}
+
+// A unit that cannot be done because what must change lies outside the
+// specification's scope sends the change back to its author, not to its
+// planner: no plan can mend a scope.
+func TestAUnitNeedingAFileOutsideTheScopeSendsTheSpecificationBack(t *testing.T) {
+	repo := estateFixture(t)
+	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package greet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	est := estate.NewLocal()
+	said := false
+	var prompts []string
+	cfg := Config{Model: stubModel{spec, &prompts}, Estate: est, Gate: gate.New(est), Person: "a test",
+		Executor: saysOutside{stubExecutor{files: map[string]string{
+			"shout_test.go": "package greet\n\nimport \"testing\"\n\nfunc TestShout(t *testing.T) {\n\tif Shout(\"a\") != \"HELLO, A\" {\n\t\tt.Fatal()\n\t}\n}\n",
+			"greet.go":      "package greet\n\nimport \"strings\"\n\nfunc Greet(n string) string { return \"Hello, \" + n }\n\nfunc Shout(n string) string { return strings.ToUpper(Greet(n)) }\n",
+		}}, &said}}
+	var run *Run
+	run = New(cfg, repo, "make it possible to shout the greeting", func() {
+		if v := run.View(); v.Question != "" {
+			go run.Accept()
+		}
+	})
+	_ = run.Start(context.Background())
+	back := false
+	for _, p := range prompts {
+		if strings.Contains(p, "# Your previous specification") && strings.Contains(p, "it needs main.go changed, which the specification's scope does not hold") {
+			back = true
+		}
+	}
+	if !back {
+		for _, s := range run.View().Steps {
+			t.Logf("%d %s", s.Area, s.Text)
+		}
+		t.Error("the author was not handed the file outside the scope")
+	}
+}
+
 // What only a person can see is affirmed by the person reading the finished
 // change: no test is written for it, and the assurance asks. An affirmation
 // lands the change; a refusal carries it again with what the person said,
@@ -1794,6 +1847,24 @@ func TestANameProvidedIsANewName(t *testing.T) {
 	if why := r.providedAlready(unit{provides: []meta.Provision{{File: "greet.go", Name: "Shout", Kind: meta.Function, Signature: "func Shout(n string) string"}, {File: "new.go", Name: "New", Kind: meta.Function, Signature: "func New()"}}}); why != "" {
 		t.Errorf("new names were sent back: %q", why)
 	}
+	// In Go a name is its package's: a method may not take the name of a
+	// field of its type declared in another file, nor a function a name
+	// another file holds; a method of another type may.
+	if err := os.WriteFile(filepath.Join(repo, "ui.go"), []byte("package greet\n\ntype UI struct{ runOf func() int }\n\nfunc (u *UI) Draw() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []meta.Provision{
+		{File: "new.go", Name: "runOf", Kind: meta.Method, Of: "*UI", Signature: "func (u *UI) runOf() int"},
+		{File: "new.go", Name: "Draw", Kind: meta.Method, Of: "greet.UI", Signature: "func (u *UI) Draw()"},
+		{File: "new.go", Name: "UI", Kind: meta.TypeDecl, Signature: "type UI int"},
+	} {
+		if why := r.providedAlready(unit{provides: []meta.Provision{p}}); !strings.Contains(why, "ui.go declares already in the same package") {
+			t.Errorf("%s, held by its package, passed: %q", p.Name, why)
+		}
+	}
+	if why := r.providedAlready(unit{provides: []meta.Provision{{File: "new.go", Name: "Draw", Kind: meta.Method, Of: "Other", Signature: "func (o Other) Draw()"}}}); why != "" {
+		t.Errorf("a method of another type was sent back: %q", why)
+	}
 }
 
 // What a Go file declares is its package's: a parameter, a result, a
@@ -1882,27 +1953,29 @@ func TestAPlanLeavingACriterionIsSentBack(t *testing.T) {
 }
 
 // What a specification relies on that exists is held to the estate's own
-// declaration: a signature the author made up goes back with the real one.
+// declaration: the author names it, the framework copies the declaration.
 func TestWhatTheSpecificationReliesOnIsAsDeclared(t *testing.T) {
 	repo := estateFixture(t)
 	r := &Run{repo: repo, cfg: Config{Estate: estate.NewLocal()}}
-	greet := func(sig string) []meta.Provision {
-		return []meta.Provision{{File: "greet.go", Name: "Greet", Kind: meta.Function, Signature: sig}}
-	}
-	if why := r.reliesProblem(greet("func Greet(n string) string")); why != "" {
-		t.Errorf("the estate's own declaration was refused: %s", why)
-	}
-	why := r.reliesProblem(greet("func Greet(n ...string) string"))
-	if !strings.Contains(why, `declares it "func Greet(n string) string"`) {
-		t.Errorf("a made-up signature was not sent back with the declaration: %q", why)
-	}
-	for _, name := range []string{"greet.Greet", "Greeter.Greet"} {
-		if why := r.reliesProblem([]meta.Provision{{File: "greet.go", Name: name, Kind: meta.Function, Signature: "func Greet(n string) string"}}); why != "" {
-			t.Errorf("%s, named by its package or its type, was refused: %s", name, why)
+	for _, p := range []meta.Provision{
+		{File: "greet.go", Name: "Greet", Kind: meta.Function},
+		{File: "greet.go", Name: "Greet", Kind: meta.Function, Signature: "func Greet(n ...string) string"},
+		{File: "greet.go", Name: "greet.Greet", Kind: meta.Function},
+		{File: "greet.go", Name: "Greeter.Greet", Kind: meta.Function},
+	} {
+		got, why := r.relied([]meta.Provision{p})
+		if why != "" || len(got) != 1 || got[0].Signature != "func Greet(n string) string" {
+			t.Errorf("%s %q was not taken with the estate's declaration: %v %q", p.Name, p.Signature, got, why)
 		}
 	}
-	if why := r.reliesProblem([]meta.Provision{{File: "greet.go", Name: "Shout", Kind: meta.Function, Signature: "func Shout(n string) string"}}); !strings.Contains(why, "does not declare") {
+	if _, why := r.relied([]meta.Provision{{File: "greet.go", Name: "Shout", Kind: meta.Function}}); !strings.Contains(why, "does not declare") {
 		t.Errorf("a name the estate does not declare was relied on: %q", why)
+	}
+	if c, why := chosen([]string{"func (a A) Model() int", "func (b *B) Model() string"}, "", "B"); c != "func (b *B) Model() string" || why != "" {
+		t.Errorf("of did not choose between two methods of one name: %q %q", c, why)
+	}
+	if _, why := chosen([]string{"func (a A) Model() int", "func (b *B) Model() string"}, "", ""); why == "" {
+		t.Error("two declarations of one name were chosen between without the author saying which")
 	}
 	for _, c := range []struct {
 		line, sig string

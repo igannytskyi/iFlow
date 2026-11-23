@@ -243,7 +243,7 @@ var tools = []tool{
 			return "edited" + how + "; now:\n" + around(out, a["new"]) + w.builds(rel), nil
 		}, true},
 	{"cannot", "Say that the unit cannot be done as it is asked, and why: something it relies on does not exist, what it must change is outside its scope, it asks for what the estate cannot do. The unit goes back to be planned again with your reason. Say it as soon as you know — not after trying everything.",
-		`{"type":"object","properties":{"why":{"type":"string"},"files":{"type":"array","items":{"type":"string"},"description":"the files that keep it from being done, where they are files: a test written before you, a file outside your scope"}},"required":["why"]}`,
+		`{"type":"object","properties":{"why":{"type":"string"},"files":{"type":"array","items":{"type":"string"},"description":"the files that keep it from being done, where they are files: a test written before you, a file outside your scope that must change — such a file sends the change back to its specification, whose scope it is"}},"required":["why"]}`,
 		func(w *workspace, a map[string]string) (string, error) {
 			var files []string
 			for _, f := range strings.Split(a["files"], "\n") {

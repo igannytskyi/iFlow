@@ -5,7 +5,7 @@
 A change moves left to right, and each step only narrows what the one before it decided:
 
 1. **Intent.** The person says what they want, loosely.
-2. **Specification.** An author turns it into a specification. To write it, the author is handed the project's present state and what the project is for as a whole, not only the task: the estate's files and names, where the task's words land, the project's own README and AGENTS.md, and the person's earlier decisions. Every existing name it builds on it states exactly as the estate declares it (`relies_on`); one stated otherwise goes back to the author with the declaration. A reviewer checks the specification, then the person accepts it.
+2. **Specification.** An author turns it into a specification. To write it, the author is handed the project's present state and what the project is for as a whole, not only the task: the estate's files and names, where the task's words land, the project's own README and AGENTS.md, and the person's earlier decisions. Every existing name it builds on it names (`relies_on`), and the framework writes beside it the declaration the estate holds; a name the estate does not declare there goes back to the author. A reviewer checks the specification, then the person accepts it.
 3. **Plan.** A planner divides the specification into units. Every unit serves criteria the specification already states. A unit invents nothing: it carries out a decision or checks one.
 4. **Execution.** Agents carry the units, each in its own copy of the estate.
 5. **Assurance.** The result is judged against the criteria, by tests written before the code and by the person where only a person can see.
@@ -68,7 +68,7 @@ What comes of each carrying is one outcome, and the outcome decides what happens
 | contract acts — the tests pass only with the contract | contract and tests carried again, once; it cannot happen where the framework declares the contract |
 | the contract cannot be declared as the plan states it | the plan goes back to its planner, with why, once |
 | tests wrong — a code unit blames a test file | that tests unit and the blaming unit carried again, once; wrong again, the specification goes back to its author with why, once, and the person accepts it again |
-| cannot — the unit cannot be done as planned | the plan goes back to its planner, once |
+| cannot — the unit cannot be done as planned | the plan goes back to its planner, once; where what must change is a file outside the specification's scope, the specification goes back to its author, once |
 | failed | area 4 stops and says why; the change can be resumed |
 
 Every reason to carry a unit again has a bound, so area 4 always ends. Where a bound is reached because what a unit was built from is at fault, the change goes back to the step that decided it — the specification or the plan — handed what it decided and why a later step could not build on it, once a run for each; it is not mended where it failed.

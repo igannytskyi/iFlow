@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,10 +96,10 @@ Rules you must follow:
 - Every entry of "scope", "new_tests" and "existing_tests" is the path of a file and nothing else — "test_greeting.py", never "test_greeting.py::GreetTest" or a path with words after it.
 - Keep the change to what a few agents, each with one unit, can carry out. If the task is larger, specify its first coherent part — one that is worth landing alone — and list in "later" the rest, each written as a task of its own, in the order they should come.
 - "existing_tests" lists the estate's existing test files that judge that nothing else moves.
-- "relies_on" lists every name that exists already and the change calls, changes or builds on, each as {"file", "name", "kind": one of function, method, type, field, variable, constant, "signature": its declaration copied exactly as the estate declares it}. You are shown how the names near the task are declared; one you are not shown, you do not guess — leave it out or say in "open_questions" what is unknown. Every other part of the specification states these names as declared here: a decision about an existing name never contradicts its declaration.
+- "relies_on" lists every name that exists already and the change calls, changes or builds on, each as {"file" it is declared in, "name", "kind": one of function, method, type, field, variable, constant, "of": the type a method or field belongs to}. The framework writes each one's declaration from the estate; you do not copy it. You are shown how the names near the task are declared; one you are not shown, you do not guess — leave it out or say in "open_questions" what is unknown. Every other part of the specification states these names as declared here: a decision about an existing name never contradicts its declaration.
 - "slug" is a few lowercase words joined by hyphens.
 
-The JSON object has exactly these keys: slug, name, statement, class, prose, document (the keys above), later, criteria (criterion, when, then, plan, threshold, judged_by_new_tests, procedure), relies_on (file, name, kind, signature), scope, new_tests, existing_tests, termination (condition, action: stop or escalate).`
+The JSON object has exactly these keys: slug, name, statement, class, prose, document (the keys above), later, criteria (criterion, when, then, plan, threshold, judged_by_new_tests, procedure), relies_on (file, name, kind, of), scope, new_tests, existing_tests, termination (condition, action: stop or escalate).`
 
 // overview is what a model is shown of the estate to state a change: every
 // source file and the names it defines, where the words of the task land,
@@ -120,7 +121,7 @@ func (r *Run) overview() string {
 			names = append(names, l.Names...)
 		}
 		if decl := r.declarations(names, 40); len(decl) > 0 {
-			b.WriteString("\nHow those names are declared, exactly — what \"relies_on\" copies:\n\n" + strings.Join(decl, "\n") + "\n")
+			b.WriteString("\nHow those names are declared:\n\n" + strings.Join(decl, "\n") + "\n")
 		}
 		b.WriteString("\n")
 	}
@@ -358,7 +359,7 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 		}
 		why := d.problem()
 		if why == "" {
-			why = r.reliesProblem(d.Relies)
+			d.Relies, why = r.relied(d.Relies)
 		}
 		if why != "" {
 			// The author is handed what it wrote and exactly what breaks, to
@@ -630,20 +631,25 @@ func (r *Run) declarations(names []string, n int) []string {
 	return out
 }
 
-// reliesProblem says where what a specification relies on is not what the
-// estate declares: a name its file does not declare, or a signature not
-// the declaration's — with the declaration, so that the author copies it.
-func (r *Run) reliesProblem(relies []meta.Provision) string {
+// relied is what a specification relies on, each name with the declaration
+// the estate holds for it — the framework copies it, the author only names
+// it — or why one cannot be: a name its file does not declare, or one its
+// file declares more than once and the author's words do not choose.
+func (r *Run) relied(relies []meta.Provision) ([]meta.Provision, string) {
 	repo := r.cfg.Estate.Repo(r.repo)
+	out := make([]meta.Provision, 0, len(relies))
 	for _, p := range relies {
-		if p.Name == "" || p.File == "" || p.Signature == "" || !meta.Allowed("DeclKind", string(p.Kind)) || p.Kind == meta.Described {
-			return fmt.Sprintf("relies_on holds %q without its file, name, kind and signature", p.Name+p.Signature)
+		if p.Name == "" || p.File == "" || !meta.Allowed("DeclKind", string(p.Kind)) || p.Kind == meta.Described {
+			return nil, fmt.Sprintf("relies_on holds %q without its file, name and kind", p.Name+p.Signature)
 		}
 		// A method or field may be named by its type, Config.Model, or its
 		// package, models.Config: the estate knows it by its own name.
-		name := p.Name
-		if _, base, ok := cutLast(name, "."); ok {
+		name, of := p.Name, p.Of
+		if q, base, ok := cutLast(name, "."); ok {
 			name = base
+			if of == "" {
+				of = q
+			}
 		}
 		places, _ := repo.WhereDefined(name)
 		var lines []string
@@ -652,22 +658,54 @@ func (r *Run) reliesProblem(relies []meta.Provision) string {
 				continue
 			}
 			if ex := repo.Excerpt(pl.File, pl.Start, pl.Start, 1); len(ex) == 1 {
-				if declares(ex[0].Text, p.Signature) {
-					lines = nil
-					break
-				}
 				lines = append(lines, estate.Signature(ex[0].Text))
 			}
 		}
+		line, why := chosen(lines, p.Signature, of)
 		switch {
-		case len(places) == 0 || (len(lines) == 0 && !slices.ContainsFunc(places, func(pl estate.Place) bool { return pl.File == p.File })):
-			return fmt.Sprintf("relies_on names %s in %s, which the estate does not declare there; a name the change adds is not relied on, and one that exists is relied on where it is", p.Name, p.File)
-		case len(lines) > 0:
-			return fmt.Sprintf("relies_on states %s as %q, but %s declares it %q; copy the declaration exactly, and decide nothing about %s that contradicts it",
-				p.Name, p.Signature, p.File, lines[0], p.Name)
+		case len(lines) == 0:
+			return nil, fmt.Sprintf("relies_on names %s in %s, which the estate does not declare there; a name the change adds is not relied on, and one that exists is relied on where it is", p.Name, p.File)
+		case why != "":
+			return nil, fmt.Sprintf("relies_on names %s in %s, which declares %s: %s", p.Name, p.File, strings.Join(quoted(lines), " and "), why)
+		}
+		p.Signature = line
+		out = append(out, p)
+	}
+	return out, ""
+}
+
+// chosen is the one of lines, a file's declarations of one name, that the
+// author means: the only one, the one its signature states, or the one of
+// the type it names.
+func chosen(lines []string, signature, of string) (string, string) {
+	if len(lines) == 1 {
+		return lines[0], ""
+	}
+	for _, l := range lines {
+		if signature != "" && declares(l, signature) {
+			return l, ""
 		}
 	}
-	return ""
+	if of != "" {
+		var mine []string
+		for _, l := range lines {
+			if strings.Contains(l, " "+of+")") || strings.Contains(l, "*"+of+")") || strings.Contains(l, "class "+of) {
+				mine = append(mine, l)
+			}
+		}
+		if len(mine) == 1 {
+			return mine[0], ""
+		}
+	}
+	return "", "name the type it belongs to in \"of\""
+}
+
+func quoted(lines []string) []string {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = strconv.Quote(l)
+	}
+	return out
 }
 
 // declares says whether line, a declaration's first line, declares what

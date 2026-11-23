@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path"
 	"path/filepath"
@@ -102,6 +105,14 @@ type ticket struct {
 // its tasks', and a contract that declared it again would break its users.
 func (r *Run) providedAlready(u unit) string {
 	for _, p := range u.provides {
+		if filepath.Ext(p.File) == ".go" {
+			// In Go a name is its package's, not its file's: a top-level
+			// name once a package, a field or method once a type.
+			if at := goTaken(filepath.Join(r.repo, filepath.FromSlash(path.Dir(p.File))), p); at != "" {
+				return fmt.Sprintf("it provides %s, which %s declares already in the same package — provides names only what the unit adds, under a name its package does not hold; what it changes of what exists belongs in its tasks", provisionName(p), path.Join(path.Dir(p.File), at))
+			}
+			continue
+		}
 		src, err := os.ReadFile(filepath.Join(r.repo, filepath.FromSlash(p.File)))
 		if err != nil {
 			continue // a file the unit creates
@@ -736,4 +747,96 @@ func splitIDs(s string) []string {
 // its first line.
 func (r *Run) signatures() string {
 	return r.cfg.Estate.Repo(r.repo).Signatures(append(slices.Clone(r.spec.Scope), r.spec.NewTests...), r.cfg.packBudget()/2)
+}
+
+// provisionName is a provision's name as its package knows it: a field or
+// method by its type.
+func provisionName(p meta.Provision) string {
+	if p.Of != "" {
+		return bareType(p.Of) + "." + p.Name
+	}
+	return p.Name
+}
+
+// bareType is a type named by its package or as a pointer, as its own
+// package names it.
+func bareType(of string) string {
+	of = strings.TrimLeft(strings.TrimSpace(of), "*")
+	if _, base, ok := cutLast(of, "."); ok {
+		return base
+	}
+	return of
+}
+
+// goTaken is the file of the Go package in dir that already holds the name
+// p would declare — a top-level name, or a field or method of its type —
+// or "" where none does.
+func goTaken(dir string, p meta.Provision) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	of := bareType(p.Of)
+	member := (p.Kind == meta.Method || p.Kind == meta.Field) && of != ""
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, n), nil, parser.SkipObjectResolution)
+		if err != nil {
+			continue
+		}
+		for _, d := range f.Decls {
+			switch d := d.(type) {
+			case *ast.FuncDecl:
+				if d.Recv == nil && !member && d.Name.Name == p.Name {
+					return n
+				}
+				if d.Recv != nil && member && d.Name.Name == p.Name && len(d.Recv.List) == 1 && receiverType(d.Recv.List[0].Type) == of {
+					return n
+				}
+			case *ast.GenDecl:
+				for _, sp := range d.Specs {
+					switch sp := sp.(type) {
+					case *ast.TypeSpec:
+						if !member && sp.Name.Name == p.Name {
+							return n
+						}
+						if st, ok := sp.Type.(*ast.StructType); ok && member && sp.Name.Name == of {
+							for _, fd := range st.Fields.List {
+								for _, id := range fd.Names {
+									if id.Name == p.Name {
+										return n
+									}
+								}
+							}
+						}
+					case *ast.ValueSpec:
+						for _, id := range sp.Names {
+							if !member && id.Name == p.Name {
+								return n
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// receiverType is the name of the type a method's receiver is of.
+func receiverType(e ast.Expr) string {
+	switch t := e.(type) {
+	case *ast.StarExpr:
+		return receiverType(t.X)
+	case *ast.IndexExpr:
+		return receiverType(t.X)
+	case *ast.IndexListExpr:
+		return receiverType(t.X)
+	case *ast.Ident:
+		return t.Name
+	}
+	return ""
 }

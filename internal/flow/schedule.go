@@ -25,7 +25,9 @@ import (
 //	contract acts    the contract is declared again, once, with why, and the tests written again
 //	tests wrong      the tests unit blamed is written again, once, with why, and the unit carried again;
 //	                 wrong again, the specification they were written from goes back to its author, once
-//	cannot           the plan goes back to its planner, once
+//	cannot           the plan goes back to its planner, once; where what
+//	                 must change is outside the specification's scope, the
+//	                 specification goes back to its author, once
 //	failed           area 4 stops, saying why
 //
 // A unit sent to be carried again while it is still being carried is
@@ -257,6 +259,13 @@ func (s *scheduler) next(ctx context.Context, f finished) error {
 		return sb
 	case outCannot:
 		r.say(4, r.units[i].id, "%s cannot be done as it was planned: %s", r.units[i].id, f.carried.res.Cannot)
+		if out := r.outsideScope(f.carried.res.Blames); len(out) > 0 && !r.back[1] {
+			// What must change lies outside what the specification lets the
+			// change touch: no plan can mend that, its scope must.
+			return &sentBack{area: 1, unit: r.units[i].id, why: fmt.Sprintf(
+				"it needs %s changed, which the specification's scope does not hold: %s",
+				strings.Join(out, ", "), f.carried.res.Cannot)}
+		}
 		return &sentBack{area: 2, unit: r.units[i].id, why: "it cannot be done as it was planned: " + f.carried.res.Cannot}
 	default:
 		return r.fail(4, "%v", f.err)
@@ -335,4 +344,32 @@ func (r *Run) againFor(unit string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.again[unit]
+}
+
+// outsideScope is those of files, named by an agent as keeping its unit
+// from being done, that exist, judge nothing, and lie outside the
+// specification's scope: what the change must touch and may not.
+func (r *Run) outsideScope(files []string) []string {
+	var out []string
+	for _, f := range files {
+		f = filepath.ToSlash(filepath.Clean(strings.TrimSpace(f)))
+		if f == "." || inScope(f, r.spec.Scope) || slices.Contains(r.spec.NewTests, f) || slices.Contains(r.spec.SuiteTests, f) || r.declaresTests(f) {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(r.repo, f)); err == nil && !slices.Contains(out, f) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// declaresTests says whether file, in the estate, declares a test in its
+// language's own form: a file that judges, which no scope holds.
+func (r *Run) declaresTests(file string) bool {
+	l, ok := languageOfFile(file)
+	if !ok || l.tests == nil {
+		return false
+	}
+	b, err := os.ReadFile(filepath.Join(r.repo, file))
+	return err == nil && l.tests.Match(b)
 }

@@ -60,12 +60,13 @@ const (
 	maxFresh  = 15
 )
 
-// maxRead is the most a unit's agent may read, all its turns together.
+// maxRead is the most a unit's agent may read, all its turns together;
+// none unless the task says. What one turn holds is kept small by compact
+// and yours; the turns together re-send the same context, so their sum
+// measures spending, which BudgetUSD and the steps bound already do —
+// a bound on it stopped agents that were making progress.
 func maxRead(t Task) int {
-	if t.MaxRead > 0 {
-		return t.MaxRead
-	}
-	return 250_000
+	return t.MaxRead
 }
 
 // keepWhole is how many of the latest messages keep their tool answers
@@ -113,7 +114,7 @@ func (l Loop) Run(ctx context.Context, t Task, emit func(Event)) (Result, error)
 		if t.BudgetUSD > 0 && res.Usage.CostUSD >= t.BudgetUSD {
 			return end(Exhausted, fmt.Sprintf("the budget of $%.2f was spent", t.BudgetUSD))
 		}
-		if read := res.Usage.In(); read >= maxRead(t) {
+		if read := res.Usage.In(); maxRead(t) > 0 && read >= maxRead(t) {
 			return end(Exhausted, fmt.Sprintf("read %d tokens, the most one unit may; a unit that needs more is too large or cannot be done as it is asked", read))
 		}
 		sent := compact(msgs)
