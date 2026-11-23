@@ -2025,12 +2025,9 @@ func TestWhatTestsMayRead(t *testing.T) {
 		t.Errorf("tests reading the code they judge were not let read it: %s", why)
 	}
 	// What only the code will write is no read for tests written before it:
-	// the hint is set aside and said — the plan is not sent back for it.
-	if units, why := r.unitsOf(plan("loud.go", "")); why != "" || len(reads(units)) != 0 {
-		t.Errorf("a read of what is not there was not set aside: %q %v", why, reads(units))
-	}
-	if !slices.ContainsFunc(r.steps, func(s Step) bool { return strings.Contains(s.Text, "neither exists nor is written before it") }) {
-		t.Error("a hint set aside was not said")
+	// the plan goes back to its planner, who reads the code, to mend it.
+	if _, why := r.unitsOf(plan("loud.go", "")); !strings.Contains(why, "neither exists nor is written before it") {
+		t.Errorf("tests reading what only the code will write were let be: %q", why)
 	}
 	loud := `{"file":"loud.go","name":"Loud","kind":"function","signature":"func Loud(n string) string"}`
 	if units, why := r.unitsOf(plan("loud.go", loud)); why != "" || !slices.Equal(reads(units), []string{"loud.go"}) {
@@ -2127,9 +2124,7 @@ func TestNamesQualifiedByTheirPackageAreTheirPackagesOwn(t *testing.T) {
 			}
 		}
 	}
-	// No unit can add to another package's type: the hint is set aside and
-	// said, and the plan stands.
-	if _, why := r.unitsOf(plan("http.Request")); why != "" || !slices.ContainsFunc(r.steps, func(s Step) bool { return strings.Contains(s.Text, "a type of another package") }) {
-		t.Errorf("a field given to another package's type was not set aside and said: %q", why)
+	if _, why := r.unitsOf(plan("http.Request")); !strings.Contains(why, "a type of another package") {
+		t.Errorf("a field given to another package's type was let be: %q", why)
 	}
 }

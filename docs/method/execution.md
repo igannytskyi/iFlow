@@ -11,7 +11,7 @@ A change moves left to right, and each step only narrows what the one before it 
 5. **Assurance.** The result is judged against the criteria, by tests written before the code and by the person where only a person can see.
 6. **Landing.** What holds lands, in the plan's order.
 
-**What is strict, and what is a hint.** Strict is what the person decides — the specification's criteria and scope — and the evidence that they hold: the test ledger, the runner's report, the whole suite, the person's affirmation. Everything about *how* — the plan's division into units, the files of each, the names they give each other, what they read — is foresight of code not yet read, handed to the agents as a hint. An agent who reads the code and finds the hint wrong does what the code needs, within the specification's scope, and that is recorded and shown to the person, never a failure. A run stops only where the evidence shows the criteria cannot be met as stated.
+**What is strict, and what is a hint.** Strict is what the person decides — the specification's criteria and scope — and the evidence that they hold: the test ledger, the runner's report, the whole suite, the person's affirmation. The plan — the division into units, the files of each, the names they give each other — is made on the code, by a planner that reads it, and the agents follow it. An agent who finds it needs a file of the specification's scope its unit was not given is given it where that is safe; that is recorded and shown to the person, never a failure. A run stops only where the evidence shows the criteria cannot be met as stated.
 
 The reason to divide at all is that **each agent's piece fits its effective context**. That is the part of the window a model actually uses well, and it is far smaller than the window itself. Within it, an agent writes less, but writes it well.
 
@@ -39,7 +39,7 @@ contract ──► tests ──► code (chain A) ─┐
 
 Code units that change a file in common form a chain and are carried in order. A code unit also waits for every earlier one whose files it reads or whose names it calls: the contract declares a name, but only the unit that writes it gives it the behaviour the later unit's tests ask for. A criterion is judged at the code unit that serves it last: that unit waits for every other that serves it, and its check is the build and then the criterion's tests, as the test ledger names them. Units that wait for nothing of each other are carried at the same time; that is the only source of parallel work, and it is computed from the plan, not chosen. The last code unit completes the change: it must pass the change's tests and then the whole suite.
 
-A plan that breaks a rule of R24 below goes back to its planner, told which and why: those rules keep the evidence sound — tests before code, every criterion served and judged, nothing writing what judges it. P1–P12 are one function of the plan and the specification, `meta.PlanBreaches`, and the gate holds every plan to it as rule R24. What depends on the estate as it stood — P7, P10's estate half, P11, P13 — is foresight: a hint the estate shows wrong is set aside and said, and the plan stands. The planner gets at most three tries. If no plan holds, area 2 stops and says why; nothing is made up in the planner's place.
+A plan that breaks any of the rules below goes back to its planner, told which and why: the plan is what the agents follow, and the planner, which reads the code before it plans, mends it there rather than hand the agents a fault. P1–P12 are one function of the plan and the specification, `meta.PlanBreaches`, and the gate holds every plan to it as rule R24; P7, P10's estate half and P11 depend on the estate as it stood and are held at planning. Only P13, a unit's weight, is a hint: what does not fit an agent's budget is handed by its outline and read by parts. The planner gets at most three tries. If no plan holds, area 2 stops and says why; nothing is made up in the planner's place.
 
 | | Rule | Checked |
 |---|---|---|
@@ -49,11 +49,11 @@ A plan that breaks a rule of R24 below goes back to its planner, told which and 
 | P4 | Every new test file is written by exactly one tests unit | R24 |
 | P5 | Every criterion is served by a code unit; every unit serves one; a tests unit only what the new tests judge | R24 |
 | P6 | Every name provided has a file in scope, a kind and a signature | R24 |
-| P7 | No unit provides a name its package already declares | a hint: such a provision is set aside, and the unit changes the name as its tasks say |
+| P7 | No unit provides a name its package already declares | `providedAlready`, at planning |
 | P8 | No name is provided twice in one package | R24 |
 | P9 | A contract exists whenever tests and code are written apart | R24 |
-| P10 | A unit uses only names the estate defines or an earlier unit provides | R24 within the plan; against the estate, a hint |
-| P11 | A unit reads only files that exist or another unit writes | a hint: a read of nothing is set aside |
+| P10 | A unit uses only names the estate defines or an earlier unit provides | R24; against the estate: `orderOf` |
+| P11 | A unit reads only files that exist or another unit writes | at planning, against the estate: `unitsOf` |
 | P12 | No unit's scope holds what judges the change | R24 |
 | P13 | A unit fits one agent: its brief, the specification's decisions and the files it changes whole, within the budget | a hint: what does not fit is handed by its outline and read by parts |
 
