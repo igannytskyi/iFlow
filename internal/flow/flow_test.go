@@ -197,7 +197,7 @@ func TestATaskTravelsThePath(t *testing.T) {
 		if len(packs) != 2 {
 			t.Fatalf("%d packs handed", len(packs))
 		}
-		for i, want := range [][]string{{"May change: shout_test.go", "Read: greet.go", `panic("not yet: Shout")`}, {"Must pass, written by WU-001-02", "TestShout", "May change: greet.go"}} {
+		for i, want := range [][]string{{"May change: shout_test.go", "The code these tests exercise, as declared", "func Shout(n string) string"}, {"Must pass, written by WU-001-02", "TestShout", "May change: greet.go"}} {
 			for _, w := range want {
 				if !strings.Contains(packs[i], w) {
 					t.Errorf("unit %d was not handed %q:\n%s", i+1, w, packs[i])
@@ -1426,7 +1426,7 @@ func TestTwoCodeUnitsBuildOnAContract(t *testing.T) {
 		c, _ := artifact.Load(run.View().Dir)
 		t.Fatalf("%v: %v", err, cfg.Gate.Check(context.Background(), c).Problems())
 	}
-	if len(goals) != 3 || !strings.Contains(goals[0], "Write only the tests") || !strings.Contains(packs[0], `panic("not yet: Loud")`) {
+	if len(goals) != 3 || !strings.Contains(goals[0], "Write only the tests") || !strings.Contains(packs[0], "func Loud(n string) string") {
 		t.Fatalf("the tests were not written first, on the contract declared: %d agents, the first asked\n%.400s", len(goals), goals[0])
 	}
 	c, _ := artifact.Load(run.View().Dir)
