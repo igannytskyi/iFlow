@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"fmt"
 	"image"
 	"slices"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/flow"
+	"github.com/igannytskyi/iflow/internal/harness"
 )
 
 // graph is the path as what it is: six areas, each depending on the one
@@ -104,6 +106,13 @@ func (u *UI) node(p *project, s shown, n int) W {
 			for _, st := range s.v.Steps {
 				if st.Area == n {
 					now = st.Text
+				}
+			}
+			// In the execution, the agents at work, each by its unit and
+			// what it did last: what the run said is only that it began.
+			if n == 4 {
+				if at := atWork(s.v.Agent); len(at) > 0 {
+					now = strings.Join(at, "\n")
 				}
 			}
 		}
@@ -203,4 +212,28 @@ func statusWord(s flow.Status) string {
 		return "waiting" // for you: the node is too narrow to say so
 	}
 	return string(s)
+}
+
+// atWork is each agent still at work, by its unit, and what it did last —
+// a call, a saying, a refusal: a line each, the units in order.
+func atWork(agent map[string][]harness.Event) []string {
+	var out []string
+	for _, unit := range sortedStrings(agent) {
+		events := agent[unit]
+		if len(events) == 0 || events[len(events)-1].Kind == harness.Ended {
+			continue
+		}
+		// What it did, not what it was answered or what it cost so far.
+		i := len(events) - 1
+		for i > 0 && (events[i].Kind == harness.Spent || events[i].Kind == harness.Got) {
+			i--
+		}
+		last := events[i]
+		what := cmp.Or(last.Tool, string(last.Kind))
+		if d := strings.Join(strings.Fields(last.Detail), " "); d != "" {
+			what += " " + d
+		}
+		out = append(out, unit+" · "+what)
+	}
+	return out
 }

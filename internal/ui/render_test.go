@@ -414,3 +414,18 @@ func TestFramesAreInstant(t *testing.T) {
 		}
 	}
 }
+
+// The graph names each agent at work by its unit and what it did last; an
+// agent that ended is not at work, and what it was answered or what it has
+// spent is not what it did.
+func TestTheGraphNamesTheAgentsAtWork(t *testing.T) {
+	got := atWork(map[string][]harness.Event{
+		"WU-001-02": {{Kind: harness.Called, Tool: "read_file", Detail: "greet.go"}, {Kind: harness.Got, Detail: "package greet\n…"}, {Kind: harness.Spent}},
+		"WU-001-01": {{Kind: harness.Called, Tool: "write_file", Detail: "a.go"}, {Kind: harness.Ended}},
+		"WU-001-03": {{Kind: harness.Said, Detail: "the tests\n  build"}},
+	})
+	want := []string{"WU-001-02 · read_file greet.go", "WU-001-03 · said the tests build"}
+	if !slices.Equal(got, want) {
+		t.Errorf("%q, want %q", got, want)
+	}
+}
