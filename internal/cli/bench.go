@@ -58,8 +58,10 @@ type benchResult struct {
 	Out     int               `json:"out"`
 	Calls   int               `json:"calls"`
 	Seconds float64           `json:"seconds"`
-	// Kept is where a task that did not come to what it should was left.
-	Kept string `json:"kept,omitempty"`
+	// Kept is where a task that did not come to what it should was left;
+	// Failures, the steps of its run that said what failed.
+	Kept     string   `json:"kept,omitempty"`
+	Failures []string `json:"failures,omitempty"`
 	// Tape is where every answer the models gave was recorded; Replayed,
 	// the tape a replayed run answered from instead.
 	Tape     string `json:"tape,omitempty"`
@@ -232,6 +234,11 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 			if r.Kept != "" {
 				fmt.Fprintf(app.Out, "  %-18s kept at %s\n", "", r.Kept)
 			}
+			// What stopped it, as its steps said, where it did not come to
+			// what it should: a run in CI leaves nothing else to read.
+			for _, why := range r.Failures {
+				fmt.Fprintf(app.Out, "  %-18s ! %s\n", "", clipLine(why, 300))
+			}
 		})
 	}
 	wg.Wait()
@@ -363,6 +370,7 @@ func benchOne(ctx context.Context, cfg flow.Config, estate string, t benchTask, 
 				mark := " "
 				if st.Bad {
 					mark = "!"
+					res.Failures = append(res.Failures, fmt.Sprintf("%d  %s", st.Area, st.Text))
 				}
 				fmt.Fprintf(&b, "%s %d  %s\n", mark, st.Area, st.Text)
 			}
