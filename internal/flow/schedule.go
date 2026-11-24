@@ -424,10 +424,6 @@ func (r *Run) outsideScope(files []string) []string {
 // declaresTests says whether file, in the estate, declares a test in its
 // language's own form: a file that judges, which no scope holds.
 func (r *Run) declaresTests(file string) bool {
-	l, ok := languageOfFile(file)
-	if !ok || l.tests == nil {
-		return false
-	}
 	b, err := os.ReadFile(filepath.Join(r.repo, file))
-	return err == nil && l.tests.Match(b)
+	return err == nil && len(declaredTests(file, b)) > 0
 }

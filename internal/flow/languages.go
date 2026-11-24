@@ -43,7 +43,9 @@ type language struct {
 	vet    func(files []string) []string
 	check  func(files []string) []string
 	format func(files []string) []string
-	// tests is how a test is declared: its last group is the test's name.
+	// tests, for Go alone, is how a test is declared, its last group the
+	// test's name: read only where a test file does not parse, which its
+	// build then says. Every other language's tests are read from its tree.
 	tests *regexp.Regexp
 	// noneRan, for a runner that writes no report, is how it says it ran
 	// no test at all; which tests failed is read from the report alone.
@@ -109,7 +111,6 @@ var languages = []language{
 			return append([]string{"python3", "-m", "py_compile"}, files...)
 		},
 		fault:   regexp.MustCompile(`File "([^"]+\.py)", line \d+`),
-		tests:   regexp.MustCompile(`(?m)^\s*(?:async\s+)?def (test_\w+)\(`),
 		noneRan: regexp.MustCompile(`(?m)^Ran 0 tests|no tests ran`),
 	},
 	{
@@ -140,18 +141,15 @@ var languages = []language{
 			return []string{"node", "--check", files[0]}
 		},
 		fault:   regexp.MustCompile(`([^\s()]+\.[cm]?[jt]sx?):\d+(?::\d+)?\b`),
-		tests:   regexp.MustCompile("(?m)\\b(?:test|it)\\s*\\(\\s*([\"'`])(.+?)[\"'`]"),
 		noneRan: regexp.MustCompile(`(?m)^\S*\s*tests 0\s*$`),
 	},
 	{
 		name: "cargo test", marks: []string{"Cargo.toml"}, exts: []string{".rs"},
 		suite:   []string{"cargo", "test"},
-		tests:   regexp.MustCompile(`(?m)#\[test\]\s*(?:#\[[^\]]*\]\s*)*(?:pub\s+)?(?:async\s+)?fn (\w+)`),
 		noneRan: regexp.MustCompile(`(?m)^running 0 tests`),
 	},
 	{
 		name: "gradle test", marks: []string{"build.gradle", "build.gradle.kts", "pom.xml"}, exts: []string{".java", ".kt", ".kts"},
-		tests:   regexp.MustCompile(`(?m)@Test\b[^{;]*?\b(?:void\s+|fun\s+)(\w+)\s*\(`),
 		noneRan: regexp.MustCompile(`No tests found`),
 	},
 }
@@ -199,9 +197,8 @@ func quickCheck(files []string) []string {
 }
 
 // testsIn is the names of the tests a file declares: read from its syntax
-// tree where the estate's reader knows how its language declares a test
-// (Python, JavaScript, TypeScript; Go by go/ast in declaredTests), and by the
-// language's pattern only where it does not yet (Rust, Java, Kotlin).
+// tree (Python, JavaScript, TypeScript, Rust, Java, Kotlin; Go by go/ast in
+// declaredTests), and by a pattern only for a Go file that does not parse.
 func testsIn(file, content string) []string {
 	if names, ok := reader.Tests(file, []byte(content)); ok {
 		return names

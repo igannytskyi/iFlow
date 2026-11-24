@@ -20,6 +20,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
+	"github.com/igannytskyi/iflow/internal/reader"
 )
 
 // stubModel answers area 1 with a fixed specification, and keeps what it
@@ -1814,15 +1815,21 @@ func TestTheContractIsDeclaredByTheFramework(t *testing.T) {
 }
 
 // Every language the framework knows says, from its table alone, how its
-// estates are recognised, how its tests are declared, and how its runner
-// reports each test — or, where it writes no report, how it says it ran
-// none.
+// estates are recognised and how its runner reports each test — or, where
+// it writes no report, how it says it ran none; and the tests of every file
+// of it are read from its tree, Go's by go/ast. A Gradle build script
+// declares no test.
 func TestEachLanguageIsOneEntry(t *testing.T) {
 	t.Parallel()
 	seen := map[string]bool{}
 	for _, l := range languages {
-		if l.name == "" || len(l.marks) == 0 || len(l.exts) == 0 || l.tests == nil || (l.report == nil && l.noneRan == nil) {
+		if l.name == "" || len(l.marks) == 0 || len(l.exts) == 0 || (l.report == nil && l.noneRan == nil) {
 			t.Errorf("%q leaves out what every language says: %+v", l.name, l)
+		}
+		for _, e := range l.exts {
+			if _, ok := reader.Tests("a"+e, nil); !ok && e != ".go" && e != ".kts" {
+				t.Errorf("the tests of a %s file are not read from its tree", e)
+			}
 		}
 		for _, e := range l.exts {
 			if seen[e] {

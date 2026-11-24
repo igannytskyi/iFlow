@@ -42,6 +42,53 @@ s = "def test_in_a_string(): pass"
 			"helper.test('not the runner', () => {});\n",
 			[]string{"greets the person", "says goodbye"}},
 		{"greet.test.ts", "import test from 'node:test';\ntest('typed', (): void => {});\n", []string{"typed"}},
+		{"lib.rs", `
+#[test]
+fn adds() {}
+
+/// A test of the sign.
+#[test]
+#[should_panic]
+fn refuses() {}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn waits() {}
+    fn helper() {}
+    // #[test] fn in_a_comment() {}
+}
+
+#[derive(Debug)]
+struct NotATest;
+fn not_a_test() {}
+const S: &str = "#[test] fn in_a_string() {}";
+`, []string{"adds", "refuses", "waits"}},
+		{"GreetTest.java", `
+import org.junit.jupiter.api.Test;
+class GreetTest {
+    @Test
+    void greets() {}
+    @org.junit.jupiter.api.Test public void shouts() {}
+    @ParameterizedTest @ValueSource(ints = {1, 2}) void counts(int n) {}
+    @Deprecated void helper() {}
+    // @Test void inAComment() {}
+    @Nested class Inner {
+        @Test void nested() {}
+    }
+}
+`, []string{"greets", "shouts", "counts", "nested"}},
+		{"GreetTest.kt", `
+import org.junit.jupiter.api.Test
+class GreetTest {
+    @Test
+    fun greets() {}
+    @Test fun ` + "`shouts the name`" + `() {}
+    @org.junit.jupiter.api.Test fun qualified() {}
+    @Suppress("x") fun helper() {}
+    // @Test fun inAComment() {}
+}
+`, []string{"greets", "shouts the name", "qualified"}},
 	} {
 		got, ok := Tests(c.file, []byte(c.src))
 		slices.Sort(got)
@@ -50,7 +97,7 @@ s = "def test_in_a_string(): pass"
 			t.Errorf("%s: %v (known %v), want %v", c.file, got, ok, want)
 		}
 	}
-	if _, ok := Tests("lib.rs", []byte("#[test]\nfn adds() {}\n")); ok {
+	if _, ok := Tests("build.gradle.kts", []byte("plugins { java }\n")); ok {
 		t.Error("a language the reader does not read tests of was said to be known")
 	}
 }
