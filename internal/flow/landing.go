@@ -97,7 +97,11 @@ func (r *Run) land(ctx context.Context) error {
 		r.cost(artifact.Cost{Area: 6, What: "every claim to repeat, run twice", Actor: "the gate"}, model.Usage{}, time.Since(began))
 		if err == nil {
 			for _, rp := range reps {
-				r.say(6, rp.Evidence, "%s repeated: %s gave the same result twice: %v", rp.Evidence, rp.Shown(), rp.Same)
+				if rp.Same {
+					r.say(6, rp.Evidence, "%s repeated: %s gave the same result twice", rp.Evidence, rp.Shown())
+				} else {
+					r.fail(6, "%s repeated: %s did not give the same result twice — %s", rp.Evidence, rp.Shown(), rp.Differs)
+				}
 				// The framework's whole suite, repeated here on the landed
 				// framework and passing, is the arbiters' run: R22 is told
 				// so, and it is not run a third time on the same content.

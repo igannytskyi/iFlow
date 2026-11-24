@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -20,6 +21,9 @@ type Repetition struct {
 	Same    bool
 	// Passed says the command, as it ran here, exited without failing.
 	Passed bool
+	// Differs is the first line where the two runs said different things,
+	// each as it said it, where they were not the same.
+	Differs string
 }
 
 // Shown is the command as it was run.
@@ -83,10 +87,16 @@ func (g *Gate) RepeatAgainst(ctx context.Context, c *artifact.Change, kept func(
 			if out, ok := keptOutput(kept, id); ok {
 				run := runOnce(ctx, c.Root, argv)
 				rep.Same, rep.Passed = SameResult(out) == SameResult(run.raw), run.code == 0
+				if !rep.Same {
+					rep.Differs = firstDifference(SameResult(out), SameResult(run.raw))
+				}
 			} else {
 				first, second := runOnce(ctx, c.Root, argv), runOnce(ctx, c.Root, argv)
 				rep.Same = first.code == second.code && first.output == second.output
 				rep.Passed = first.code == 0 && second.code == 0
+				if !rep.Same {
+					rep.Differs = firstDifference(first.output, second.output)
+				}
 			}
 			if rep.Same {
 				if err := NoteVerified(g.home, RepeatKey(cmd), rep.Shown()+" gave the same result twice"); err != nil {
@@ -104,4 +114,22 @@ func (g *Gate) RepeatAgainst(ctx context.Context, c *artifact.Change, kept func(
 // made of it, run here, is that run too.
 func IsArbiterRun(cmd []string) bool {
 	return len(cmd) == 4 && filepath.Base(cmd[0]) == "go" && cmd[1] == "test" && cmd[2] == "-count=1" && cmd[3] == "./..."
+}
+
+// firstDifference is the first line where a and b differ, each as it reads.
+func firstDifference(a, b string) string {
+	la, lb := strings.Split(a, "\n"), strings.Split(b, "\n")
+	for i := range max(len(la), len(lb)) {
+		var x, y string
+		if i < len(la) {
+			x = la[i]
+		}
+		if i < len(lb) {
+			y = lb[i]
+		}
+		if x != y {
+			return fmt.Sprintf("line %d: %q, then %q", i+1, x, y)
+		}
+	}
+	return "the same lines, ended differently"
 }
