@@ -14,6 +14,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/meta"
+	"github.com/igannytskyi/iflow/internal/testrun"
 )
 
 // These are the gate's arbiters. One change is built that passes, from the
@@ -430,5 +431,22 @@ func TestTheArbitersRunIsKnownByItsCommand(t *testing.T) {
 		if got := IsArbiterRun(c.cmd); got != c.want {
 			t.Errorf("%v is the arbiters' run: %v", c.cmd, got)
 		}
+	}
+}
+
+// Two runs of a test claim are the same where every test ended as it did,
+// whatever the runner said around them; one test ending otherwise is said.
+func TestARepeatIsJudgedByItsTestsOutcomes(t *testing.T) {
+	was := testrun.Report{Results: map[string]testrun.Outcome{"TestA": {Passed: true}, "TestB": {}}}
+	same := testrun.Report{Results: map[string]testrun.Outcome{"TestA": {Passed: true, Output: "said otherwise"}, "TestB": {Output: "and this"}}}
+	if d := differentOutcomes(was, same); d != "" {
+		t.Errorf("the same outcomes were said to differ: %s", d)
+	}
+	other := testrun.Report{Results: map[string]testrun.Outcome{"TestA": {Passed: true}}}
+	if d := differentOutcomes(was, other); d != "TestB failed, then did not run" {
+		t.Errorf("a test that did not run again was said: %q", d)
+	}
+	if d := differentOutcomes(was, testrun.Report{Unbuilt: "undefined: x"}); !strings.Contains(d, "built") {
+		t.Errorf("a build that failed the second time was said: %q", d)
 	}
 }

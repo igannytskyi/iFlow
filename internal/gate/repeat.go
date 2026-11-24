@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/igannytskyi/iflow/internal/artifact"
+	"github.com/igannytskyi/iflow/internal/testrun"
 )
 
 // Repetition is one claim to repeat, and what running it twice showed.
@@ -86,9 +88,18 @@ func (g *Gate) RepeatAgainst(ctx context.Context, c *artifact.Change, kept func(
 			}
 			if out, ok := keptOutput(kept, id); ok {
 				run := runOnce(ctx, c.Root, argv)
-				rep.Same, rep.Passed = SameResult(out) == SameResult(run.raw), run.code == 0
-				if !rep.Same {
-					rep.Differs = firstDifference(SameResult(out), SameResult(run.raw))
+				rep.Passed = run.code == 0
+				if was, err := testrun.ReadGo([]byte(out), "", ""); err == nil && len(was.Results) > 0 {
+					// A claim kept as the runner's report repeats if every
+					// test ends as it did: its result is its tests' outcomes.
+					now, _ := testrun.ReadGo([]byte(run.raw), "", "")
+					rep.Differs = differentOutcomes(was, now)
+					rep.Same = rep.Differs == ""
+				} else {
+					rep.Same = SameResult(out) == SameResult(run.raw)
+					if !rep.Same {
+						rep.Differs = firstDifference(SameResult(out), SameResult(run.raw))
+					}
 				}
 			} else {
 				first, second := runOnce(ctx, c.Root, argv), runOnce(ctx, c.Root, argv)
@@ -132,4 +143,38 @@ func firstDifference(a, b string) string {
 		}
 	}
 	return "the same lines, ended differently"
+}
+
+// differentOutcomes is the first test that ended otherwise in now than in
+// was, or "" where every one ended as it did.
+func differentOutcomes(was, now testrun.Report) string {
+	word := func(o testrun.Outcome, ok bool) string {
+		switch {
+		case !ok:
+			return "did not run"
+		case o.Skipped:
+			return "was skipped"
+		case o.Passed:
+			return "passed"
+		}
+		return "failed"
+	}
+	if (was.Unbuilt == "") != (now.Unbuilt == "") {
+		return "the tests built once and not the other time"
+	}
+	names := map[string]bool{}
+	for n := range was.Results {
+		names[n] = true
+	}
+	for n := range now.Results {
+		names[n] = true
+	}
+	for _, n := range slices.Sorted(maps.Keys(names)) {
+		a, inA := was.Results[n]
+		b, inB := now.Results[n]
+		if word(a, inA) != word(b, inB) {
+			return fmt.Sprintf("%s %s, then %s", n, word(a, inA), word(b, inB))
+		}
+	}
+	return ""
 }

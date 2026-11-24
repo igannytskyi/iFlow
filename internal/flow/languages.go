@@ -16,6 +16,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/reader"
+	"github.com/igannytskyi/iflow/internal/testrun"
 )
 
 // language is everything the framework knows of one language, in one
@@ -84,7 +85,7 @@ var languages = []language{
 		},
 		report: &report{cmd: func(n []string, _ string) []string {
 			return []string{"go", "test", "-json", "-count=1", "-run", "^(" + strings.Join(n, "|") + ")$", "./..."}
-		}, read: goReport},
+		}, read: testrun.ReadGo},
 		build: []string{"go", "build", "./..."}, vet: goVet, check: goBuild, format: gofmt, declares: goDeclares, declare: map[string]declarer{".go": goDeclare},
 		fault: regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.go):\d+:\d+:`), missing: goMissing, libraries: goLibraries,
 		tests:   regexp.MustCompile(`(?m)^func ((?:Test|Fuzz)\w*)\(`), // what -run runs: tests, and fuzz tests on their seeds
@@ -102,7 +103,7 @@ var languages = []language{
 		},
 		report: &report{cmd: func(n []string, file string) []string {
 			return []string{"python3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "-k", strings.Join(n, " or "), "--junitxml=" + file}
-		}, read: junitReport},
+		}, read: testrun.ReadJUnit},
 		check: func(files []string) []string {
 			return append([]string{"python3", "-m", "py_compile"}, files...)
 		},
@@ -130,7 +131,7 @@ var languages = []language{
 				out = append(out, "--test-name-pattern="+regexp.QuoteMeta(name))
 			}
 			return out
-		}, read: junitReport},
+		}, read: testrun.ReadJUnit},
 		check: func(files []string) []string {
 			if len(files) != 1 || slices.Contains([]string{".ts", ".tsx", ".jsx"}, strings.ToLower(filepath.Ext(files[0]))) {
 				return nil // node checks one script at a time, and none it would have to compile

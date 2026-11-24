@@ -61,6 +61,13 @@ func (r *Run) assure(ctx context.Context) error {
 		r.cost(artifact.Cost{Area: 5, Unit: prep.id, What: ev + ": the tests written first", Actor: prof.name}, model.Usage{}, took)
 		passed[ev] = ok
 		r.keepOutput(ev, out)
+		if run.Reported && run.Cmd != nil && len(run.Results) > 0 {
+			// The claim is the command that ran, and its result is the
+			// report it wrote: what a repeat runs again, and compares test
+			// by test, not word by word.
+			cmd = run.Cmd
+			r.keepReport(ev, run.Raw)
+		}
 		how := "written by " + prep.id + " and failed against the unchanged estate before the change existed — candidates/" + ca + "/failing-before.txt"
 		if !run.Reported {
 			how += "; " + run.Why
@@ -216,4 +223,13 @@ func (r *Run) widenedSaid() string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// keepReport keeps the report a run wrote for machines, beside what it said
+// for people: what a repeat of its claim is compared against.
+func (r *Run) keepReport(ev, raw string) {
+	dir := filepath.Join(r.dir, "evidence")
+	if err := os.MkdirAll(dir, 0o755); err == nil {
+		_ = os.WriteFile(filepath.Join(dir, ev+".report"), []byte(raw), 0o644)
+	}
 }

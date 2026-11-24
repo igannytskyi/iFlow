@@ -89,6 +89,11 @@ func (r *Run) land(ctx context.Context) error {
 		var kept func(string) (string, bool)
 		if r.cfg.RepeatOnce {
 			kept = func(ev string) (string, bool) {
+				// The report a run wrote, where it wrote one: compared test
+				// by test. What it said, where not.
+				if b, err := os.ReadFile(filepath.Join(r.dir, "evidence", ev+".report")); err == nil {
+					return string(b), true
+				}
 				b, err := os.ReadFile(filepath.Join(r.dir, "evidence", ev+".txt"))
 				return string(b), err == nil
 			}

@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/igannytskyi/iflow/internal/testrun"
 )
 
 // A Go run is read from go test's own report: a test that passes, one that
@@ -111,7 +113,7 @@ func TestAJUnitReportIsReadCaseByCase(t *testing.T) {
 	if err := os.WriteFile(file, []byte(xml), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := junitReport(nil, file, "")
+	rep, err := testrun.ReadJUnit(nil, file, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +126,7 @@ func TestAJUnitReportIsReadCaseByCase(t *testing.T) {
 	if !res["test_later"].Skipped || !contains(res["test_shouts"].Output, "AssertionError") {
 		t.Errorf("read %+v", res)
 	}
-	if _, err := junitReport(nil, filepath.Join(t.TempDir(), "none.xml"), t.TempDir()); err == nil {
+	if _, err := testrun.ReadJUnit(nil, filepath.Join(t.TempDir(), "none.xml"), t.TempDir()); err == nil {
 		t.Error("a report that was not written was read")
 	}
 }
