@@ -1,0 +1,37 @@
+name: Replay
+
+# The runs recorded against the models (examples/tapes), carried again
+# against the framework as it stands, with the same answers — free, the same
+# every time, no key. A change that would no longer land them fails here.
+# A change that means the framework asks something else is not a failure of
+# the run: its recording is made again (iflow bench, then kept here).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # a recorded run lays the framework as it stood at its commit
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go build -o bin/ ./cmd/...
+      - name: Replay every recorded run
+        run: |
+          status=0
+          for tape in examples/tapes/*/; do
+            echo "::group::$tape"
+            ./bin/iflow bench --replay "$tape" || status=1
+            echo "::endgroup::"
+          done
+          exit $status

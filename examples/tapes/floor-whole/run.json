@@ -1,0 +1,10 @@
+{
+  "commit": "49f5c66",
+  "label": "floor-whole",
+  "set": {
+    "division": "whole"
+  },
+  "tasks": [
+    "iflow-cheapest-switch"
+  ]
+}
