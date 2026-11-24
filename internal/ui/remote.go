@@ -94,15 +94,23 @@ func (u *UI) begin(p *project, area int, call func(ctx context.Context) (string,
 }
 
 // moved is told, on the client's goroutine, that a run moved: the window is
-// drawn again, and a run that ended has its project read again, for what it
-// wrote last.
+// drawn again, a run that ended has its project read again, for what it
+// wrote last, and the person is told by the system what a run waits for
+// them for, or how it ended, when the window is not the one they look at.
 func (u *UI) moved(run string) {
 	u.runsMu.Lock()
 	p := u.runOf[run]
 	u.runsMu.Unlock()
-	if p != nil && u.client != nil {
-		if s, ok := u.client.Run(run); ok && s.Finished {
-			p.stale.Store(true)
+	if u.client != nil {
+		if s, ok := u.client.Run(run); ok {
+			if p != nil && s.Finished {
+				p.stale.Store(true)
+			}
+			// Told once each, looked at or not: what the window showed the
+			// person is not told them again when they look away.
+			if news := u.told.News(run, s); news != "" && !u.focused.Load() {
+				go func() { _ = u.post(u.ctx, "iflow — "+news, s.Statement) }()
+			}
 		}
 	}
 	u.invalidate()

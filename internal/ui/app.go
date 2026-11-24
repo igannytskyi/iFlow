@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"github.com/igannytskyi/iflow/internal/notify"
 	"image"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gioui.org/app"
@@ -47,7 +49,14 @@ type UI struct {
 	// runOf is the project each run the window started belongs to, so that
 	// what the service tells of a run reaches its project: told from the
 	// client's goroutine, it is guarded.
-	runsMu     sync.Mutex
+	runsMu sync.Mutex
+	// told is what the person was last told of each run, by the system's
+	// notification, while the window was not the one they looked at;
+	// focused says whether it is, written by the window's loop and read on
+	// the client's goroutine.
+	told       service.Teller
+	focused    atomic.Bool
+	post       func(ctx context.Context, title, body string) error // the system's notification
 	runOf      map[string]*project
 	rebuild    func() (flow.Config, string)
 	modelsNote string
@@ -99,6 +108,7 @@ func newUI(ctx context.Context, o Options, s *settings) *UI {
 	u := &UI{model: o.Model, gate: o.Gate, flowConfig: o.Flow, rebuild: o.Rebuild, modelsNote: o.ModelsProblem, settings: s, ctx: ctx, parallel: max(o.Parallel, 1),
 		clicks: clicks{}, lists: lists{}, docs: newDocs(), splits: map[string]*split{}}
 	u.adding.SingleLine, u.adding.Submit = true, true
+	u.post = notify.Send
 	u.serviceErr = "no service is configured"
 	if o.Connect != nil {
 		if c, err := o.Connect(u.moved); err != nil {
@@ -151,6 +161,8 @@ func Run(ctx context.Context, o Options) error {
 		switch e := u.win.Event().(type) {
 		case app.DestroyEvent:
 			return e.Err
+		case app.ConfigEvent:
+			u.focused.Store(e.Config.Focused)
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)
 			u.frame(gtx)

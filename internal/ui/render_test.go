@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -111,6 +113,7 @@ func testUI(t *testing.T, cfg *flow.Config, projects ...string) *UI {
 		}
 	}
 	u := newUI(ctx, o, s)
+	u.post = func(context.Context, string, string) error { return nil } // a test posts nothing to the desktop
 	u.setTheme(os.Getenv("IFLOW_DARK") != "")
 	return u
 }
@@ -259,12 +262,31 @@ func TestRunRenders(t *testing.T) {
 	if p.path != repo || len(u.projects) != 2 {
 		t.Fatalf("the workbench opened %d projects, showing %s", len(u.projects), p.path)
 	}
+	var postMu sync.Mutex
+	var posted []string
+	u.post = func(_ context.Context, title, _ string) error {
+		postMu.Lock()
+		defer postMu.Unlock()
+		posted = append(posted, title)
+		return nil
+	}
+	told := func(what string) bool {
+		postMu.Lock()
+		defer postMu.Unlock()
+		return slices.ContainsFunc(posted, func(p string) bool { return strings.HasPrefix(p, "iflow — "+what) })
+	}
 	paint := newPainter(t)
 	u.start(p, "make it possible to shout the greeting")
 	waitFor(t, "the criteria", func() bool { v, _ := p.view(); return v.Question != "" })
+	// The window looked away from: the person is told by the system.
+	waitFor(t, "the notice of the question", func() bool { return told("waiting for you") })
 	paint.paint(u, "run-review")
+	u.focused.Store(true) // looked at: nothing more is posted
 	p.run.Accept()
 	waitFor(t, "the run", func() bool { return !p.running() })
+	if told("landed") {
+		t.Error("the system was told the run landed while the window was looked at")
+	}
 	p.area = 6
 	paint.paint(u, "run-landed")
 	if p.live == nil || len(p.live.Items) == 0 {

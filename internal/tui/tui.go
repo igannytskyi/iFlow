@@ -100,7 +100,7 @@ type Model struct {
 
 	// told is, per run, the last thing the person was notified of, so that
 	// nothing is notified twice.
-	told map[string]string
+	told *service.Teller
 }
 
 // New is the screen opened on project, coloured by theme, speaking to the
@@ -117,7 +117,7 @@ func New(ctx context.Context, client *service.Client, moved chan string, project
 	ask := line("› ")
 	ask.Placeholder = "ask anything"
 	return Model{ctx: ctx, client: client, moved: moved, project: project, term: detect(os.Getenv), theme: theme, st: stylesOf(theme), area: 1,
-		input: line(""), ask: ask, told: map[string]string{}, docs: map[string]protocol.ChangeDoc{}, steps: map[string]int{},
+		input: line(""), ask: ask, told: &service.Teller{}, docs: map[string]protocol.ChangeDoc{}, steps: map[string]int{},
 		traces: map[string][]protocol.Event{}, diffs: map[string][]protocol.FileDiff{}, md: map[string]string{}}
 }
 
@@ -351,19 +351,10 @@ func (m Model) notify(run string) tea.Cmd {
 	if !ok || m.term.notify == nil {
 		return nil
 	}
-	var what string
-	switch {
-	case s.Question != "":
-		what = "waiting for you: " + s.Question
-	case s.Finished && s.Areas[6] == protocol.Done:
-		what = "landed"
-	case s.Finished:
-		what = "stopped"
-	}
-	if what == "" || m.told[run] == what {
+	what := m.told.News(run, s)
+	if what == "" {
 		return nil
 	}
-	m.told[run] = what
 	seq := m.term.notify("iflow — "+what, s.Statement)
 	return func() tea.Msg {
 		// One write, so that the terminal reads the sequence whole between
