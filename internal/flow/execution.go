@@ -423,7 +423,7 @@ func (r *Run) pack(u unit, here *estate.Repo, on []onto, budget int) estate.Pack
 		// The code the tests exercise, as the contract leaves it: how it is
 		// called, by its declarations. Its bodies are not what a test is
 		// written from; a file the plan says the unit reads is read whole.
-		if d := here.Declarations(r.spec.Scope, budget/4); d != "" {
+		if d := here.Outlined(r.spec.Scope, budget/4); d != "" {
 			p.Sections = append(p.Sections, estate.Section{Title: "The code these tests exercise, as declared — read a file whole where its body matters", Body: d})
 		}
 	}

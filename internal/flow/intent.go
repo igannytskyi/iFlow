@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -111,17 +108,22 @@ func (r *Run) overview() string {
 	b.WriteString("The files of the estate, and what each defines:\n\n" + repo.Map(r.cfg.packBudget()/2) + "\n")
 	if found, _, err := repo.Survey(r.statement, 4); err == nil && len(found) > 0 {
 		b.WriteString("Where the words of the task land:\n\n")
-		var names []string
+		var files []string
 		for _, l := range found {
 			var at []string
 			for _, p := range l.Places {
 				at = append(at, fmt.Sprintf("%s:%d", p.File, p.Start))
+				if !slices.Contains(files, p.File) && !strings.HasSuffix(p.File, "_test.go") {
+					files = append(files, p.File)
+				}
 			}
 			fmt.Fprintf(&b, "- %q %s %s — %s\n", l.Word, l.How, strings.Join(l.Names, ", "), strings.Join(at, ", "))
-			names = append(names, l.Names...)
 		}
-		if decl := r.declarations(names, 40); len(decl) > 0 {
-			b.WriteString("\nHow those names are declared, for reference:\n\n" + strings.Join(decl, "\n") + "\n")
+		// The files the words land in, as the code holds them — every type
+		// with its fields or methods, every function with what it calls —
+		// so that the author starts from the code, not from names.
+		if o := repo.Outlined(files, r.cfg.packBudget()/4); o != "" {
+			b.WriteString("\nThose files, outlined:\n\n" + o + "\n")
 		}
 		b.WriteString("\n")
 	}
@@ -612,201 +614,4 @@ func terms(d draft) []string {
 		out = append(out, t.Action+" when "+t.Condition)
 	}
 	return out
-}
-
-// declarations is how each of names is declared in the estate, at most n
-// of them: where, and its first line.
-func (r *Run) declarations(names []string, n int) []string {
-	repo := r.cfg.Estate.Repo(r.repo)
-	var out []string
-	for _, name := range slices.Compact(slices.Sorted(slices.Values(names))) {
-		places, _ := repo.WhereDefined(name)
-		for _, p := range places {
-			if len(out) == n {
-				return out
-			}
-			if strings.HasSuffix(p.File, "_test.go") {
-				continue // a test is relied on by nothing the change does
-			}
-			// Handed in the shape relies_on is written in, so that what is
-			// relied on is copied as data, never transcribed from a line.
-			entry := meta.Provision{File: p.File, Name: name}
-			if filepath.Ext(p.File) == ".go" {
-				src, err := os.ReadFile(filepath.Join(r.repo, filepath.FromSlash(p.File)))
-				if err != nil {
-					continue
-				}
-				d, ok := goDeclarationAt(src, name, p.Start)
-				if !ok {
-					continue
-				}
-				entry.Kind, entry.Of, entry.Signature = d.Kind, d.Of, d.Signature
-			} else if ex := repo.Excerpt(p.File, p.Start, p.Start, 1); len(ex) == 1 {
-				entry.Signature = estate.Signature(ex[0].Text)
-			}
-			if b, err := json.Marshal(entry); err == nil {
-				out = append(out, string(b))
-			}
-		}
-	}
-	return out
-}
-
-// goDeclarationAt is the declaration of name the Go file src holds at line:
-// its kind, the type it belongs to, and its declaration's first line.
-func goDeclarationAt(src []byte, name string, line int) (meta.Provision, bool) {
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
-	if err != nil {
-		return meta.Provision{}, false
-	}
-	at := func(n ast.Node) bool {
-		from, to := fset.Position(n.Pos()).Line, fset.Position(n.End()).Line
-		return line >= from && line <= to
-	}
-	var found meta.Provision
-	ok := false
-	for _, d := range f.Decls {
-		if !at(d) {
-			continue
-		}
-		switch d := d.(type) {
-		case *ast.FuncDecl:
-			if d.Name.Name != name {
-				continue
-			}
-			found, ok = meta.Provision{Kind: meta.Function}, true
-			if d.Recv != nil && len(d.Recv.List) == 1 {
-				found = meta.Provision{Kind: meta.Method, Of: receiverType(d.Recv.List[0].Type)}
-			}
-		case *ast.GenDecl:
-			for _, sp := range d.Specs {
-				switch sp := sp.(type) {
-				case *ast.TypeSpec:
-					if sp.Name.Name == name {
-						found, ok = meta.Provision{Kind: meta.TypeDecl}, true
-						continue
-					}
-					var fields *ast.FieldList
-					kind := meta.Field
-					switch t := sp.Type.(type) {
-					case *ast.StructType:
-						fields = t.Fields
-					case *ast.InterfaceType:
-						fields, kind = t.Methods, meta.Method
-					}
-					if fields == nil {
-						continue
-					}
-					for _, fd := range fields.List {
-						for _, id := range fd.Names {
-							if id.Name == name && at(fd) {
-								found, ok = meta.Provision{Kind: kind, Of: sp.Name.Name}, true
-							}
-						}
-					}
-				case *ast.ValueSpec:
-					for _, id := range sp.Names {
-						if id.Name == name {
-							found, ok = meta.Provision{Kind: meta.Variable}, true
-							if d.Tok == token.CONST {
-								found.Kind = meta.Constant
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	if !ok {
-		return found, false
-	}
-	found.Signature, _ = goDeclarationOf(src, name, found.Of)
-	return found, found.Signature != ""
-}
-
-// goDeclarationOf is the declaration, as its first line reads, of name in
-// the Go file src: a member of the type of where of is given — a method by
-// its receiver, a field of a struct, a method of an interface — a top-level
-// name where not. Where it is not found as asked, all is every declaration
-// of that name in the file, for the author to choose among.
-func goDeclarationOf(src []byte, name, of string) (decl string, all []string) {
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
-	if err != nil {
-		return "", nil
-	}
-	line := func(n ast.Node) string {
-		from, to := fset.Position(n.Pos()).Offset, fset.Position(n.End()).Offset
-		if fn, ok := n.(*ast.FuncDecl); ok && fn.Body != nil {
-			to = fset.Position(fn.Body.Lbrace).Offset // its signature, not its body
-		}
-		text := string(src[from:to])
-		if i := strings.IndexByte(text, '\n'); i >= 0 {
-			text = text[:i]
-		}
-		return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(text), "{"))
-	}
-	found := func(owner string, n ast.Node) {
-		l := line(n)
-		all = append(all, l)
-		if decl == "" && owner == of {
-			decl = l
-		}
-	}
-	for _, d := range f.Decls {
-		switch d := d.(type) {
-		case *ast.FuncDecl:
-			if d.Name.Name != name {
-				continue
-			}
-			owner := ""
-			if d.Recv != nil && len(d.Recv.List) == 1 {
-				owner = receiverType(d.Recv.List[0].Type)
-			}
-			found(owner, d)
-		case *ast.GenDecl:
-			for _, sp := range d.Specs {
-				switch sp := sp.(type) {
-				case *ast.TypeSpec:
-					if sp.Name.Name == name {
-						found("", sp)
-					}
-					var fields *ast.FieldList
-					switch t := sp.Type.(type) {
-					case *ast.StructType:
-						fields = t.Fields
-					case *ast.InterfaceType:
-						fields = t.Methods
-					}
-					if fields == nil {
-						continue
-					}
-					for _, fd := range fields.List {
-						for _, id := range fd.Names {
-							if id.Name == name {
-								found(sp.Name.Name, fd)
-							}
-						}
-					}
-				case *ast.ValueSpec:
-					for _, id := range sp.Names {
-						if id.Name == name {
-							found("", sp)
-						}
-					}
-				}
-			}
-		}
-	}
-	return decl, all
-}
-
-// goPackage is the name of the package the Go file src is in.
-func goPackage(src []byte) string {
-	f, err := parser.ParseFile(token.NewFileSet(), "", src, parser.PackageClauseOnly)
-	if err != nil {
-		return ""
-	}
-	return f.Name.Name
 }

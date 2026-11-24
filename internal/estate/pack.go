@@ -184,6 +184,15 @@ func (r *Repo) usesSection(files []string) Section {
 				if pl.File != c.File {
 					continue
 				}
+				// A Go type is shown whole — a struct with its fields, an
+				// interface with its methods: its first line says nothing of
+				// what it holds, and an agent that guesses it guesses wrong.
+				if strings.HasSuffix(pl.File, ".go") {
+					if t := goType(r.abs(pl.File), c.Name); t != "" && strings.Count(t, "\n") < 80 {
+						lines = append(lines, fmt.Sprintf("%s:%d\n%s", pl.File, pl.Start, t))
+						continue
+					}
+				}
 				if ex := r.Excerpt(pl.File, pl.Start, pl.Start, 1); len(ex) == 1 {
 					lines = append(lines, fmt.Sprintf("%s:%d  %s", pl.File, pl.Start, strings.TrimSpace(ex[0].Text)))
 				}
