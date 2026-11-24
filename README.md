@@ -49,7 +49,7 @@ Runs are carried by the service, so these are read when it starts: after changin
 ## Use
 
 ```bash
-iflow tui [project]                     # the path in a terminal: tasks, areas, the conversation beside them
+iflow tui [project]                     # the path in a terminal: tasks, areas, the units as a graph, what each changed (d), the conversation beside them
 iflow desk <project>...                 # the same in a window
 iflow run [--accept|--ask] <project> <task>  # carry a task, printing each step
 iflow models                            # which model does each piece of work

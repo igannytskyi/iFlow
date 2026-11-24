@@ -212,6 +212,13 @@ func (c *Client) Change(ctx context.Context, dir string) (protocol.ChangeDoc, er
 	return out, err
 }
 
+// Diff is what a unit's candidate changed, file by file.
+func (c *Client) Diff(ctx context.Context, dir, candidate string) ([]protocol.FileDiff, error) {
+	var out []protocol.FileDiff
+	err := c.conn.Call(ctx, protocol.Diff, protocol.TraceParams{Dir: dir, Candidate: candidate}, &out)
+	return out, err
+}
+
 // Trace is what a candidate's agent did.
 func (c *Client) Trace(ctx context.Context, dir, candidate string) ([]protocol.Event, error) {
 	var out []protocol.Event

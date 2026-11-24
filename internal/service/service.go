@@ -209,6 +209,12 @@ func (s *Service) Handle(ctx context.Context, c *protocol.Conn, method string, p
 			return nil, err
 		}
 		return trace(p)
+	case protocol.Diff:
+		var p protocol.TraceParams
+		if err := protocol.Decode(params, &p); err != nil {
+			return nil, err
+		}
+		return diff(p)
 	case protocol.Ask:
 		var p protocol.AskParams
 		if err := protocol.Decode(params, &p); err != nil {

@@ -112,7 +112,7 @@ func (m Model) content(t task, width, height int) ([]string, []int, bool) {
 		lines = m.admission(doc, width)
 	case 4:
 		lines, rows = m.execution(t, doc, s, live, width, height)
-		return lines, rows, false
+		return lines, rows, m.showDiff // a diff scrolls; the agent's steps keep to the room left
 	case 5:
 		lines = m.assurance(doc, width)
 	case 6:
@@ -316,7 +316,48 @@ func (m Model) execution(t task, doc protocol.ChangeDoc, s service.State, live b
 		events = m.traces[m.dirOf(t)+"/"+chosenUnit.candidate]
 		where = chosenUnit.candidate
 	}
-	out = append(out, m.st.faint.Render(chosenUnit.id+" · its agent · "+cmp.Or(where, "no candidate")))
+	if m.showDiff {
+		// What it changed, file by file, in place of what its agent did.
+		out = append(out, m.st.faint.Render(chosenUnit.id+" · what it changed · "+cmp.Or(chosenUnit.candidate, "no candidate")+" · d for its agent"))
+		var lines []string
+		files, have := m.diffs[m.dirOf(t)+"/"+chosenUnit.candidate]
+		switch {
+		case chosenUnit.candidate == "":
+			lines = append(lines, m.st.faint.Render("  nothing kept yet"))
+		case !have:
+			lines = append(lines, m.st.faint.Render("  reading…"))
+		}
+		for _, f := range files {
+			if f.Unrecorded {
+				lines = append(lines, m.st.strong.Render(f.Path)+m.st.faint.Render("  how it stood before is not kept; the estate holds it as landed"))
+				continue
+			}
+			head := fmt.Sprintf("%s  +%d −%d", f.Path, f.Added, f.Removed)
+			if f.New {
+				head += "  new"
+			}
+			lines = append(lines, m.st.strong.Render(head))
+			for _, l := range strings.Split(strings.TrimRight(f.Unified, "\n"), "\n") {
+				for _, w := range fold(printable(l), width, "  ") {
+					switch {
+					case strings.HasPrefix(l, "+"):
+						w = m.st.good.Render(w)
+					case strings.HasPrefix(l, "-"):
+						w = m.st.bad.Render(w)
+					case strings.HasPrefix(l, "@@"):
+						w = m.st.faint.Render(w)
+					}
+					lines = append(lines, w)
+				}
+			}
+		}
+		out = append(out, lines...)
+		for len(rows) < len(out) {
+			rows = append(rows, -1)
+		}
+		return out, rows
+	}
+	out = append(out, m.st.faint.Render(chosenUnit.id+" · its agent · "+cmp.Or(where, "no candidate")+" · d for what it changed"))
 	// The agent's steps, whole, newest at the foot: as many of the last as
 	// the room holds.
 	var steps []string
@@ -350,14 +391,18 @@ func (m Model) traceOnView() tea.Cmd {
 		return nil
 	}
 	id := doc.Plan.Units[m.row].ID
-	if s, live := m.client.Run(t.run); live && len(s.Agent[id]) > 0 {
+	if s, live := m.client.Run(t.run); live && len(s.Agent[id]) > 0 && !m.showDiff {
 		return nil
 	}
 	for _, r := range doc.Execution.Runs {
-		if r.Unit == id && r.Candidate != "" {
-			if _, have := m.traces[dir+"/"+r.Candidate]; !have {
-				return m.readTrace(dir, r.Candidate)
-			}
+		if r.Unit != id || r.Candidate == "" {
+			continue
+		}
+		if _, have := m.diffs[dir+"/"+r.Candidate]; m.showDiff && !have {
+			return m.readDiff(dir, r.Candidate)
+		}
+		if _, have := m.traces[dir+"/"+r.Candidate]; !have {
+			return m.readTrace(dir, r.Candidate)
 		}
 	}
 	return nil

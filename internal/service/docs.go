@@ -11,6 +11,7 @@ import (
 	"github.com/igannytskyi/iflow/internal/artifact"
 	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/protocol"
+	"github.com/igannytskyi/iflow/internal/textdiff"
 )
 
 // document is a change as its folder holds it, for a screen to show.
@@ -71,4 +72,58 @@ func trace(p protocol.TraceParams) ([]protocol.Event, error) {
 		}
 	}
 	return out, sc.Err()
+}
+
+// diff is what a candidate changed, file by file, against the estate as it
+// stood before the change: the scope's files as the admission kept them,
+// and, for a file the change made, nothing.
+func diff(p protocol.TraceParams) ([]protocol.FileDiff, error) {
+	if filepath.Base(p.Candidate) != p.Candidate || p.Candidate == "" {
+		return nil, &protocol.Error{Code: protocol.InvalidParams, Message: "a candidate is named by its id alone"}
+	}
+	files := filepath.Join(p.Dir, "candidates", p.Candidate, "files")
+	var out []protocol.FileDiff
+	err := filepath.WalkDir(files, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || d.Name() == "CHANGES" {
+			return err
+		}
+		rel, _ := filepath.Rel(files, path)
+		rel = filepath.ToSlash(rel)
+		after, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		before, existed, known := beforeChange(p.Dir, rel)
+		if !known {
+			out = append(out, protocol.FileDiff{Path: rel, Unrecorded: true})
+			return nil
+		}
+		text, added, removed := textdiff.Unified(string(before), string(after), 3)
+		out = append(out, protocol.FileDiff{Path: rel, Unified: text, Added: added, Removed: removed, New: !existed})
+		return nil
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return out, err
+}
+
+// beforeChange is rel as it stood before the change in dir, whether it
+// existed, and whether that is known: as the admission kept it, or, where
+// it kept nothing of it, as the estate holds it while the change has not
+// landed. Once it has, the estate holds what the change made, and how the
+// file stood before is not known.
+func beforeChange(dir, rel string) (before []byte, existed, known bool) {
+	base := filepath.Join(dir, "baseline", filepath.Base(rel))
+	if b, err := os.ReadFile(base + ".before"); err == nil {
+		return b, true, true
+	}
+	if _, err := os.Stat(base + ".absent"); err == nil {
+		return nil, false, true
+	}
+	if _, err := os.Stat(filepath.Join(dir, string(artifact.Landing)+".json")); err == nil {
+		return nil, false, false
+	}
+	b, err := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(dir)), filepath.FromSlash(rel)))
+	return b, err == nil, true
 }

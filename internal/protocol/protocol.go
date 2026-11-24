@@ -18,7 +18,7 @@ import (
 // Version is the version of the protocol this side speaks. A service
 // answers initialize and shutdown in every version, whatever the screen's,
 // so that a screen newer than the service can always replace it.
-const Version = 5
+const Version = 6
 
 // The methods a screen calls.
 const (
@@ -35,6 +35,7 @@ const (
 	Record     = "change.record"    // ChangeRef → []Crossing
 	Get        = "change.get"       // ChangeRef → ChangeDoc
 	Trace      = "unit.trace"       // TraceParams → []Event
+	Diff       = "unit.diff"        // TraceParams → []FileDiff
 	Ask        = "chat.ask"         // AskParams → nothing; ChatChanged follows for who watches
 	Listen     = "chat.watch"       // ChatRef → nothing; ChatChanged follows
 	Shutdown   = "service.shutdown" // ShutdownParams → ShutdownResult; the service then ends
@@ -365,4 +366,18 @@ type ChatState struct {
 	Partial  string        `json:"partial,omitempty"`
 	Waiting  bool          `json:"waiting"`
 	CostUSD  float64       `json:"cost_usd"`
+}
+
+// FileDiff is one file a unit's candidate changed: its path, the change as
+// a unified diff against the estate as it stood before the change, and how
+// many lines it added and removed. Unrecorded is a file of which the
+// change kept no prior state and whose estate already holds the change
+// landed: what it changed is not known, and is not guessed.
+type FileDiff struct {
+	Path       string `json:"path"`
+	Unified    string `json:"unified"`
+	Added      int    `json:"added"`
+	Removed    int    `json:"removed"`
+	New        bool   `json:"new,omitempty"`
+	Unrecorded bool   `json:"unrecorded,omitempty"`
 }

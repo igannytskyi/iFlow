@@ -256,6 +256,12 @@ func TestTheScreenOpensAChangeAreaByArea(t *testing.T) {
 	show("the assurance", "CR-00", "met")
 	m = key(m, "4")
 	show("the execution", "WU-00", "its agent")
+	m = key(m, "d")
+	show("what the first unit changed", "what it changed", "greeting_trim_test.go  how it stood before is not kept", "d for its agent")
+	m = key(m, "j")
+	show("what the second unit changed", "WU-002-02 · what it changed", "greeting.go  +", "@@", "+import \"strings\"", "name = strings.TrimSpace(name)")
+	m = key(m, "d")
+	show("its agent again", "its agent")
 	m = key(m, "esc")
 	if m.focus != onList {
 		t.Error("esc did not go back to the list")

@@ -74,8 +74,12 @@ type Model struct {
 	// steps how many steps their run had told when each was read.
 	docs   map[string]protocol.ChangeDoc
 	steps  map[string]int
-	traces map[string][]protocol.Event // a candidate's agent's steps, by folder and candidate
-	md     map[string]string           // a change described, drawn for a width
+	traces map[string][]protocol.Event    // a candidate's agent's steps, by folder and candidate
+	diffs  map[string][]protocol.FileDiff // what a candidate changed, by folder and candidate
+	// showDiff shows, in the execution, what the chosen unit changed in
+	// place of what its agent did.
+	showDiff bool
+	md       map[string]string // a change described, drawn for a width
 
 	// talking is the conversation open beside the task, while chatOpen;
 	// chatW its width as the person set it, 0 until they do; chatScroll how
@@ -114,7 +118,7 @@ func New(ctx context.Context, client *service.Client, moved chan string, project
 	ask.Placeholder = "ask anything"
 	return Model{ctx: ctx, client: client, moved: moved, project: project, term: detect(os.Getenv), theme: theme, st: stylesOf(theme), area: 1,
 		input: line(""), ask: ask, told: map[string]string{}, docs: map[string]protocol.ChangeDoc{}, steps: map[string]int{},
-		traces: map[string][]protocol.Event{}, md: map[string]string{}}
+		traces: map[string][]protocol.Event{}, diffs: map[string][]protocol.FileDiff{}, md: map[string]string{}}
 }
 
 type (
@@ -125,6 +129,10 @@ type (
 	traceMsg    struct {
 		key    string
 		events []protocol.Event
+	}
+	diffMsg struct {
+		key   string
+		files []protocol.FileDiff
 	}
 	noteMsg  string
 	lostMsg  struct{}
@@ -178,6 +186,16 @@ func (m Model) readTrace(dir, candidate string) tea.Cmd {
 			return noteMsg("the agent's steps could not be read: " + err.Error())
 		}
 		return traceMsg{dir + "/" + candidate, events}
+	}
+}
+
+func (m Model) readDiff(dir, candidate string) tea.Cmd {
+	return func() tea.Msg {
+		files, err := m.client.Diff(m.ctx, dir, candidate)
+		if err != nil {
+			return noteMsg("what the unit changed could not be read: " + err.Error())
+		}
+		return diffMsg{dir + "/" + candidate, files}
 	}
 }
 
@@ -308,6 +326,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.traceOnView()
 	case traceMsg:
 		m.traces[msg.key] = msg.events
+	case diffMsg:
+		m.diffs[msg.key] = msg.files
 	case everyMsg:
 		return m, tea.Batch(m.listProjects, every())
 	case noteMsg:
@@ -563,6 +583,10 @@ func (m Model) taskKey(k tea.KeyMsg, t task) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		m.row = max(m.row-1, 0)
 		m = m.scrolled(t, -1)
+	case "d":
+		if m.area == 4 {
+			m.showDiff, m.scroll = !m.showDiff, 0
+		}
 	case "pgdown", " ":
 		m = m.scrolled(t, max(1, m.height/2))
 	case "pgup":
@@ -690,7 +714,7 @@ func (m Model) foot() []string {
 	case m.focus == onList:
 		keys = "↑↓ task · ←→ project · enter or click to open · n new · c talk · , settings · q leave (runs go on)"
 	case m.focus == onTask:
-		keys = "1–6, ←→ or click an area · ↑↓ choose/scroll · esc back · a accept · r send back · s stop · o read the spec · c talk"
+		keys = "1–6, ←→ or click an area · ↑↓ choose/scroll · esc back · a accept · r send back · s stop · o read the spec · d what a unit changed · c talk"
 	}
 	if m.mode == asking {
 		keys = "enter sends · PgUp/PgDn or the wheel scroll the conversation · drag its edge or < > to widen · esc leaves the line"
