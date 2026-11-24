@@ -99,7 +99,7 @@ func (t tree) python() File {
 			if name == nil {
 				return
 			}
-			f.Symbols = append(f.Symbols, Symbol{t.text(name), start, end})
+			f.Symbols = append(f.Symbols, Symbol{Name: t.text(name), Start: start, End: end, Head: strings.TrimSuffix(t.head(n), ":")})
 			if bases := n.ChildByFieldName("superclasses"); bases != nil {
 				// What a class inherits from is a dependency written down,
 				// and in framework code often the only one there is.
@@ -151,7 +151,68 @@ func (t tree) python() File {
 	for _, name := range order {
 		f.Calls = append(f.Calls, Call{name, Import, imported[name], imported[name]})
 	}
+	f.Fields = t.pythonFields()
 	return f
+}
+
+// pythonFields is what a module assigns at its top, what its classes
+// assign in their bodies, and what their methods assign to self: the
+// module's values and its classes' attributes, as Python binds them.
+func (t tree) pythonFields() []Symbol {
+	var out []Symbol
+	walk(t.root, func(n *ts.Node) {
+		if n.Kind() != "assignment" && n.Kind() != "augmented_assignment" {
+			return
+		}
+		if p := n.Parent(); p == nil || p.Kind() != "expression_statement" && p.Kind() != "assignment" {
+			return // an assignment within an expression binds nothing here
+		}
+		left := n.ChildByFieldName("left")
+		if left == nil {
+			return
+		}
+		local := false // in a function: only what it assigns to self stays
+		for p := n.Parent(); p != nil; p = p.Parent() {
+			if p.Kind() == "function_definition" {
+				local = true
+				break
+			}
+			if p.Kind() == "class_definition" {
+				break
+			}
+		}
+		if n.Kind() == "augmented_assignment" && !local {
+			return // it changes a name, and binds none
+		}
+		start, end := line(n.StartPosition()), line(n.EndPosition())
+		var targets func(x *ts.Node)
+		targets = func(x *ts.Node) {
+			switch x.Kind() {
+			case "identifier":
+				if !local {
+					head := t.text(x)
+					if ty := n.ChildByFieldName("type"); ty != nil {
+						head += ": " + t.text(ty)
+					}
+					out = append(out, Symbol{Name: t.text(x), Start: start, End: end, Head: head})
+				}
+			case "attribute":
+				if obj := x.ChildByFieldName("object"); obj != nil && obj.Kind() == "identifier" && t.text(obj) == "self" {
+					if a := x.ChildByFieldName("attribute"); a != nil {
+						out = append(out, Symbol{Name: t.text(a), Start: start, End: end, Head: oneLine(t.text(x))})
+					}
+				}
+			case "pattern_list", "tuple_pattern", "list_pattern":
+				for _, c := range children(x) {
+					if c.IsNamed() {
+						targets(c)
+					}
+				}
+			}
+		}
+		targets(left)
+	})
+	return out
 }
 
 // importNames is what an import statement brings in, as the names it binds

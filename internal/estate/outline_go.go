@@ -90,10 +90,10 @@ func GoOutline(src []byte) string {
 }
 
 // Outlined is the files of the folders paths name, as an agent needs them
-// without reading them: Go by its own parser — every type with its fields or
-// methods, every function with its signature and what it calls — and any
-// other language by its definitions' first lines; the files named first,
-// the rest of their folders after, within budget tokens.
+// without reading them — every type with its fields or methods, every
+// function with its signature and what it calls: Go by its own parser, any
+// other language by its tree; the files named first, the rest of their
+// folders after, within budget tokens.
 func (r *Repo) Outlined(paths []string, budget int) string {
 	dirs := map[string]bool{}
 	for _, p := range paths {
@@ -115,27 +115,25 @@ func (r *Repo) Outlined(paths []string, budget int) string {
 		return 0
 	})
 	var b strings.Builder
-	others := false
 	for _, s := range sources {
 		if !dirs[path.Dir(s)] || strings.HasSuffix(s, "_test.go") && !named(s) {
 			continue
 		}
-		if filepath.Ext(s) != ".go" {
-			others = true
-			continue
+		var outline string
+		if filepath.Ext(s) == ".go" {
+			src, err := os.ReadFile(r.abs(s))
+			if err != nil {
+				continue
+			}
+			outline = GoOutline(src)
+		} else if f, ok := r.treeFile(s); ok {
+			outline = TreeOutline(f)
 		}
-		src, err := os.ReadFile(r.abs(s))
-		if err != nil {
-			continue
-		}
-		b.WriteString(s + ":\n" + GoOutline(src))
+		b.WriteString(s + ":\n" + outline)
 		if Tokens(b.String()) > budget {
 			b.WriteString("[cut: more than the budget]\n")
 			return b.String()
 		}
-	}
-	if others {
-		b.WriteString(r.Signatures(paths, budget-Tokens(b.String())))
 	}
 	return b.String()
 }

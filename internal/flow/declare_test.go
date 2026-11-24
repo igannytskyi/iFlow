@@ -151,22 +151,23 @@ for (const call of [() => m.shout("a"), () => g.wave("a")]) {
 	}
 }
 
-// Python's own parser says what a module declares: a constant assigned at
-// the top, a class's annotations, what a method assigns to self.
-func TestPythonDeclaresAreReadByPython(t *testing.T) {
+// What a Python module declares is read from its tree: a constant
+// assigned at the top, a class's annotations, what a method assigns to
+// self — and its fields are said read, so one missing is missing.
+func TestPythonDeclaresAreReadFromTheTree(t *testing.T) {
 	t.Parallel()
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("no python3 here")
-	}
 	src := "_OMITTED = object()\n\n\nclass Greeter:\n    language: str\n\n    def __init__(self):\n        self.mood = 1\n\n\ndef greet_in(lang, name=_OMITTED):\n    pass\n"
-	names, err := pyDeclares([]byte(src))
-	if err != nil {
-		t.Fatal(err)
+	names, fields := declaredIn("greet.py", []byte(src))
+	if !fields {
+		t.Error("the fields of a Python file are said not to be read")
 	}
 	for _, n := range []string{"_OMITTED", "Greeter", "language", "mood", "greet_in"} {
 		if !names[n] {
 			t.Errorf("%s is not seen as declared: %v", n, names)
 		}
+	}
+	if names["lang"] || names["name"] {
+		t.Errorf("a parameter is seen as declared: %v", names)
 	}
 }
 

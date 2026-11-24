@@ -21,6 +21,7 @@ type Record struct {
 	When       string          `json:"when"`
 	ReadBy     string          `json:"read by"`
 	Symbols    []reader.Symbol `json:"symbols"`
+	Fields     []reader.Symbol `json:"fields,omitempty"`
 	Calls      []reader.Call   `json:"calls"`
 	Unresolved []string        `json:"unresolved"`
 }
@@ -110,7 +111,7 @@ func (r *Repo) derive() (*Index, error) {
 				commit, when := r.stamp(rel, digest)
 				got := reader.Read(rel, src)
 				recs[i] = &Record{Commit: commit, Digest: digest, When: when, ReadBy: how,
-					Symbols: nonNil(got.Symbols), Calls: nonNil(got.Calls), Unresolved: nonNil(got.Unresolved)}
+					Symbols: nonNil(got.Symbols), Fields: got.Fields, Calls: nonNil(got.Calls), Unresolved: nonNil(got.Unresolved)}
 			}
 		})
 	}

@@ -7,6 +7,8 @@ import (
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/igannytskyi/iflow/internal/reader"
 )
 
 // Tokens is about how many tokens a model reads text as: four bytes to a
@@ -164,8 +166,9 @@ func (r *Repo) outline(rel string) string {
 	return b.String()
 }
 
-// usesSection is the first line of every definition elsewhere that the files
-// call: a signature to call it by, without the body.
+// usesSection is every definition elsewhere that the files call, as it is
+// declared: a signature to call it by, without the body; a type with what
+// it holds.
 func (r *Repo) usesSection(files []string) Section {
 	seen := map[string]bool{}
 	var lines []string
@@ -191,6 +194,20 @@ func (r *Repo) usesSection(files []string) Section {
 					if t := goType(r.abs(pl.File), c.Name); t != "" && strings.Count(t, "\n") < 80 {
 						lines = append(lines, fmt.Sprintf("%s:%d\n%s", pl.File, pl.Start, t))
 						continue
+					}
+				} else if f, ok := r.treeFile(pl.File); ok {
+					// So is a class of any other language, by its tree: its
+					// fields and its methods as they are declared.
+					if i := slices.IndexFunc(f.Symbols, func(s reader.Symbol) bool { return s.Name == c.Name && s.Start == pl.Start }); i >= 0 && f.Symbols[i].Head != "" {
+						t := outlineWithin(f, f.Symbols[i].Start, f.Symbols[i].End)
+						switch n := strings.Count(t, "\n"); {
+						case n <= 1:
+							lines = append(lines, fmt.Sprintf("%s:%d  %s", pl.File, pl.Start, f.Symbols[i].Head))
+							continue
+						case n < 80:
+							lines = append(lines, fmt.Sprintf("%s:%d\n%s", pl.File, pl.Start, strings.TrimRight(t, "\n")))
+							continue
+						}
 					}
 				}
 				if ex := r.Excerpt(pl.File, pl.Start, pl.Start, 1); len(ex) == 1 {
@@ -246,8 +263,8 @@ func (r *Repo) besideSection(files []string) Section {
 		if !dirs[path.Dir(s)] || slices.Contains(files, s) {
 			continue
 		}
-		// Each name by the first line of its definition: a signature an
-		// agent can call, not a name it must guess the arguments of.
+		// Each name as it is declared: a signature an agent can call, not
+		// a name it must guess the arguments of.
 		lines = append(lines, s+":")
 		if err == nil && ix.Files[s] != nil {
 			seen := map[int]bool{}
@@ -256,18 +273,20 @@ func (r *Repo) besideSection(files []string) Section {
 					continue
 				}
 				seen[sym.Start] = true
-				if ex := r.Excerpt(s, sym.Start, sym.Start, 1); len(ex) == 1 {
+				if sym.Head != "" {
+					lines = append(lines, "  "+sym.Head)
+				} else if ex := r.Excerpt(s, sym.Start, sym.Start, 1); len(ex) == 1 {
 					lines = append(lines, "  "+strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(ex[0].Text), "{")))
 				}
 			}
 		}
 	}
-	return Section{"Beside it, in the same directory — every definition by its first line", strings.Join(lines, "\n")}
+	return Section{"Beside it, in the same directory — every definition as it is declared", strings.Join(lines, "\n")}
 }
 
 // Signatures is what exists where a change works — every file of the
 // directories the paths name, its tests and their helpers among them, each
-// definition by its first line — within budget tokens. A plan built on it
+// definition as it is declared — within budget tokens. A plan built on it
 // relies on what is there, not on what its author assumes is.
 func (r *Repo) Signatures(paths []string, budget int) string {
 	dirs := map[string]bool{}
@@ -277,14 +296,15 @@ func (r *Repo) Signatures(paths []string, budget int) string {
 	return r.declared(func(s string) bool { return dirs[path.Dir(s)] }, budget)
 }
 
-// Declarations is every definition in the files named, by its first line,
+// Declarations is every definition in the files named, as it is declared,
 // within budget tokens: how the code is called, without its bodies.
 func (r *Repo) Declarations(files []string, budget int) string {
 	return r.declared(func(s string) bool { return slices.Contains(files, s) }, budget)
 }
 
-// declared is every definition of the sources that is chosen, by its first
-// line, within budget tokens.
+// declared is every definition of the sources that is chosen, as its tree
+// declares it — by its first line where the tree gave no head — within
+// budget tokens.
 func (r *Repo) declared(is func(string) bool, budget int) string {
 	ix, err := r.Index()
 	var b strings.Builder
@@ -302,7 +322,9 @@ func (r *Repo) declared(is func(string) bool, budget int) string {
 				continue
 			}
 			seen[sym.Start] = true
-			if ex := r.Excerpt(s, sym.Start, sym.Start, 1); len(ex) == 1 {
+			if sym.Head != "" {
+				b.WriteString("  " + sym.Head + "\n") // as its tree declares it, however many lines that takes
+			} else if ex := r.Excerpt(s, sym.Start, sym.Start, 1); len(ex) == 1 {
 				b.WriteString("  " + Signature(ex[0].Text) + "\n")
 			}
 		}

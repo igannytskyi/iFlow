@@ -11,7 +11,7 @@ func TestAPackHoldsWhatTheWorkNeedsAndNothingElse(t *testing.T) {
 	p := shop(t).PackFor([]string{"shop/checkout.py"}, nil, 4000).String()
 	for _, want := range []string{
 		"# May change: shop/checkout.py", "return total(items)", // the file, whole
-		"shop/core.py:1  def total(items):", // what it calls, by its signature
+		"shop/core.py:1  def total(items)", // what it calls, by its signature
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("the pack lacks %q:\n%s", want, p)
@@ -28,7 +28,7 @@ func TestAPackHoldsWhatTheWorkNeedsAndNothingElse(t *testing.T) {
 // is named so the new file joins it.
 func TestAPackForANewFileNamesItsNeighbours(t *testing.T) {
 	p := shop(t).PackFor([]string{"shop/refund.py"}, nil, 4000).String()
-	if !strings.Contains(p, "does not exist yet") || !strings.Contains(p, "shop/core.py:\n  def total(items):") {
+	if !strings.Contains(p, "does not exist yet") || !strings.Contains(p, "shop/core.py:\n  def total(items)") {
 		t.Errorf("the pack for a new file says too little:\n%s", p)
 	}
 }

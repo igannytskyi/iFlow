@@ -334,9 +334,13 @@ func readTree(c *compiled, src []byte) File {
 					f.Calls = append(f.Calls, Call{w, Name, start, start})
 				}
 			}
+		case member(kind) && !inCode(n) || t.topValue(n):
+			for _, name := range t.memberNames(n) {
+				f.Fields = append(f.Fields, Symbol{Name: name, Start: start, End: end, Head: t.declaration(n)})
+			}
 		case containsAny(kind, definesKinds) && !containsAny(kind, notDefines):
 			if name := t.nameOf(n); name != "" {
-				f.Symbols = append(f.Symbols, Symbol{name, start, end})
+				f.Symbols = append(f.Symbols, Symbol{Name: name, Start: start, End: end, Head: t.head(n)})
 			}
 		}
 	}
@@ -395,7 +399,7 @@ func (t tree) tags(q *ts.Query, f File) File {
 		name := strings.Trim(t.text(named), "\"'`")
 		switch {
 		case slices.ContainsFunc(marks, func(k string) bool { return strings.HasPrefix(k, "definition.") }):
-			f.Symbols = append(f.Symbols, Symbol{name, line(named.StartPosition()), line(named.EndPosition())})
+			f.Symbols = append(f.Symbols, Symbol{Name: name, Start: line(named.StartPosition()), End: line(named.EndPosition())})
 		case slices.ContainsFunc(marks, func(k string) bool { return strings.HasPrefix(k, "reference.") }):
 			referenced = append(referenced, ref{name, line(named.StartPosition())})
 		}

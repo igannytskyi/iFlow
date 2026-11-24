@@ -20,11 +20,14 @@ import (
 	"sync"
 )
 
-// Symbol is one definition and the lines it spans.
+// Symbol is one definition and the lines it spans; Head is how it is
+// declared, on one line and without its body or its value, where its tree
+// says — "" where only its name was read.
 type Symbol struct {
 	Name  string
 	Start int
 	End   int
+	Head  string
 }
 
 // Kind says how a reference was resolved, which is how far it is trusted.
@@ -50,9 +53,13 @@ type Call struct {
 	End  int
 }
 
-// File is what one file defines, refers to, and could not resolve.
+// File is what one file defines, refers to, and could not resolve. Fields
+// are the names it declares that hold a value rather than define code: the
+// fields and properties of its types, the variables and constants at its
+// top — read only where FieldsRead says its language's are.
 type File struct {
 	Symbols    []Symbol
+	Fields     []Symbol
 	Calls      []Call
 	Unresolved []string
 }
@@ -179,7 +186,7 @@ var Derivation = sync.OnceValue(func() string {
 })
 
 // version changes whenever what a reader here returns for the same file does.
-const version = "go/1"
+const version = "go/2" // 2: heads, and fields
 
 // Who says which reader reads which extensions.
 func Who() map[string][]string {
