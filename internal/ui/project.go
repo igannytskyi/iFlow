@@ -443,7 +443,9 @@ func (s shown) state(p *project) string {
 	return "stopped"
 }
 
-// show puts a task on view, at the area it got to.
+// show puts a task on view, at the area it got to. It reads what the gate
+// found of the change, which the workspace's check writes as it answers:
+// it is called while the workspace is held, as a frame holds it.
 func (p *project) show(sel string, c *workspace.Change) {
 	p.selected, p.item = sel, nil
 	p.area = 1

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"github.com/igannytskyi/iflow/internal/workspace"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,9 +41,9 @@ func TestEachTaskHasItsOwnConversation(t *testing.T) {
 		return th
 	}
 	old, newest := p.order[len(p.order)-1], p.order[0]
-	p.show(old.Change.Dir, old)
+	held(p).show(old.Change.Dir, old)
 	first := ask("old")
-	p.show(newest.Change.Dir, newest)
+	held(p).show(newest.Change.Dir, newest)
 	second := ask("newest")
 	if first == second || len(first.Messages()) != 2 || len(second.Messages()) != 2 {
 		t.Fatalf("the two tasks share a conversation: %d and %d turns", len(first.Messages()), len(second.Messages()))
@@ -61,7 +62,7 @@ func TestEachTaskHasItsOwnConversation(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "changes", chat.File)); !strings.Contains(string(b), "what is the project?") {
 		t.Error("the project's conversation is not kept under changes")
 	}
-	p.show(newest.Change.Dir, newest)
+	held(p).show(newest.Change.Dir, newest)
 	newPainter(t).paint(u, "chat")
 }
 
@@ -76,4 +77,18 @@ func TestTheStrongerModelIsNamed(t *testing.T) {
 	if got := strongerModel(strong); got != "glm-5.3" {
 		t.Errorf("marked %q, want glm-5.3", got)
 	}
+}
+
+// held is p, with its workspace held while what is done with it is done, as
+// a frame holds it: what the workspace's check writes is not read halfway.
+func held(p *project) heldProject { return heldProject{p} }
+
+type heldProject struct{ p *project }
+
+func (h heldProject) show(sel string, c *workspace.Change) {
+	if h.p.ws != nil {
+		h.p.ws.RLock()
+		defer h.p.ws.RUnlock()
+	}
+	h.p.show(sel, c)
 }

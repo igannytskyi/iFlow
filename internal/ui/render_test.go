@@ -159,19 +159,19 @@ func TestHistoryRenders(t *testing.T) {
 		{"project", func() {}},
 		{"project-landed", func() { p.showDone = true }},
 		{"task", func() {
-			p.show(newest.Change.Dir, newest)
+			held(p).show(newest.Change.Dir, newest)
 			if s, ok := p.shownOf(); !ok || s.c != newest || len(s.costs) == 0 {
 				t.Fatal("the task chosen is not on view, with what it cost")
 			}
 		}},
-		{"task-older", func() { p.show(old.Change.Dir, old) }},
+		{"task-older", func() { held(p).show(old.Change.Dir, old) }},
 		{"task-area", func() { p.area = 5 }},
 		{"task-object", func() { p.item = old.Item("VE-001-01") }},
 		{"task-resolve", func() {
 			// The task that raised an escalation, its matters open, deciding.
 			for _, c := range p.order {
 				if c.Name() == "greet-the-world" {
-					p.show(c.Change.Dir, c)
+					held(p).show(c.Change.Dir, c)
 					p.open["matters/"+c.Change.Dir] = true
 					p.resolving, p.resolveMode = c.Change.Dir+"|greet-the-world#1", resolveSettle
 				}
@@ -372,7 +372,7 @@ func TestFramesAreInstant(t *testing.T) {
 		set  func()
 	}{
 		{"overview", func() { p.selected = "" }},
-		{"task", func() { p.show(c.Change.Dir, c) }},
+		{"task", func() { held(p).show(c.Change.Dir, c) }},
 		{"plan", func() { p.area = 2 }},
 		{"execution", func() { p.area = 4 }},
 		{"assurance", func() { p.area = 5 }},
