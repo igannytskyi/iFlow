@@ -35,7 +35,7 @@ type testRun struct {
 // write the report to, and the reader, given what the command wrote and
 // the copy it ran in.
 type report struct {
-	cmd  func(names []string, file string) []string
+	cmd  func(names []string, file, dir string) []string
 	read func(out []byte, file, dir string) (testrun.Report, error)
 }
 
@@ -94,7 +94,7 @@ func runOnce(ctx context.Context, dir string, prof profile, names []string) test
 	file := f.Name()
 	_ = f.Close()
 	defer os.Remove(file)
-	cmd := prof.report.cmd(names, file) // as a claim names it: run wherever its tool is
+	cmd := prof.report.cmd(names, file, dir) // as a claim names it: run wherever its tool is
 	ok, out, took := runIn(ctx, dir, resolve(dir, cmd))
 	rep, err := prof.report.read([]byte(out), file, dir)
 	if err != nil {

@@ -113,9 +113,18 @@ func declaredTests(file string, src []byte) []string {
 	if filepath.Ext(file) != ".go" {
 		return testsIn(file, string(src))
 	}
-	f, err := parser.ParseFile(token.NewFileSet(), file, src, parser.SkipObjectResolution)
+	out, err := goTests(file, src)
 	if err != nil {
 		return testsIn(file, string(src)) // a file that does not parse fails its build, which says why
+	}
+	return out
+}
+
+// goTests is the tests a Go file declares, by go/parser.
+func goTests(file string, src []byte) ([]string, error) {
+	f, err := parser.ParseFile(token.NewFileSet(), file, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
 	}
 	var out []string
 	for _, d := range f.Decls {
@@ -139,7 +148,7 @@ func declaredTests(file string, src []byte) []string {
 			}
 		}
 	}
-	return out
+	return out, nil
 }
 
 // ledgerJudge is a tests unit's check, judged also by its ledger: the tests

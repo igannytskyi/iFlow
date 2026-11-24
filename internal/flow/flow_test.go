@@ -769,6 +769,7 @@ func TestAStoppedChangeIsResumed(t *testing.T) {
 		}
 	}
 	t.Run("at the specification", func(t *testing.T) {
+		t.Parallel()
 		repo := estateFixture(t)
 		est := estate.NewLocal()
 		var prompts []string
@@ -799,6 +800,7 @@ func TestAStoppedChangeIsResumed(t *testing.T) {
 		}
 	})
 	t.Run("stopped by request", func(t *testing.T) {
+		t.Parallel()
 		repo := estateFixture(t)
 		est := estate.NewLocal()
 		cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
@@ -831,6 +833,7 @@ func TestAStoppedChangeIsResumed(t *testing.T) {
 		land(t, cfg, run)
 	})
 	t.Run("in execution", func(t *testing.T) {
+		t.Parallel()
 		repo := estateFixture(t)
 		est := estate.NewLocal()
 		fail := true
@@ -857,6 +860,7 @@ func TestAStoppedChangeIsResumed(t *testing.T) {
 		land(t, cfg, run)
 	})
 	t.Run("after execution", func(t *testing.T) {
+		t.Parallel()
 		repo := estateFixture(t)
 		est := estate.NewLocal()
 		cfg := Config{Model: stubModel{answer: spec}, Executor: stubExecutor{files: files}, Estate: est, Gate: gate.New(est), Person: "a test"}
@@ -1036,6 +1040,7 @@ func TestAPersonAffirmsWhatOnlyAPersonCanSee(t *testing.T) {
 		{"never affirmed", 99, false, 1 + maxRefusals},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			repo := estateFixture(t)
 			est := estate.NewLocal()
 			var goals []string

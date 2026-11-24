@@ -83,8 +83,9 @@ var languages = []language{
 		focus: func(pattern, path string) []string {
 			return []string{"go", "test", "-count=1", "-v", "-run", pattern, "./" + strings.TrimPrefix(filepath.ToSlash(filepath.Clean(path)), "./") + "/..."}
 		},
-		report: &report{cmd: func(n []string, _ string) []string {
-			return []string{"go", "test", "-json", "-count=1", "-run", "^(" + strings.Join(n, "|") + ")$", "./..."}
+		report: &report{cmd: func(n []string, _, dir string) []string {
+			pkgs, _ := goPackagesOf(dir, n)
+			return append([]string{"go", "test", "-json", "-count=1", "-run", "^(" + strings.Join(n, "|") + ")$"}, pkgs...)
 		}, read: testrun.ReadGo},
 		build: []string{"go", "build", "./..."}, vet: goVet, check: goBuild, format: gofmt, declares: goDeclares, declare: map[string]declarer{".go": goDeclare},
 		fault: regexp.MustCompile(`^\s*(?:# |vet: )?([\w./-]+\.go):\d+:\d+:`), missing: goMissing, libraries: goLibraries,
@@ -101,7 +102,7 @@ var languages = []language{
 		focus: func(pattern, path string) []string {
 			return []string{"python3", "-m", "pytest", "-q", "-k", pattern, path}
 		},
-		report: &report{cmd: func(n []string, file string) []string {
+		report: &report{cmd: func(n []string, file, _ string) []string {
 			return []string{"python3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "-k", strings.Join(n, " or "), "--junitxml=" + file}
 		}, read: testrun.ReadJUnit},
 		check: func(files []string) []string {
@@ -125,7 +126,7 @@ var languages = []language{
 		focus: func(pattern, path string) []string {
 			return []string{"node", "--test", "--test-name-pattern=" + pattern, path}
 		},
-		report: &report{cmd: func(n []string, file string) []string {
+		report: &report{cmd: func(n []string, file, _ string) []string {
 			out := []string{"node", "--test", "--test-reporter=spec", "--test-reporter-destination=stdout", "--test-reporter=junit", "--test-reporter-destination=" + file}
 			for _, name := range n {
 				out = append(out, "--test-name-pattern="+regexp.QuoteMeta(name))
