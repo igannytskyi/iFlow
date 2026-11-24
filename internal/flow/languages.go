@@ -196,9 +196,14 @@ func quickCheck(files []string) []string {
 	return nil
 }
 
-// testsIn is the names of the tests a file declares, read as its language
-// declares them.
+// testsIn is the names of the tests a file declares: read from its syntax
+// tree where the estate's reader knows how its language declares a test
+// (Python, JavaScript, TypeScript; Go by go/ast in declaredTests), and by the
+// language's pattern only where it does not yet (Rust, Java, Kotlin).
 func testsIn(file, content string) []string {
+	if names, ok := reader.Tests(file, []byte(content)); ok {
+		return names
+	}
 	l, ok := languageOfFile(file)
 	if !ok || l.tests == nil {
 		return nil
