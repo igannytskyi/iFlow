@@ -52,6 +52,12 @@ type Model struct {
 	theme   Theme
 	st      styles
 
+	// settingsOpen shows the settings in the middle; setRow is the one
+	// chosen, setNote what went wrong saving one.
+	settingsOpen bool
+	setRow       int
+	setNote      string
+
 	width, height int
 
 	projects []protocol.Project // the person's projects and their changes, as the service last said
@@ -423,6 +429,13 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.mode != reading {
 		return m.typed(k)
 	}
+	if m.settingsOpen {
+		return m.settingsKey(k)
+	}
+	if k.String() == "," {
+		m.settingsOpen = true
+		return m, nil
+	}
 	p, t, has := m.current()
 	s, live := m.client.Run(t.run)
 	// What the keys do wherever the focus is.
@@ -589,7 +602,7 @@ func (m Model) View() string {
 	}
 	l := m.layout()
 	rule := m.st.faint.Render(strings.TrimSuffix(strings.Repeat(" │ \n", l.body), "\n"))
-	cols := []string{box(l.side, l.body, m.sidebar(l.side, l.body)), rule, box(l.mid, l.body, m.task(l.mid, l.body))}
+	cols := []string{box(l.side, l.body, m.sidebar(l.side, l.body)), rule, box(l.mid, l.body, m.middle(l.mid, l.body))}
 	if l.costs > 0 {
 		cols = append(cols, rule, box(l.costs, l.body, m.costs(l.costs)))
 	}
@@ -671,10 +684,12 @@ func (m Model) foot() []string {
 		return []string{m.input.View()}
 	}
 	var keys string
-	switch m.focus {
-	case onList:
-		keys = "↑↓ task · ←→ project · enter or click to open · n new · c talk · q leave (runs go on)"
-	case onTask:
+	switch {
+	case m.settingsOpen:
+		keys = "↑↓ choose · ←→, enter or click to switch — saved at once · esc or , back"
+	case m.focus == onList:
+		keys = "↑↓ task · ←→ project · enter or click to open · n new · c talk · , settings · q leave (runs go on)"
+	case m.focus == onTask:
 		keys = "1–6, ←→ or click an area · ↑↓ choose/scroll · esc back · a accept · r send back · s stop · o read the spec · c talk"
 	}
 	if m.mode == asking {
@@ -702,4 +717,13 @@ func (m Model) followChat(cmd tea.Cmd) (tea.Model, tea.Cmd) {
 	}
 	m.talking, m.chatScroll = ref, 0
 	return m, tea.Batch(cmd, func() tea.Msg { return result(m.client.Talk(m.ctx, ref), "") })
+}
+
+// middle is what the middle holds: the settings where they are open, the
+// task on view where not.
+func (m Model) middle(width, height int) string {
+	if m.settingsOpen {
+		return m.settingsView(width, height)
+	}
+	return m.task(width, height)
 }

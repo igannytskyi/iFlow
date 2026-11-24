@@ -35,6 +35,13 @@ type Config struct {
 	Effort Roles `json:"effort"`
 
 	FloorPricing bool `json:"floor_pricing"`
+	// BudgetUSD is what one change may spend, all its models together; 2
+	// where it is not set. ReviewRounds is how often a specification and a
+	// plan are reviewed; 1 where it is not set. Both are the person's,
+	// switched in the window's Settings or the terminal's, read by the
+	// service at every change it starts.
+	BudgetUSD    float64 `json:"budget_usd,omitempty"`
+	ReviewRounds int     `json:"review_rounds,omitempty"`
 }
 
 // Roles is one value for each kind of work.
@@ -200,6 +207,12 @@ func (m Config) Save() error {
 // A role whose model cannot be had — no key, an unknown provider — falls
 // back to Claude Code, and the second value says why.
 func (m Config) Flow(base flow.Config) (flow.Config, string) {
+	if m.BudgetUSD > 0 {
+		base.BudgetUSD = m.BudgetUSD
+	}
+	if m.ReviewRounds > 0 && base.ReviewRounds == 0 {
+		base.ReviewRounds = m.ReviewRounds
+	}
 	roles := m.Roles
 	if all := os.Getenv("IFLOW_MODEL"); all != "" {
 		roles = Roles{all, all, all, all, ""}

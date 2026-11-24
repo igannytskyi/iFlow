@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/harness"
+	"github.com/igannytskyi/iflow/internal/models"
 	"github.com/igannytskyi/iflow/internal/protocol"
 	"github.com/igannytskyi/iflow/internal/service"
 )
@@ -482,5 +484,51 @@ func TestScrollingBackMovesAtOnce(t *testing.T) {
 	m = key(m, "k")
 	if end == 0 || m.scroll != end-1 {
 		t.Errorf("scrolled to %d at the end, one step back is %d", end, m.scroll)
+	}
+}
+
+// Every setting the window has is in the terminal, switched where it
+// stands and saved at once where the window keeps it.
+func TestTheSettingsAreSwitchedInTheTerminal(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "models.json")
+	models.SetFile(file)
+	defer models.SetFile("")
+	m := New(context.Background(), &service.Client{}, nil, "/estate", Terminal)
+	m.projects = []protocol.Project{{Path: "/estate", Name: "estate"}}
+	m = drive(m, tea.WindowSizeMsg{Width: 160, Height: 40})
+	m = key(m, ",")
+	if !m.settingsOpen || !strings.Contains(ansi.Strip(m.View()), "budget") {
+		t.Fatal(", did not open the settings")
+	}
+	at := func(name string) int {
+		return slices.IndexFunc(settings, func(s setting) bool { return s.name == name })
+	}
+	for range at("budget") {
+		m = key(m, "j")
+	}
+	m = drive(m, tea.KeyMsg{Type: tea.KeyRight})
+	for range at("review") - at("budget") {
+		m = key(m, "j")
+	}
+	m = drive(m, tea.KeyMsg{Type: tea.KeyEnter})
+	// A click on the provider's line switches it.
+	l := m.layout()
+	m.setRow = at("provider")
+	m = drive(m, tea.MouseMsg{X: l.side + 5, Y: l.top + 2 + at("provider"), Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	c, err := models.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.BudgetUSD != 3 || c.ReviewRounds != 2 || !c.FloorPricing {
+		t.Errorf("not saved as switched: budget %v, review %d, cheapest %v", c.BudgetUSD, c.ReviewRounds, c.FloorPricing)
+	}
+	m.setRow = at("colours")
+	m = drive(m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.theme != Light {
+		t.Error("the colours were not switched")
+	}
+	m = key(m, "esc")
+	if m.settingsOpen {
+		t.Error("esc did not close the settings")
 	}
 }

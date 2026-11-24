@@ -29,9 +29,6 @@ func (app *App) FlowConfig() (flow.Config, string) {
 	// A claim to repeat is run once more at landing and set against the
 	// run its evidence kept: two runs, as the rule asks, not three.
 	cfg := flow.Config{Estate: app.Estate.(*estate.Local), Gate: app.Gate, Person: person(), BudgetUSD: 2, RepeatOnce: true}
-	if v := os.Getenv("IFLOW_BUDGET_USD"); v != "" {
-		fmt.Sscan(v, &cfg.BudgetUSD)
-	}
 	if v := os.Getenv("IFLOW_PACK_TOKENS"); v != "" {
 		fmt.Sscan(v, &cfg.PackTokens)
 	}
@@ -40,7 +37,12 @@ func (app *App) FlowConfig() (flow.Config, string) {
 		cfg, problems := models.Default().Flow(cfg)
 		return cfg, strings.TrimSpace(err.Error() + "\n" + problems)
 	}
-	return m.Flow(cfg)
+	cfg, problems := m.Flow(cfg)
+	// The environment, where it says, over what Settings keep.
+	if v := os.Getenv("IFLOW_BUDGET_USD"); v != "" {
+		fmt.Sscan(v, &cfg.BudgetUSD)
+	}
+	return cfg, problems
 }
 
 func person() string {

@@ -41,10 +41,10 @@ security add-generic-password -s iflow.openrouter -a iflow -w
 |---|---|
 | `IFLOW_MODEL` | every role on this model, as `provider:model` |
 | `IFLOW_EXECUTOR=agent` | units handed to Claude Code's own agent instead of one-shot agents |
-| `IFLOW_BUDGET_USD` | the most one unit of work may spend; 2 when unset |
+| `IFLOW_BUDGET_USD` | the most one change may spend, all its models together, over what Settings keep; $2 when neither says |
 | `IFLOW_PACK_TOKENS` | the most one agent is handed — its goal, the tests it must pass, its files and what surrounds them; 16000 when unset |
 
-Runs are carried by the service, so these are read when it starts: after changing one, `iflow service restart`.
+Runs are carried by the service, so these are read when it starts: after changing one, `iflow service restart`. The models of the roles, how hard each thinks, the cheapest provider, the budget of a change and the rounds of review are switched in Settings — the window's, or the terminal's (`,` in `iflow tui`) — and every change started after uses them.
 
 ## Use
 

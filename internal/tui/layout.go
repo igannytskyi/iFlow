@@ -144,6 +144,13 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if m.mode != asking {
 			return m.begin(asking, "")
 		}
+	case inMid && m.settingsOpen:
+		// A click on a setting chooses it and switches it on one.
+		if i := m.settingsRow(row); i >= 0 {
+			m.setRow = i
+			m = m.switchSetting(1)
+		}
+		return m, nil
 	case inMid:
 		_, t, ok := m.current()
 		if !ok {
