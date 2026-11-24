@@ -237,7 +237,7 @@ func (app *App) Bench(ctx context.Context, args []string) int {
 			// What stopped it, as its steps said, where it did not come to
 			// what it should: a run in CI leaves nothing else to read.
 			for _, why := range r.Failures {
-				fmt.Fprintf(app.Out, "  %-18s ! %s\n", "", clipLine(why, 300))
+				fmt.Fprintf(app.Out, "  %-18s ! %s\n", "", why)
 			}
 		})
 	}
