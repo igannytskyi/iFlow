@@ -546,14 +546,14 @@ func (m Model) taskKey(k tea.KeyMsg, t task) (tea.Model, tea.Cmd) {
 		m.area, m.row, m.scroll = (m.area+4)%6+1, 0, 0
 	case "down", "j":
 		m.row++
-		m.scroll++
+		m = m.scrolled(t, 1)
 	case "up", "k":
 		m.row = max(m.row-1, 0)
-		m.scroll = max(m.scroll-1, 0)
+		m = m.scrolled(t, -1)
 	case "pgdown", " ":
-		m.scroll += max(1, m.height/2)
+		m = m.scrolled(t, max(1, m.height/2))
 	case "pgup":
-		m.scroll = max(0, m.scroll-max(1, m.height/2))
+		m = m.scrolled(t, -max(1, m.height/2))
 	}
 	m.row = min(m.row, max(0, m.rows(t)-1))
 	return m, tea.Batch(m.onView(), m.traceOnView())

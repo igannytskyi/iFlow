@@ -23,14 +23,9 @@ func (m Model) task(width, height int) string {
 	if !ok {
 		return "\n" + m.st.faint.Render("  no task here yet — press n and say what you want")
 	}
-	s, live := m.client.Run(t.run)
 	out := m.head(t, width)
-	var question []string
-	if live && s.Question != "" {
-		question = append(fold(m.st.waitBlock.Render("waiting for you")+" "+oneLine(s.Question), width, ""),
-			m.st.faint.Render("[a] accept   [r] send back with why   [o] read the specification"))
-	}
-	lines, _, _ := m.body(t, width, height-len(out)-len(question))
+	question := m.question(t, width)
+	lines, _, _ := m.body(t, width, m.room(t, width, height))
 	out = append(out, lines...)
 	for len(out) < height-len(question) {
 		out = append(out, "")
@@ -38,15 +33,72 @@ func (m Model) task(width, height int) string {
 	return strings.Join(append(out[:max(0, height-len(question))], question...), "\n")
 }
 
-// head is the task's six areas, on its first line: what the task is, the
-// list beside it says already.
-func (m Model) head(t task, _ int) []string {
-	return []string{strings.Join(m.areaLabels(t), "  "), ""}
+// areaHit is where an area's name is drawn in the head: its line, and the
+// columns it spans.
+type areaHit struct{ line, from, to, area int }
+
+// headOf is the task's six areas, as many to a line as width holds — a
+// name never cut — then a blank line; and where each name is, for the
+// mouse to find it where it was drawn. What the task is, the list beside
+// it says already.
+func (m Model) headOf(t task, width int) ([]string, []areaHit) {
+	var lines []string
+	var hits []areaHit
+	cur, x := "", 0
+	for i, l := range m.areaLabels(t) {
+		w := ansi.StringWidth(l)
+		if cur != "" && x+2+w > width {
+			lines, cur, x = append(lines, cur), "", 0
+		}
+		if cur != "" {
+			cur, x = cur+"  ", x+2
+		}
+		hits = append(hits, areaHit{line: len(lines), from: x, to: x + w, area: i + 1})
+		cur, x = cur+l, x+w
+	}
+	return append(lines, cur, ""), hits
+}
+
+func (m Model) head(t task, width int) []string {
+	lines, _ := m.headOf(t, width)
+	return lines
+}
+
+// question is what the task waits on, at the foot of the task, if anything.
+func (m Model) question(t task, width int) []string {
+	s, live := m.client.Run(t.run)
+	if !live || s.Question == "" {
+		return nil
+	}
+	return append(fold(m.st.waitBlock.Render("waiting for you")+" "+oneLine(s.Question), width, ""),
+		m.st.faint.Render("[a] accept   [r] send back with why   [o] read the specification"))
+}
+
+// room is the lines the area open has, of height: what the head and the
+// question leave — the same for drawing it and for finding what the mouse
+// points at.
+func (m Model) room(t task, width, height int) int {
+	return max(0, height-len(m.head(t, width))-len(m.question(t, width)))
 }
 
 // body is what the area open holds, as it fits height: its lines, the row
 // each line chooses (-1 for none), and how far it is scrolled.
 func (m Model) body(t task, width, height int) ([]string, []int, int) {
+	lines, rows, scrolls := m.content(t, width, height)
+	if !scrolls {
+		return lines, rows, 0
+	}
+	scroll := min(m.scroll, max(0, len(lines)-height))
+	end := min(len(lines), scroll+max(0, height))
+	if rows != nil {
+		rows = rows[scroll:end]
+	}
+	return lines[scroll:end], rows, scroll
+}
+
+// content is all the area open holds, its rows, and whether it scrolls: the
+// agent's steps keep to the room left, and do not.
+func (m Model) content(t task, width, height int) ([]string, []int, bool) {
 	doc := m.docs[m.dirOf(t)]
 	s, live := m.client.Run(t.run)
 	var lines []string
@@ -60,18 +112,24 @@ func (m Model) body(t task, width, height int) ([]string, []int, int) {
 		lines = m.admission(doc, width)
 	case 4:
 		lines, rows = m.execution(t, doc, s, live, width, height)
-		return lines, rows, 0 // the agent's steps keep to the room left
+		return lines, rows, false
 	case 5:
 		lines = m.assurance(doc, width)
 	case 6:
 		lines = m.landing(doc, t, width)
 	}
-	scroll := min(m.scroll, max(0, len(lines)-height))
-	end := min(len(lines), scroll+max(0, height))
-	if rows != nil {
-		rows = rows[scroll:end]
-	}
-	return lines[scroll:end], rows, scroll
+	return lines, rows, true
+}
+
+// scrolled is the task's area scrolled by n lines (back where n is
+// negative), held to what it holds: never past its last line, so that
+// scrolling back moves at once.
+func (m Model) scrolled(t task, n int) Model {
+	l := m.layout()
+	room := m.room(t, l.mid, l.body)
+	lines, _, _ := m.content(t, l.mid, room)
+	m.scroll = min(max(0, m.scroll+n), max(0, len(lines)-room))
+	return m
 }
 
 // areaLabels is the six areas as they stand, each a block of the colour of

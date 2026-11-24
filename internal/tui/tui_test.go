@@ -441,3 +441,46 @@ func TestTheConversationFollowsTheTaskOnView(t *testing.T) {
 		}
 	}
 }
+
+// With the conversation open the middle narrows and the areas take two
+// lines: a click on each area still opens it, where it was drawn.
+func TestEveryAreaAnswersAClickWhereverItIsDrawn(t *testing.T) {
+	for _, width := range []int{200, 120, 90} {
+		m := New(context.Background(), &service.Client{}, nil, "/estate", Terminal)
+		m.projects = []protocol.Project{{Path: "/estate", Name: "estate", Changes: []protocol.Change{{Dir: "/estate/changes/x", Statement: "x"}}}}
+		m = drive(m, tea.WindowSizeMsg{Width: width, Height: 40})
+		m.chatOpen, m.talking = true, protocol.ChatRef{Project: "/estate"}
+		m.focus = onTask
+		l := m.layout()
+		_, task0, _ := m.current()
+		_, hits := m.headOf(task0, l.mid)
+		for _, h := range hits {
+			m.area = 0
+			m = drive(m, tea.MouseMsg{X: l.side + 3 + h.from, Y: l.top + h.line, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+			if m.area != h.area {
+				t.Errorf("width %d: a click on area %d, drawn on line %d, opened %d", width, h.area, h.line, m.area)
+			}
+		}
+		if width == 90 && hits[len(hits)-1].line == 0 {
+			t.Errorf("at width %d the areas were expected on more than one line, the case this guards", width)
+		}
+	}
+}
+
+// Scrolled past its end, the task's area does not keep counting: the first
+// step back moves it back.
+func TestScrollingBackMovesAtOnce(t *testing.T) {
+	m := New(context.Background(), &service.Client{}, nil, "/estate", Terminal)
+	m.projects = []protocol.Project{{Path: "/estate", Name: "estate", Changes: []protocol.Change{{Dir: "/estate/changes/x", Statement: "x"}}}}
+	m.docs["/estate/changes/x"] = protocol.ChangeDoc{Change: protocol.Change{Dir: "/estate/changes/x"}, Document: "# The change\n\n" + strings.Repeat("A line of the specification.\n\n", 80)}
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.focus, m.area = onTask, 1
+	for range 200 {
+		m = key(m, "j")
+	}
+	end := m.scroll
+	m = key(m, "k")
+	if end == 0 || m.scroll != end-1 {
+		t.Errorf("scrolled to %d at the end, one step back is %d", end, m.scroll)
+	}
+}

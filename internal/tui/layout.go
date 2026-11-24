@@ -2,7 +2,6 @@ package tui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // layout is where each part of the screen is: the same for drawing it and
@@ -60,20 +59,6 @@ func (m Model) layout() layout {
 // tasks.
 type sideRow struct {
 	proj, task int // task is -1 for the project's own line
-}
-
-// areaAt is the area whose name is drawn at column x of the areas' line,
-// or 0.
-func (m Model) areaAt(x int, labels []string) int {
-	at := 0
-	for i, l := range labels {
-		w := ansi.StringWidth(l)
-		if x >= at && x < at+w {
-			return i + 1
-		}
-		at += w + 2
-	}
-	return 0
 }
 
 // mouse acts on what the mouse did: a click opens the task or the area it
@@ -165,15 +150,20 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		mx := x - (l.side + 3)
+		head, hits := m.headOf(t, l.mid)
 		switch {
-		case row == 0: // the areas' line, the head's first
-			if n := m.areaAt(mx, m.areaLabels(t)); n > 0 {
-				m.focus, m.area, m.row, m.scroll = onTask, n, 0, 0
-				return m, tea.Batch(m.onView(), m.traceOnView())
+		case row < len(head):
+			// The areas, where headOf drew them — on as many lines as the
+			// width made them take.
+			for _, h := range hits {
+				if h.line == row && mx >= h.from && mx < h.to {
+					m.focus, m.area, m.row, m.scroll = onTask, h.area, 0, 0
+					return m, tea.Batch(m.onView(), m.traceOnView())
+				}
 			}
-		case row >= len(m.head(t, l.mid)):
-			start := len(m.head(t, l.mid))
-			_, rows, _ := m.body(t, l.mid, l.body-start)
+		default:
+			start := len(head)
+			_, rows, _ := m.body(t, l.mid, m.room(t, l.mid, l.body))
 			if i := row - start; i < len(rows) && rows[i] >= 0 {
 				m.focus, m.row = onTask, rows[i]
 				return m, m.traceOnView()
