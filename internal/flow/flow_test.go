@@ -262,6 +262,13 @@ func TestATaskTravelsThePath(t *testing.T) {
 		t.Error("the person was never asked to accept the criteria")
 	}
 	c, err := artifact.Load(v.Dir)
+	if err == nil && c.Meta.Plan != nil {
+		// The plan records what each unit waits for as the scheduler
+		// carries it: the code unit, the contract and the tests.
+		if u := c.Meta.Plan.Units[len(c.Meta.Plan.Units)-1]; !slices.Equal(u.DependsOn, []string{"WU-001-01", "WU-001-02"}) {
+			t.Errorf("the code unit is recorded as waiting for %v", u.DependsOn)
+		}
+	}
 	if err == nil {
 		if e := c.Meta.Execution; e == nil || len(e.Tests) != 1 || e.Tests[0] != (meta.TestRecord{Test: "TestShout", File: "shout_test.go", Criterion: "CR-001-01", Unit: "WU-001-02"}) {
 			t.Errorf("the execution does not keep the test ledger: %+v", e)

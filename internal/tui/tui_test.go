@@ -17,6 +17,7 @@ import (
 
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/harness"
+	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/models"
 	"github.com/igannytskyi/iflow/internal/protocol"
 	"github.com/igannytskyi/iflow/internal/service"
@@ -530,5 +531,25 @@ func TestTheSettingsAreSwitchedInTheTerminal(t *testing.T) {
 	m = key(m, "esc")
 	if m.settingsOpen {
 		t.Error("esc did not close the settings")
+	}
+}
+
+// The plan's units are drawn as their graph: a line a level, each unit
+// after those it waits for, how it stands, and what the one at work does.
+func TestTheUnitsAreDrawnAsTheirGraph(t *testing.T) {
+	m := New(context.Background(), &service.Client{}, nil, "/estate", Terminal)
+	doc := protocol.ChangeDoc{Plan: &meta.Plan{Units: []meta.WorkUnit{
+		{ID: "WU-001-01", Kind: meta.ContractUnit},
+		{ID: "WU-001-02", Kind: meta.TestsUnit, DependsOn: []string{"WU-001-01"}},
+		{ID: "WU-001-03", Kind: meta.TestsUnit, DependsOn: []string{"WU-001-01"}},
+		{ID: "WU-001-04", Kind: meta.CodeUnit, DependsOn: []string{"WU-001-01", "WU-001-02", "WU-001-03"}},
+	}}, Execution: &meta.Execution{Runs: []meta.Run{{Unit: "WU-001-01", Terminal: meta.CandidateEnd, Candidate: "CA-001-01"}}}}
+	s := service.State{}
+	s.Agent = map[string][]protocol.Event{"WU-001-02": {{Kind: "called", Tool: "read_file", Detail: "greet.go"}}}
+	got := ansi.Strip(strings.Join(m.unitGraph(doc, s, true, 120), "\n"))
+	for _, want := range []string{"1 ✓ 01 contract", "2 ● 02 tests ←01   ○ 03 tests ←01", "3 ○ 04 code ←01,02,03", "● 02 now: read_file greet.go"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the graph lacks %q:\n%s", want, got)
+		}
 	}
 }

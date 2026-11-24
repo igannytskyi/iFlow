@@ -211,8 +211,8 @@ func (m Model) plan(doc protocol.ChangeDoc, width int) ([]string, []int) {
 	if doc.Plan == nil {
 		return []string{m.st.faint.Render("not planned yet")}, []int{-1}
 	}
-	var out []string
-	var rows []int
+	out := m.unitGraph(doc, service.State{}, false, width)
+	rows := graphRows(len(out))
 	add := func(row int, lines ...string) {
 		for _, l := range lines {
 			out, rows = append(out, l), append(rows, row)
@@ -289,8 +289,8 @@ func (m Model) execution(t task, doc protocol.ChangeDoc, s service.State, live b
 	if len(units) == 0 {
 		return []string{m.st.faint.Render("nothing carried yet")}, []int{-1}
 	}
-	var out []string
-	var rows []int
+	out := m.unitGraph(doc, s, live, width)
+	rows := graphRows(len(out))
 	for i, u := range units {
 		sign := m.st.faint.Render("○")
 		switch {

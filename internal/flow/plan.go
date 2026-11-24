@@ -245,6 +245,17 @@ func (r *Run) plan(ctx context.Context) error {
 		units[i].aoe = fmt.Sprintf("%d file(s) reached firmly, %d on a name alone, derived, medium", firm, len(reach)-firm)
 	}
 	r.units = units
+	// What each unit waits for is written as the scheduler will carry it —
+	// shared files, what it reads and uses, a criterion's last server — so
+	// that the plan's record and every screen's graph say what happens.
+	for i, deps := range r.dependencies() {
+		var ids []string
+		for _, d := range deps {
+			ids = append(ids, units[d].id)
+		}
+		slices.Sort(ids)
+		units[i].dependsOn = joinIDs(slices.Compact(ids))
+	}
 	// doc is the plan described, for plan.md; record, below, is the plan's
 	// record in the data model.
 	doc := artifact.PlanDoc{Name: r.slug, Spec: r.id("SPEC"), Phases: "1",
@@ -659,13 +670,6 @@ func (r *Run) number(units []unit) []unit {
 				units[i].preparatoryFor = units[firstCode].id
 			}
 			testIDs = append(testIDs, units[i].id)
-		case i == firstCode:
-			units[i].dependsOn = joinIDs(testIDs)
-			if units[0].isContract() {
-				units[i].dependsOn = joinIDs(append([]string{units[0].id}, testIDs...))
-			}
-		default:
-			units[i].dependsOn = units[i-1].id
 		}
 	}
 	return units
