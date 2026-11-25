@@ -3,8 +3,11 @@ package flow
 import (
 	"context"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
 
@@ -99,4 +102,41 @@ type shapedStub struct{ stubModel }
 
 func (shapedStub) AskShaped(context.Context, string, string, string, map[string]any) (string, model.Usage, error) {
 	return "{}", model.Usage{}, nil
+}
+
+// A name two units give to two types is used by its type: Config.Floor
+// waits for the unit that gives it, OpenAI.Floor for the other; used bare,
+// it is sent back as ambiguous, not read as a circle; and a circle that is
+// one says who waits for whom.
+func TestAUseIsReadByItsType(t *testing.T) {
+	t.Parallel()
+	field := func(of string) meta.Provision {
+		return meta.Provision{File: "x.go", Name: "Floor", Kind: meta.Field, Of: of, Signature: "Floor bool"}
+	}
+	config := unit{title: "config", provides: []meta.Provision{field("Config")}, uses: []string{"OpenAI.Floor"}}
+	openai := unit{title: "openai", provides: []meta.Provision{field("OpenAI")}}
+	ui := unit{title: "settings", uses: []string{"models.Config.Floor"}}
+	if why := ambiguous([]unit{config, openai, ui}); why != "" {
+		t.Errorf("uses by type were found ambiguous: %s", why)
+	}
+	order, why := orderByUse([]unit{ui, config, openai})
+	if why != "" {
+		t.Fatal(why)
+	}
+	var titles []string
+	for _, u := range order {
+		titles = append(titles, u.title)
+	}
+	if !slices.Equal(titles, []string{"openai", "config", "settings"}) {
+		t.Errorf("ordered %v", titles)
+	}
+	config.uses = []string{"Floor"}
+	if why := ambiguous([]unit{config, openai}); !strings.Contains(why, "Config.Floor and OpenAI.Floor") {
+		t.Errorf("a bare name two types share is not sent back as such: %q", why)
+	}
+	a := unit{title: "a", provides: []meta.Provision{{Name: "A", Kind: meta.Function}}, uses: []string{"B"}}
+	b := unit{title: "b", provides: []meta.Provision{{Name: "B", Kind: meta.Function}}, uses: []string{"A"}}
+	if _, why := orderByUse([]unit{a, b}); !strings.Contains(why, `"a" uses B, which "b" provides`) {
+		t.Errorf("a circle does not say who waits for whom: %q", why)
+	}
 }

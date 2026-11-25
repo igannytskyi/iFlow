@@ -95,7 +95,7 @@ func (r *Run) dependencies() [][]int {
 				continue
 			}
 			reads := slices.ContainsFunc(r.units[i].reads, func(f string) bool { return slices.Contains(r.units[j].scope, f) })
-			uses := slices.ContainsFunc(r.units[i].uses, func(n string) bool { return slices.Contains(r.units[j].names(), n) })
+			uses := slices.ContainsFunc(r.units[i].uses, r.units[j].gives)
 			if reads || uses {
 				deps[i] = append(deps[i], j)
 			}

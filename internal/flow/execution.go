@@ -630,7 +630,7 @@ func (r *Run) chains(from, to int) [][]int {
 			shared := slices.ContainsFunc(r.units[i].scope, func(f string) bool { return slices.Contains(r.units[j].scope, f) })
 			// Without a contract declared first, a unit that uses another's
 			// names waits for it.
-			uses := !contract && slices.ContainsFunc(r.units[i].uses, func(n string) bool { return slices.Contains(r.units[j].names(), n) })
+			uses := !contract && slices.ContainsFunc(r.units[i].uses, r.units[j].gives)
 			if shared || uses {
 				group[find(i)] = find(j)
 			}

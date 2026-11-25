@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -55,11 +56,54 @@ func (u unit) names() []string {
 	return out
 }
 
+// gives says the unit provides what a use names: a name bare, or a field or
+// a method by its type and name — Config.Floor — however its package is
+// written before them.
+func (u unit) gives(use string) bool {
+	return slices.ContainsFunc(u.provides, func(p meta.Provision) bool {
+		if p.Kind == meta.Described {
+			return false
+		}
+		if use == p.Name {
+			return true
+		}
+		q := p.Of + "." + p.Name
+		return p.Of != "" && (use == q || strings.HasSuffix(use, "."+q))
+	})
+}
+
+// ambiguous says where a unit uses a bare name that units give to more than
+// one type — Config.Floor and OpenAI.Floor are both Floor — which no order
+// can be read from: the unit names it with its type.
+func ambiguous(units []unit) string {
+	for _, u := range units {
+		for _, use := range u.uses {
+			if strings.Contains(use, ".") {
+				continue
+			}
+			var as []string
+			for _, o := range units {
+				for _, p := range o.provides {
+					if p.Name == use && p.Kind != meta.Described {
+						if q := cmp.Or(p.Of+".", "") + p.Name; !slices.Contains(as, q) {
+							as = append(as, q)
+						}
+					}
+				}
+			}
+			if len(as) > 1 {
+				return fmt.Sprintf("unit %q uses %s, and the plan gives %s: name the one it uses with its type, as %s, in its uses", u.title, use, strings.Join(as, " and "), as[0])
+			}
+		}
+	}
+	return ""
+}
+
 const plannerSystem = `You divide a specified change into units of work. Each unit is carried out by an agent that sees its own unit — the brief you write, the files it may change, the code around them — and the specification's decisions; it never sees the person or the other units' briefs. You answer with one JSON object and nothing else.
 
 Rules you must follow:
 - Tests come first: one or more units of kind "tests", whose scope is only among the new test files you are given. They judge the change from outside, calling the code by the names the code units will give it; they never define what the change itself provides — only fakes of what it depends on.
-- Then units of kind "code", whose scope is only among the files the change may touch. Their order is derived from what each provides and uses: a unit is carried after every unit whose names it uses. Say in "uses" every name of another unit's provides a unit builds on, and nothing more. A unit never defines what another unit provides. Keep a unit to one coherent piece; wiring something into what exists is a unit of its own when it touches another file.
+- Then units of kind "code", whose scope is only among the files the change may touch. Their order is derived from what each provides and uses: a unit is carried after every unit whose names it uses. Say in "uses" every name of another unit's provides a unit builds on, and nothing more — a field or a method by its type and name, as Config.Floor. A unit never defines what another unit provides. Keep a unit to one coherent piece; wiring something into what exists is a unit of its own when it touches another file.
 - "provides" of a code unit is the contract: every name it declares that another unit or the tests use, each as {"file": where it is declared, "name": the name it is called by, "kind": one of "function", "method", "type", "field", "variable", "constant", "of": for a field or a method, the type it belongs to, "signature": its declaration in the estate's language, without a body} — for Go, {"file": "server.go", "name": "NewServer", "kind": "function", "signature": "func NewServer(c *Catalog, clock Clock) *Server"}. A field added to a type is a "field" whose signature is the field as the type declares it — in Python and JavaScript, "name: type" and "name" — and whose "of" is the type. The framework declares every provision itself, before the tests, from exactly what you write here. Provides lists only names the unit adds: a name that exists already, whose body or type the unit changes, is not provided — what it changes belongs in its tasks. Every agent is handed every unit's provides, and the tests call exactly these.
 - "uses" of a unit is the names, from other units' provides, that it builds on — exactly as they are named there. A unit uses only what an earlier unit provides. A test is never in "uses": which tests a code unit must pass, the framework knows from the tests units' ledger.
 - "reads" of a unit is the files outside its scope that it builds on — a helper it calls, a test whose setup it follows — each a file that exists, or one another unit of the plan writes. Its agent is handed each whole: what exists as it is, what another unit writes as that unit left it.
@@ -455,6 +499,9 @@ func (r *Run) unitsOf(p planDraft) ([]unit, string) {
 	if problem := r.canonical(tests, code); problem != "" {
 		return nil, problem
 	}
+	if problem := ambiguous(slices.Concat(tests, code)); problem != "" {
+		return nil, problem
+	}
 	for _, u := range code {
 		if why := r.providedAlready(u); why != "" {
 			return nil, fmt.Sprintf("unit %q: %s", u.title, why)
@@ -555,7 +602,7 @@ func orderByUse(code []unit) ([]unit, string) {
 	for i, u := range code {
 		for _, name := range u.uses {
 			for j, o := range code {
-				if j != i && slices.Contains(o.names(), name) && !slices.Contains(needs[i], j) {
+				if j != i && o.gives(name) && !slices.Contains(needs[i], j) {
 					needs[i] = append(needs[i], j)
 				}
 			}
@@ -575,13 +622,22 @@ func orderByUse(code []unit) ([]unit, string) {
 			}
 		}
 		if found < 0 {
-			var circle []string
+			// Each unit left waits for another left: say who for whom, by
+			// the name it waits on.
+			var waits []string
 			for i, u := range code {
-				if !placed[i] {
-					circle = append(circle, fmt.Sprintf("%q", u.title))
+				if placed[i] {
+					continue
+				}
+				for _, name := range u.uses {
+					for j, o := range code {
+						if j != i && !placed[j] && o.gives(name) {
+							waits = append(waits, fmt.Sprintf("%q uses %s, which %q provides", u.title, name, o.title))
+						}
+					}
 				}
 			}
-			return nil, "the units " + strings.Join(circle, ", ") + " use one another's names in a circle: one of them provides what the others use, and uses none of theirs"
+			return nil, "the units wait for one another in a circle — " + strings.Join(waits, "; ") + " — and none can go first: a unit uses only what units before it provide"
 		}
 		placed[found] = true
 		out = append(out, code[found])
@@ -653,7 +709,7 @@ func (r *Run) orderOf(code []unit) string {
 		for _, name := range u.uses {
 			// Code units are in the order of their uses already (orderByUse):
 			// what is left to say is a name nothing provides.
-			if slices.ContainsFunc(code, func(o unit) bool { return slices.Contains(o.names(), name) }) {
+			if slices.ContainsFunc(code, func(o unit) bool { return o.gives(name) }) {
 				continue
 			}
 			if places, err := repo.WhereDefined(name); err == nil && len(places) == 0 {
