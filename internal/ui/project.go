@@ -36,7 +36,7 @@ type project struct {
 	ws      *workspace.Workspace
 	order   []*workspace.Change // the changes, newest first
 	led     *ledger.Ledger
-	checked atomic.Int64
+	checked atomic.Pointer[atomic.Int64] // how many changes the gate's latest pass has answered for
 	estate  atomic.Pointer[estateFacts]
 	// showDone shows the tasks that landed, which are folded away.
 	showDone bool
@@ -252,12 +252,23 @@ func (u *UI) take(p *project, l *loaded) {
 	} else {
 		p.estate.Store(&estateFacts{err: "no estate model is configured"})
 	}
-	p.checked.Store(0)
+	// Each pass counts for itself: one begun before this reading, and not
+	// yet done, adds its answers to its own count, not to this one's.
+	checked := new(atomic.Int64)
+	p.checked.Store(checked)
 	ws := l.ws
 	go ws.Check(u.ctx, u.gate, u.parallel, func(*workspace.Change) {
-		p.checked.Add(1)
+		checked.Add(1)
 		u.invalidate()
 	})
+}
+
+// checkedCount is how many changes the gate's latest pass has answered for.
+func (p *project) checkedCount() int {
+	if n := p.checked.Load(); n != nil {
+		return int(n.Load())
+	}
+	return 0
 }
 
 // view is the project's run as it stands, or nothing.

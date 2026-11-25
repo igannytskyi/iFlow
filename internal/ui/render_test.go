@@ -137,7 +137,7 @@ func TestHistoryRenders(t *testing.T) {
 	if p == nil || len(p.ws.Changes) == 0 {
 		t.Fatal("the example has no changes")
 	}
-	waitFor(t, "the gate", func() bool { return int(p.checked.Load()) == len(p.ws.Changes) })
+	waitFor(t, "the gate", func() bool { return p.checkedCount() == len(p.ws.Changes) })
 	paint := newPainter(t)
 	if _, ok := p.shownOf(); ok {
 		t.Fatal("a project opens on a task rather than on its overview")
@@ -309,12 +309,12 @@ func TestRunRenders(t *testing.T) {
 			reloads++
 		}
 		u.intake()
-		if len(p.ws.Changes) == 1 && int(p.checked.Load()) == len(p.ws.Changes) {
+		if len(p.ws.Changes) == 1 && p.checkedCount() == len(p.ws.Changes) {
 			return true
 		}
 		// What it waits on is said each time it moves, so that a wait that
 		// runs out says why.
-		if seen := fmt.Sprintf("%d change(s), %d checked, %d reload(s), running %v", len(p.ws.Changes), p.checked.Load(), reloads, p.running()); seen != last {
+		if seen := fmt.Sprintf("%d change(s), %d checked, %d reload(s), running %v", len(p.ws.Changes), p.checkedCount(), reloads, p.running()); seen != last {
 			t.Logf("waiting on the gate: %s", seen)
 			last = seen
 		}
@@ -346,7 +346,7 @@ func TestClosingATask(t *testing.T) {
 	// test ends after them.
 	t.Cleanup(func() {
 		waitFor(t, "the estate", func() bool { return p.estate.Load() != nil })
-		waitFor(t, "the gate", func() bool { u.intake(); return int(p.checked.Load()) == len(p.ws.Changes) })
+		waitFor(t, "the gate", func() bool { u.intake(); return p.checkedCount() == len(p.ws.Changes) })
 	})
 	c := p.order[len(p.order)-1]
 	before, _ := os.ReadDir(c.Change.Dir)
@@ -379,7 +379,7 @@ func TestClosingATask(t *testing.T) {
 func TestFramesAreInstant(t *testing.T) {
 	u := testUI(t, nil, filepath.Join(gate.Home(), "examples", "greeting"))
 	p := u.cur
-	waitFor(t, "the gate", func() bool { return int(p.checked.Load()) == len(p.ws.Changes) })
+	waitFor(t, "the gate", func() bool { return p.checkedCount() == len(p.ws.Changes) })
 	frame := func() time.Duration {
 		var ops op.Ops
 		gtx := layout.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 2, PxPerSp: 2},
