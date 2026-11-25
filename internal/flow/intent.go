@@ -343,8 +343,19 @@ func (r *Run) specified(ctx context.Context, prompt, feedback string) (draft, er
 func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, error) {
 	r.say(1, "", "asking %s to state the change and its criteria", r.cfg.Model.Name())
 	note := ""
+	// base is the last draft that read, which a mend is laid over: the
+	// author answers what it changes, not again what stands — where its
+	// answer is free to leave keys out.
+	var base *draft
+	mend := mendWhole
+	if freeForm(r.cfg.Model) {
+		mend = mendOnly
+	}
 	for attempt := 1; attempt <= 3; attempt++ {
 		var d draft
+		if base != nil {
+			d = base.clone()
+		}
 		began := time.Now()
 		kept, handed := r.handed("author", intentSystem, prompt+feedback+note)
 		answer, u, turns, err := r.study(model.Within(ctx, "author"), 1, r.cfg.Model, intentSystem, prompt+feedback+note, &d, nil)
@@ -359,13 +370,15 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 		if err != nil {
 			return d, r.fail(1, "the model could not be asked: %v", err)
 		}
+		base = &d
+		whole := d.json() // the draft as it now stands, mends laid over it
 		breaks := d.problems()
 		if why := strings.Join(breaks, "; "); why != "" {
 			// The author is handed what it wrote and every way it breaks, to
 			// mend those and keep the rest: asked afresh, it would write
 			// afresh; told of one break, it would mend it and break another.
-			note = "\n\n# Your last answer\n\n```json\n" + strings.TrimSpace(answer) + "\n```\n\nIt cannot be used, for each of these reasons:\n\n- " + strings.Join(breaks, "\n- ") +
-				"\n\nAnswer with that answer, mended exactly where it breaks, and the rest as it was."
+			note = "\n\n# Your last answer\n\n```json\n" + whole + "\n```\n\nIt cannot be used, for each of these reasons:\n\n- " + strings.Join(breaks, "\n- ") +
+				"\n\n" + mend
 			r.say(1, "", "the draft is sent back: %s", why)
 			continue
 		}
@@ -386,14 +399,35 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 				fixes = append(fixes, fix)
 			}
 		}
-		note = "\n\n# Your last answer\n\n```json\n" + strings.TrimSpace(answer) + "\n```\n\nThe gate refused it: " + strings.Join(found, "; ") + "."
+		note = "\n\n# Your last answer\n\n```json\n" + whole + "\n```\n\nThe gate refused it: " + strings.Join(found, "; ") + "."
 		if len(fixes) > 0 {
 			note += "\n\nHow to mend it:\n- " + strings.Join(fixes, "\n- ")
 		}
-		note += "\n\nAnswer again, with that mended and the rest as it was."
+		note += "\n\n" + mend
 		r.say(1, "", "the gate refused the draft: %s", strings.Join(found, "; "))
 	}
 	return draft{}, r.fail(1, "after three drafts there is still no specification that is readable and passes the gate")
+}
+
+// mendOnly asks for a mend, not a rewrite: what is written again is paid
+// for again, and what is rewritten unasked can break what stood. mendWhole
+// is the same asked of a model whose answer must hold every key.
+const (
+	mendOnly  = "Answer with one JSON object that holds only the keys you change, each of them whole — a list or an object you change is written whole, every item in it — and the keys you leave out stand as they are above."
+	mendWhole = "Answer with that answer, mended exactly where it breaks, and the rest as it was."
+)
+
+// clone is the draft with nothing shared, for a mend to be laid over.
+func (d draft) clone() draft {
+	var c draft
+	_ = json.Unmarshal([]byte(d.json()), &c)
+	return c
+}
+
+// json is the draft as the author writes it.
+func (d draft) json() string {
+	b, _ := json.MarshalIndent(d, "", "  ")
+	return string(b)
 }
 
 // remedies say, for each rule a specification can break, how its author

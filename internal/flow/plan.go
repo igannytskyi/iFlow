@@ -79,7 +79,7 @@ type planDraft struct {
 		Steps   []string `json:"steps"`
 		Risks   []string `json:"risks"`
 	} `json:"approach"`
-	Units []ticket `json:"units"`
+	Units tickets `json:"units"`
 }
 
 // ticket is one unit as the planner writes it: everything its agent needs,
@@ -345,14 +345,23 @@ func (r *Run) planned(ctx context.Context, byTests []string, feedback string) ([
 	prompt := b.String() + feedback
 	var why string
 	m := r.cfg.planner()
+	// base is the last plan that read, which a mend is laid over.
+	var base *planDraft
+	mend := planMendWhole
+	if freeForm(m) {
+		mend = planMend
+	}
 	for attempt := 1; attempt <= 3; attempt++ {
 		r.say(2, "", "asking %s to divide the work, attempt %d", m.Name(), attempt)
 		began := time.Now()
 		var p planDraft
+		if base != nil {
+			p = base.clone()
+		}
 		kept, handed := r.handed("planner", plannerSystem, prompt+why)
 		// The criteria a unit serves are the specification's: chosen among
 		// its ids, never written.
-		answer, u, turns, err := r.study(model.Within(ctx, "planner"), 2, m, plannerSystem, prompt+why, &p, map[string][]string{"units.criteria": r.criterionIDs()})
+		_, u, turns, err := r.study(model.Within(ctx, "planner"), 2, m, plannerSystem, prompt+why, &p, map[string][]string{"units.criteria": r.criterionIDs()})
 		r.spend(u)
 		r.cost(artifact.Cost{Area: 2, What: fmt.Sprintf("the plan, attempt %d", attempt), Actor: m.Name(), Turns: turns,
 			Handed: handed, Kept: kept}, u, time.Since(began))
@@ -363,6 +372,7 @@ func (r *Run) planned(ctx context.Context, byTests []string, feedback string) ([
 		if err != nil {
 			return nil, nil, "the planner could not be asked: " + err.Error()
 		}
+		base = &p
 		// A plan that must write outside the specification's scope says the
 		// scope is wrong, not the plan: the planner read the code and found
 		// what the change touches. It goes back to the specification's
@@ -382,8 +392,8 @@ func (r *Run) planned(ctx context.Context, byTests []string, feedback string) ([
 			// It is handed what it answered and exactly what breaks, to mend
 			// that and keep the rest: asked afresh, it would plan afresh, and
 			// break something else.
-			why = "\n\n# Your last plan\n\n```json\n" + strings.TrimSpace(answer) + "\n```\n\nIt cannot be used: " + problem +
-				".\n\nAnswer with that plan, mended exactly where it breaks, and the rest as it was."
+			why = "\n\n# Your last plan\n\n```json\n" + p.json() + "\n```\n\nIts units, by number:\n\n" + p.numbered() +
+				"\nIt cannot be used: " + problem + ".\n\n" + mend
 			continue
 		}
 		approach := []artifact.Part{{Title: "How", Text: p.Approach.Summary}, {Title: "In order", Points: p.Approach.Steps},
@@ -889,10 +899,7 @@ func (r *Run) criterionIDs() []string {
 // decision needs (harness.Study); any other is asked once, with what it is
 // handed. The answer, what it cost, and the turns it took.
 func (r *Run) study(ctx context.Context, area int, m model.Model, system, prompt string, into any, among map[string][]string) (string, model.Usage, int, error) {
-	c, ok := m.(harness.Chatter)
-	if t, taped := m.(interface{ Chats() bool }); taped && !t.Chats() {
-		ok = false // a tape around a model that holds no conversation
-	}
+	c, ok := chatter(m)
 	if !ok {
 		answer, u, err := model.AskJSONOf(ctx, m, system, prompt, into, among)
 		return answer, u, 1, err
@@ -915,6 +922,27 @@ func (r *Run) study(ctx context.Context, area int, m model.Model, system, prompt
 		return answer, u, turns, fmt.Errorf("%w: %v", model.ErrUnreadable, err)
 	}
 	return answer, u, turns, nil
+}
+
+// chatter is m as a model that holds a conversation, where it is one.
+func chatter(m model.Model) (harness.Chatter, bool) {
+	c, ok := m.(harness.Chatter)
+	if t, taped := m.(interface{ Chats() bool }); taped && !t.Chats() {
+		ok = false // a tape around a model that holds no conversation
+	}
+	return c, ok
+}
+
+// freeForm says m's answer is shaped by nothing but what it is asked: it is
+// studied in a conversation, or asked with no schema. Only then can it be
+// asked to mend by answering what it changes alone — a strict schema has
+// every key written, and what it leaves would come back emptied.
+func freeForm(m model.Model) bool {
+	if _, ok := chatter(m); ok {
+		return true
+	}
+	_, shaped := m.(model.Shaped)
+	return !shaped
 }
 
 // planOutsideScope is the files the planner's code units would write that
