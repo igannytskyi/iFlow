@@ -363,8 +363,9 @@ func (r *Run) drafted(ctx context.Context, prompt, feedback string) (draft, erro
 		r.cost(artifact.Cost{Area: 1, What: fmt.Sprintf("the specification, attempt %d", attempt),
 			Actor: r.cfg.Model.Name(), Turns: turns, Handed: handed, Kept: kept}, u, time.Since(began))
 		if errors.Is(err, model.ErrUnreadable) {
-			note = "\n\nYour last answer was not one JSON object: " + err.Error()
-			r.say(1, "", "the draft is sent back: it is not one JSON object (%v); it began %q and ended %q", err, head(answer, 80), tail(answer, 80))
+			where := model.Unreadable(err, "draft")
+			note = "\n\nYour last answer does not read as the JSON object asked for: " + where + ". Every key holds what the shape above says it holds — a list of points is a list of strings."
+			r.say(1, "", "the draft is sent back: it does not read as asked (%s); it began %q and ended %q", where, head(answer, 80), tail(answer, 80))
 			continue
 		}
 		if err != nil {

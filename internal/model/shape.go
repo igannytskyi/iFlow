@@ -2,9 +2,11 @@ package model
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -48,7 +50,7 @@ func AskJSONOf(ctx context.Context, m Model, system, prompt string, into any, am
 		return answer, u, err
 	}
 	if err := JSON(answer, into); err != nil {
-		return answer, u, fmt.Errorf("%w: %v", ErrUnreadable, err)
+		return answer, u, fmt.Errorf("%w: %w", ErrUnreadable, err)
 	}
 	return answer, u, nil
 }
@@ -132,3 +134,59 @@ func (o OpenAI) AskShaped(ctx context.Context, system, prompt, name string, sche
 }
 
 var _ Shaped = OpenAI{}
+
+// Unreadable says, to the model that wrote it, where an answer does not
+// read as what was asked: the key and the item, what stands there and what
+// is asked — "later", item 1, is an object where a string is asked — or,
+// where the JSON itself is broken, what the decoder found. root is the
+// name the answer's type goes by in a decoder's report, which is not the
+// model's to know.
+func Unreadable(err error, root string) string {
+	var te *json.UnmarshalTypeError
+	if errors.As(err, &te) && te.Field != "" {
+		var at []string
+		for _, part := range strings.Split(strings.TrimPrefix(te.Field, root+"."), ".") {
+			if n, err := strconv.Atoi(part); err == nil {
+				at = append(at, fmt.Sprintf("item %d", n+1))
+			} else {
+				at = append(at, strconv.Quote(part))
+			}
+		}
+		return fmt.Sprintf("at %s it holds %s where %s is asked", strings.Join(at, ", "), held(te.Value), asked(te.Type))
+	}
+	var se *json.SyntaxError
+	if errors.As(err, &se) {
+		return fmt.Sprintf("it is not well-formed JSON: %v, at character %d", se, se.Offset)
+	}
+	return err.Error()
+}
+
+// held is what a JSON value is, as a person says it: an object, a string.
+func held(kind string) string {
+	switch kind {
+	case "object", "array":
+		return map[string]string{"object": "an object", "array": "a list"}[kind]
+	case "bool":
+		return "true or false"
+	case "number":
+		return "a number"
+	}
+	return "a " + kind
+}
+
+// asked is what a Go type asks for in JSON, as a person says it.
+func asked(t reflect.Type) string {
+	switch t.Kind() {
+	case reflect.String:
+		return "a string"
+	case reflect.Bool:
+		return "true or false"
+	case reflect.Slice, reflect.Array:
+		return "a list"
+	case reflect.Struct, reflect.Map:
+		return "an object"
+	case reflect.Int, reflect.Int64, reflect.Int32, reflect.Float64, reflect.Float32:
+		return "a number"
+	}
+	return t.String()
+}

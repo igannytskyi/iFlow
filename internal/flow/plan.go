@@ -416,7 +416,9 @@ func (r *Run) planned(ctx context.Context, byTests []string, feedback string) ([
 		r.cost(artifact.Cost{Area: 2, What: fmt.Sprintf("the plan, attempt %d", attempt), Actor: m.Name(), Turns: turns,
 			Handed: handed, Kept: kept}, u, time.Since(began))
 		if errors.Is(err, model.ErrUnreadable) {
-			why = "\n\nYour last answer was not one JSON object: " + err.Error()
+			where := model.Unreadable(err, "planDraft")
+			why = "\n\nYour last answer does not read as the JSON object asked for: " + where + ". Every key holds what the shape above says it holds."
+			r.say(2, "", "the plan is sent back: it does not read as asked (%s)", where)
 			continue
 		}
 		if err != nil {
@@ -984,7 +986,7 @@ func (r *Run) study(ctx context.Context, area int, m model.Model, system, prompt
 		return answer, u, turns, err
 	}
 	if err := model.JSON(answer, into); err != nil {
-		return answer, u, turns, fmt.Errorf("%w: %v", model.ErrUnreadable, err)
+		return answer, u, turns, fmt.Errorf("%w: %w", model.ErrUnreadable, err)
 	}
 	return answer, u, turns, nil
 }
