@@ -2,11 +2,14 @@ package flow
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/igannytskyi/iflow/internal/estate"
 	"github.com/igannytskyi/iflow/internal/meta"
 	"github.com/igannytskyi/iflow/internal/model"
 )
@@ -140,5 +143,56 @@ func TestAUseIsReadByItsType(t *testing.T) {
 	b := unit{title: "b", provides: []meta.Provision{{Name: "B", Kind: meta.Function}}, uses: []string{"A"}}
 	if _, why := orderByUse([]unit{a, b}); !strings.Contains(why, `"a" uses B, which "b" provides`) {
 		t.Errorf("a circle does not say who waits for whom: %q", why)
+	}
+}
+
+// What a planner writes in another form than asked, where it can mean one
+// thing only, is read as that thing: a field named with its type is the
+// type's field, however its package is written before it; one string where
+// a list of points is asked is a list of one.
+func TestAPlanIsReadWhereItCanMeanOneThing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "models"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "internal", "models", "models.go"), []byte("package models\n\ntype Config struct{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := &Run{repo: dir, cfg: Config{Estate: estate.NewLocal()}}
+	field := func(name, of string) unit {
+		return unit{title: "config", provides: []meta.Provision{{File: "internal/models/models.go", Name: name, Kind: meta.Field, Of: of, Signature: "Floor bool"}}}
+	}
+	for _, c := range []struct{ name, of string }{{"Config.Floor", ""}, {"models.Config.Floor", ""}, {"Config.Floor", "Config"}} {
+		code := []unit{field(c.name, c.of)}
+		if why := r.canonical(nil, code); why != "" {
+			t.Errorf("%s of %q: %s", c.name, c.of, why)
+			continue
+		}
+		if p := code[0].provides[0]; p.Name != "Floor" || p.Of != "Config" {
+			t.Errorf("%s of %q is read as %s of %s", c.name, c.of, p.Name, p.Of)
+		}
+	}
+	if why := r.canonical(nil, []unit{field("Config.Floor", "OpenAI")}); !strings.Contains(why, "say one type") {
+		t.Errorf("a field said to be of two types was taken: %q", why)
+	}
+
+	var tk ticket
+	if err := model.JSON(`{"title": "t", "done_when": "the tests pass", "scope": ["a.go"]}`, &tk); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(tk.DoneWhen, points{"the tests pass"}) || !slices.Equal(tk.Scope, points{"a.go"}) {
+		t.Errorf("read as %+v", tk)
+	}
+}
+
+// A new test file that no criterion is judged by is refused with the
+// specification: a tests unit writing it would serve nothing, and no plan
+// could hold it.
+func TestANewTestFileJudgesSomething(t *testing.T) {
+	t.Parallel()
+	d := draft{NewTests: []string{"feed_test.go"}, Criteria: []draftCriterion{{Criterion: "It reads well", Procedure: "human", Plan: "required"}}}
+	if !slices.ContainsFunc(d.problems(), func(p string) bool { return strings.Contains(p, "no criterion is judged_by_new_tests") }) {
+		t.Errorf("a new test file no criterion is judged by was let stand: %v", d.problems())
 	}
 }

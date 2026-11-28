@@ -1671,7 +1671,7 @@ func TestChainsAreCarriedAtOnce(t *testing.T) {
 // names a test in its file, or says something of it, sends the draft back.
 func TestScopeAndTestsArePaths(t *testing.T) {
 	t.Parallel()
-	ok := draft{Slug: "s", Statement: "s", Criteria: []draftCriterion{{}}, Class: "C3", Scope: []string{"greeting.py", "web/a.spec.ts"}, NewTests: []string{"test_greeting.py"}}
+	ok := draft{Slug: "s", Statement: "s", Criteria: []draftCriterion{{New: true}}, Class: "C3", Scope: []string{"greeting.py", "web/a.spec.ts"}, NewTests: []string{"test_greeting.py"}}
 	ok.Document.Summary, ok.Document.Flows, ok.Document.Requirements, ok.Document.Interfaces, ok.Document.Components = "s", []string{"f"}, []string{"r"}, []string{"i"}, []string{"c"}
 	if why := ok.problem(); why != "" {
 		t.Fatalf("a draft of paths was sent back: %s", why)

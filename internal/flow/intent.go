@@ -507,6 +507,12 @@ func (d draft) problems() []string {
 			out = append(out, fmt.Sprintf("criterion %d (%s) is about behaviour the change makes, and no new test judges it: the existing tests pass before the change and cannot; name a new test file in new_tests and mark the criterion judged_by_new_tests", i+1, c.Criterion))
 		}
 	}
+	// And a new test file judges something: one no criterion is judged by
+	// would be written by a tests unit that serves nothing, which no plan
+	// can hold.
+	if len(d.NewTests) > 0 && !slices.ContainsFunc(d.Criteria, func(c draftCriterion) bool { return c.New }) {
+		out = append(out, "new_tests names "+strings.Join(d.NewTests, ", ")+", and no criterion is judged_by_new_tests: mark the criteria those tests judge, or leave new_tests empty where the person or the existing tests judge them all")
+	}
 	return out
 }
 

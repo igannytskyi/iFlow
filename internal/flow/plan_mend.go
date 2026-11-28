@@ -106,3 +106,24 @@ const (
 	planMend      = "Answer with one JSON object that holds only what you change: \"approach\", whole, if you change it; and \"units\" as an object keyed by the number of each unit you change, the unit written whole — null takes a unit out, the number after the last adds one. Units you do not name stand as they are above."
 	planMendWhole = "Answer with that plan, mended exactly where it breaks, and the rest as it was."
 )
+
+// points is a list of points as a planner writes it: a list of strings, or
+// one string where it has one point to make.
+type points []string
+
+func (ps *points) UnmarshalJSON(b []byte) error {
+	if t := bytes.TrimSpace(b); len(t) > 0 && t[0] == '"' {
+		var one string
+		if err := json.Unmarshal(t, &one); err != nil {
+			return err
+		}
+		*ps = points{one}
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(b, &many); err != nil {
+		return err
+	}
+	*ps = many
+	return nil
+}

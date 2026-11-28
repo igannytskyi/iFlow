@@ -137,18 +137,18 @@ type planDraft struct {
 type ticket struct {
 	Title        string           `json:"title"`
 	Kind         string           `json:"kind"`
-	Scope        []string         `json:"scope"`
-	Criteria     []string         `json:"criteria"`
-	Requirements []string         `json:"requirements"`
+	Scope        points           `json:"scope"`
+	Criteria     points           `json:"criteria"`
+	Requirements points           `json:"requirements"`
 	Objective    string           `json:"objective"`
-	ReliesOn     []string         `json:"relies_on"`
-	Tasks        []string         `json:"tasks"`
+	ReliesOn     points           `json:"relies_on"`
+	Tasks        points           `json:"tasks"`
 	Provides     []meta.Provision `json:"provides"`
-	Uses         []string         `json:"uses"`
-	Reads        []string         `json:"reads"`
-	Constraints  []string         `json:"constraints"`
-	EdgeCases    []string         `json:"edge_cases"`
-	DoneWhen     []string         `json:"done_when"`
+	Uses         points           `json:"uses"`
+	Reads        points           `json:"reads"`
+	Constraints  points           `json:"constraints"`
+	EdgeCases    points           `json:"edge_cases"`
+	DoneWhen     points           `json:"done_when"`
 }
 
 // providedAlready says where a unit provides a name its file declares
@@ -555,6 +555,15 @@ func (r *Run) canonical(tests, code []unit) string {
 		for _, p := range code[i].provides {
 			if q, base, ok := cutLast(p.Name, "."); ok && slices.Contains(r.qualifiers(p.File), q) {
 				p.Name = base
+			}
+			// A field or a method named with its type — Config.Floor — is
+			// the type's Floor: what its "of" says, or says nothing against.
+			if q, base, ok := cutLast(p.Name, "."); ok && (p.Kind == meta.Field || p.Kind == meta.Method) {
+				_, short, _ := cutLast(q, ".")
+				if p.Of != "" && p.Of != q && p.Of != short && !strings.HasSuffix(q, "."+p.Of) {
+					return fmt.Sprintf("unit %q provides %s, a %s of %s, as a %s of %s: say one type", code[i].title, p.Name, p.Kind, q, p.Kind, p.Of)
+				}
+				p.Name, p.Of = base, cmp.Or(p.Of, q)
 			}
 			q, base, ok := cutLast(p.Of, ".")
 			switch {
