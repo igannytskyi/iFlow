@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/igannytskyi/iflow/internal/flow"
-	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/gate"
+	"github.com/igannytskyi/iflow/internal/harness"
 )
 
 // The reference suite reads, and every task names an estate that is there
