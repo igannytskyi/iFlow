@@ -456,6 +456,11 @@ func (r *Run) pack(u unit, here *estate.Repo, on []onto, budget int) estate.Pack
 		if d := here.Outlined(r.spec.Scope, budget/4); d != "" {
 			p.Sections = append(p.Sections, estate.Section{Title: "The code these tests exercise, as declared — read a file whole where its body matters", Body: d})
 		}
+		// And the tests already beside them: their helpers and fakes are
+		// what new tests build on, not what they write again.
+		if d := here.TestsOutlined(u.scope, budget/8); d != "" {
+			p.Sections = append(p.Sections, estate.Section{Title: "The tests already beside yours — build on their helpers and fakes; do not write them again", Body: d})
+		}
 	}
 	if len(before) > 0 {
 		p.Sections = append(p.Sections, estate.Section{Title: "Written by the units before you — in your copy; read what you need",

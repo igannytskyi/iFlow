@@ -72,17 +72,20 @@ func (u unit) gives(use string) bool {
 	})
 }
 
-// ambiguous says where a unit uses a bare name that units give to more than
-// one type — Config.Floor and OpenAI.Floor are both Floor — which no order
-// can be read from: the unit names it with its type.
-func ambiguous(units []unit) string {
-	for _, u := range units {
+// ambiguous says where a code unit uses a bare name that units give to
+// more than one type — Config.Floor and OpenAI.Floor are both Floor — from
+// which no order can be read: every such use at once, each to be named with
+// its type. A tests unit's uses order nothing: the tests follow the
+// contract whatever they call.
+func ambiguous(code []unit) string {
+	var found []string
+	for _, u := range code {
 		for _, use := range u.uses {
 			if strings.Contains(use, ".") {
 				continue
 			}
 			var as []string
-			for _, o := range units {
+			for _, o := range code {
 				for _, p := range o.provides {
 					if p.Name == use && p.Kind != meta.Described {
 						if q := cmp.Or(p.Of+".", "") + p.Name; !slices.Contains(as, q) {
@@ -92,11 +95,14 @@ func ambiguous(units []unit) string {
 				}
 			}
 			if len(as) > 1 {
-				return fmt.Sprintf("unit %q uses %s, and the plan gives %s: name the one it uses with its type, as %s, in its uses", u.title, use, strings.Join(as, " and "), as[0])
+				found = append(found, fmt.Sprintf("unit %q uses %s, and the plan gives %s", u.title, use, strings.Join(as, " and ")))
 			}
 		}
 	}
-	return ""
+	if len(found) == 0 {
+		return ""
+	}
+	return strings.Join(found, "; ") + " — in each unit's uses, name the one it uses with its type, as Config.Floor"
 }
 
 const plannerSystem = `You divide a specified change into units of work. Each unit is carried out by an agent that sees its own unit — the brief you write, the files it may change, the code around them — and the specification's decisions; it never sees the person or the other units' briefs. You answer with one JSON object and nothing else.
@@ -499,7 +505,7 @@ func (r *Run) unitsOf(p planDraft) ([]unit, string) {
 	if problem := r.canonical(tests, code); problem != "" {
 		return nil, problem
 	}
-	if problem := ambiguous(slices.Concat(tests, code)); problem != "" {
+	if problem := ambiguous(code); problem != "" {
 		return nil, problem
 	}
 	for _, u := range code {

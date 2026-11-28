@@ -131,8 +131,10 @@ func TestAUseIsReadByItsType(t *testing.T) {
 		t.Errorf("ordered %v", titles)
 	}
 	config.uses = []string{"Floor"}
-	if why := ambiguous([]unit{config, openai}); !strings.Contains(why, "Config.Floor and OpenAI.Floor") {
-		t.Errorf("a bare name two types share is not sent back as such: %q", why)
+	settings := unit{title: "settings", uses: []string{"Floor"}}
+	why = ambiguous([]unit{config, openai, settings})
+	if !strings.Contains(why, `"config" uses Floor, and the plan gives Config.Floor and OpenAI.Floor`) || !strings.Contains(why, `"settings" uses Floor`) {
+		t.Errorf("not every bare name two types share is sent back at once: %q", why)
 	}
 	a := unit{title: "a", provides: []meta.Provision{{Name: "A", Kind: meta.Function}}, uses: []string{"B"}}
 	b := unit{title: "b", provides: []meta.Provision{{Name: "B", Kind: meta.Function}}, uses: []string{"A"}}

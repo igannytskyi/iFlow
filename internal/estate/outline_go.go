@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/igannytskyi/iflow/internal/reader"
 )
 
 // GoOutline is the Go file src as an agent deciding or changing code needs
@@ -162,4 +164,48 @@ func goType(abs, name string) string {
 		}
 	}
 	return ""
+}
+
+// TestsOutlined is the test files beside paths — in the folders they name,
+// and not among them — outlined as Outlined outlines code: what tests
+// written there can build on, their helpers by signature and their fakes
+// by type, within budget tokens. A test file is a Go _test.go, or a file
+// whose tree declares tests.
+func (r *Repo) TestsOutlined(paths []string, budget int) string {
+	dirs := map[string]bool{}
+	for _, p := range paths {
+		if strings.HasSuffix(p, "/") {
+			dirs[strings.TrimSuffix(p, "/")] = true
+		} else {
+			dirs[path.Dir(p)] = true
+		}
+	}
+	var b strings.Builder
+	for _, s := range r.Sources() {
+		if !dirs[path.Dir(s)] || slices.Contains(paths, s) {
+			continue
+		}
+		src, err := os.ReadFile(r.abs(s))
+		if err != nil {
+			continue
+		}
+		var outline string
+		switch {
+		case strings.HasSuffix(s, "_test.go"):
+			outline = GoOutline(src)
+		case filepath.Ext(s) != ".go":
+			if names, known := reader.Tests(s, src); known && len(names) > 0 {
+				outline = TreeOutline(reader.Read(s, src))
+			}
+		}
+		if outline == "" {
+			continue
+		}
+		b.WriteString(s + ":\n" + outline)
+		if Tokens(b.String()) > budget {
+			b.WriteString("[cut: more than the budget]\n")
+			break
+		}
+	}
+	return b.String()
 }
