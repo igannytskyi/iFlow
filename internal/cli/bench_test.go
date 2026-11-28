@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/igannytskyi/iflow/internal/flow"
+	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/gate"
 )
 
@@ -50,6 +51,14 @@ func TestTheBenchVariesWhatItSays(t *testing.T) {
 	}
 	if cfg.ReviewRounds != 1 || cfg.Attempts != 1 || !cfg.RepeatOnce {
 		t.Errorf("varied %+v", cfg)
+	}
+	// The executor's two rungs, each on its own model.
+	cfg.Executor = harness.Ladder{First: harness.Oneshot{Attempts: 2}, Then: harness.Oneshot{}}
+	if err := vary(&cfg, map[string]string{"executor": "claude-code:haiku", "stronger": "claude-code:sonnet"}); err != nil {
+		t.Fatal(err)
+	}
+	if l, ok := cfg.Executor.(harness.Ladder); !ok || l.First.(harness.Oneshot).Model.Name() != "claude-code/haiku" || l.First.(harness.Oneshot).Attempts != 2 || l.Then != (harness.ClaudeCode{Model: "sonnet"}) {
+		t.Errorf("the executor varied to %+v", cfg.Executor)
 	}
 	for _, bad := range []map[string]string{{"review": "0"}, {"repeat": "thrice"}, {"speed": "fast"}} {
 		if err := vary(&cfg, bad); err == nil {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/igannytskyi/iflow/internal/flow"
 	"github.com/igannytskyi/iflow/internal/gate"
+	"github.com/igannytskyi/iflow/internal/harness"
 	"github.com/igannytskyi/iflow/internal/model"
 	"github.com/igannytskyi/iflow/internal/models"
 )
@@ -284,6 +285,29 @@ func vary(cfg *flow.Config, set map[string]string) error {
 			default:
 				cfg.Planner = md
 			}
+		case "executor", "stronger":
+			// The executor's rungs: the one question of the cheap model, and
+			// the agent with tools that takes what that cannot carry.
+			m, err := models.Load()
+			if err != nil {
+				return err
+			}
+			md, err := m.Model(v, m.Effort.Executor)
+			if err != nil {
+				return fmt.Errorf("%s=%s: %w", k, v, err)
+			}
+			l, ok := cfg.Executor.(harness.Ladder)
+			if !ok {
+				return fmt.Errorf("%s=%s: the executor is not the ladder of a cheap question and an agent", k, v)
+			}
+			if k == "executor" {
+				first, _ := l.First.(harness.Oneshot)
+				first.Model = md
+				l.First = first
+			} else {
+				l.Then = models.Agent(md)
+			}
+			cfg.Executor = l
 		case "review":
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 1 {
@@ -307,7 +331,7 @@ func vary(cfg *flow.Config, set map[string]string) error {
 			}
 			cfg.RepeatOnce = v == "once"
 		default:
-			return fmt.Errorf("--set %s: not something the bench varies (review, attempts, repeat, division, author, reviewer, planner)", k)
+			return fmt.Errorf("--set %s: not something the bench varies (review, attempts, repeat, division, author, reviewer, planner, executor, stronger)", k)
 		}
 	}
 	return nil

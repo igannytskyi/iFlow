@@ -265,12 +265,12 @@ type Choice struct {
 }
 
 // Catalogue is the models offered for picking: prices as OpenRouter listed
-// them on 2026-11-15, per million tokens in and out; Claude Code runs on a
+// them on 2026-11-28, per million tokens in and out; Claude Code runs on a
 // subscription and its price is what the same work would cost by the API.
 var Catalogue = []Choice{
-	{"openrouter:z-ai/glm-5.3-flash", "GLM 5.3 Flash", "$0.04 / $0.08"},
-	{"openrouter:z-ai/glm-5.3", "GLM 5.3", "$0.08 / $3.60"},
-	{"openrouter:deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", "$0.05 / $0.20"},
+	{"openrouter:z-ai/glm-5.3-flash", "GLM 5.3 Flash", "$0.15 / $0.50"},
+	{"openrouter:z-ai/glm-5.3", "GLM 5.3", "$0.07 / $1.40"},
+	{"openrouter:deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", "$0.05 / $0.57"},
 	{"claude-code:haiku", "Claude Haiku", "subscription"},
 	{"claude-code:sonnet", "Claude Sonnet", "subscription"},
 }
