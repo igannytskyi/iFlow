@@ -2,7 +2,9 @@ package flow
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -114,6 +116,15 @@ func (r *Run) carry(ctx context.Context, i int, on []onto, prof profile, ok bool
 	for k, o := range on {
 		overlays[k] = o.files
 	}
+	// A tests unit mending what it wrote is carried on it, laid last.
+	r.mu.Lock()
+	was := r.testsToMend[u.id]
+	delete(r.testsToMend, u.id)
+	r.mu.Unlock()
+	if was != "" {
+		defer os.RemoveAll(was)
+		overlays = append(overlays, was)
+	}
 	ws, err := harness.Snapshot(r.repo, overlays...)
 	if err != nil {
 		return c, fmt.Errorf("a workspace could not be made: %v", err)
@@ -122,6 +133,25 @@ func (r *Run) carry(ctx context.Context, i int, on []onto, prof profile, ok bool
 	before, err := harness.Manifest(ws)
 	if err != nil {
 		return c, fmt.Errorf("the workspace could not be read: %v", err)
+	}
+	if was != "" {
+		// What it wrote before is its change still, mended or not: its
+		// files are taken as not there before, so the candidate holds them
+		// all; and its ledger stands as it was, for it to mend too.
+		_ = filepath.WalkDir(was, func(p string, d fs.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && d.Name() != "CHANGES" {
+				rel, _ := filepath.Rel(was, p)
+				delete(before, filepath.ToSlash(rel))
+			}
+			return nil
+		})
+		var entries []ledgerEntry
+		for _, t := range r.ledgerOf(u.id) {
+			entries = append(entries, ledgerEntry{Test: t.Test, File: t.File, Criterion: t.Criterion})
+		}
+		if b, err := json.MarshalIndent(entries, "", "  "); err == nil && len(entries) > 0 {
+			_ = os.WriteFile(filepath.Join(ws, LedgerFile), b, 0o644)
+		}
 	}
 	c.store = filepath.Join(r.dir, "candidates", c.ca)
 	if err := os.MkdirAll(c.store, 0o755); err != nil {
@@ -477,8 +507,8 @@ func (r *Run) goal(u unit) string {
 		brief += "\n\n## The contract between the units — use these names and signatures exactly; define only those marked you\n\n" + strings.Join(contract, "\n")
 	}
 	if why := r.againFor(u.id); u.isTests() && why != "" {
-		brief += "\n\n## Why you are asked again\n\nTests written for this unit before were found wrong by the code that had to pass them; it could not, because:\n\n" + why +
-			"\n\nWrite them again so that they call only what exists or the contract promises, and check only what the criteria say."
+		brief += "\n\n## Why you are asked again\n\nThe tests you wrote for this unit were found wrong by the code that had to pass them; it could not, because:\n\n" + why +
+			"\n\nThey are in your files as you wrote them, and your ledger with them. Mend exactly what is named, so that they call only what exists or the contract promises and check only what the criteria say; what is not named stands — do not write them again."
 	}
 	if r.mend != "" && !u.isTests() {
 		brief += "\n\n## Why you are asked again\n\n" + r.cfg.Person + " read the change this unit made before it could land, and did not affirm it:\n\n" + r.mend +

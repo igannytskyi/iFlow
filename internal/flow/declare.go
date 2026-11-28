@@ -58,6 +58,37 @@ func declarerOf(file string) declarer {
 	return l.declare[filepath.Ext(file)]
 }
 
+// undeclarable says where the code units' provisions could not be
+// declared as the plan states them, declared now, in memory, on the
+// estate as it stands: what the contract would find only after admission
+// is found while the planner can still mend it.
+func (r *Run) undeclarable(code []unit) string {
+	byFile := map[string][]meta.Provision{}
+	var files []string
+	for _, u := range code {
+		for _, p := range u.provides {
+			if p.Kind == meta.Described || declarerOf(p.File) == nil {
+				continue
+			}
+			if _, seen := byFile[p.File]; !seen {
+				files = append(files, p.File)
+			}
+			byFile[p.File] = append(byFile[p.File], p)
+		}
+	}
+	for _, f := range files {
+		path := filepath.Join(r.repo, filepath.FromSlash(f))
+		src, err := os.ReadFile(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			continue // what cannot be read here is the contract's to find
+		}
+		if _, err := declarerOf(f)(path, src, byFile[f]); err != nil {
+			return fmt.Sprintf("what the units provide in %s cannot be declared as written: %v", f, err)
+		}
+	}
+	return ""
+}
+
 // declareContract writes the contract unit's provisions into ws, file by
 // file, puts them in the estate's form, and holds them to building and to
 // declaring every name. What cannot be declared as the plan states it goes
@@ -125,6 +156,11 @@ func goDeclare(path string, src []byte, ps []meta.Provision) ([]byte, error) {
 			return nil, err
 		}
 		text = "package " + pkg + "\n"
+	}
+	for _, p := range ps {
+		if !token.IsIdentifier(p.Name) {
+			return nil, fmt.Errorf("%q is no name Go declares: a provision is a name the code declares — a string the tests look for, a key or a label, is said in the unit's tasks, not provided", p.Name)
+		}
 	}
 	var fields []meta.Provision
 	for _, p := range ps {

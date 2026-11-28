@@ -159,6 +159,9 @@ type Run struct {
 	// again is, for a tests unit carried again, what the code that could
 	// not pass its tests found wrong with them.
 	again map[string]string
+	// testsToMend is, for a tests unit whose tests were found wrong, its
+	// tests as it wrote them, kept aside: it mends them, not writes anew.
+	testsToMend map[string]string
 	// from is the area a reopened change is carried again from, 0 for a new
 	// one; reopened is what its author or planner is handed of why.
 	from     int

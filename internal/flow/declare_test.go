@@ -201,3 +201,29 @@ func TestGoDeclarationsImportWhatTheyName(t *testing.T) {
 	}
 	run(t, dir, "go", "build", "./...")
 }
+
+// What the units provide is declared at planning, in memory, on the estate
+// as it stands: a name Go cannot declare goes back to the planner then,
+// not to the contract after admission; what can be declared passes.
+func TestWhatCannotBeDeclaredIsFoundAtPlanning(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/x\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view.go"), []byte("package x\n\ntype View struct{ Name string }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := &Run{repo: dir}
+	good := []unit{{title: "view", provides: []meta.Provision{
+		{File: "view.go", Name: "Floor", Kind: meta.Field, Of: "View", Signature: "Floor bool"},
+		{File: "view.go", Name: "Toggle", Kind: meta.Function, Signature: "func Toggle(v *View)"},
+	}}}
+	if why := r.undeclarable(good); why != "" {
+		t.Errorf("what can be declared was refused: %s", why)
+	}
+	bad := []unit{{title: "view", provides: []meta.Provision{{File: "view.go", Name: "floor/openrouter", Kind: meta.Variable, Signature: `choice key "floor/openrouter"`}}}}
+	if why := r.undeclarable(bad); !strings.Contains(why, `"floor/openrouter" is no name Go declares`) {
+		t.Errorf("a name Go cannot declare was not found at planning: %q", why)
+	}
+}

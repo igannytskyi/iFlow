@@ -75,8 +75,11 @@ func PlanBreaches(p Plan, s Specification) []Breach {
 		if !Allowed("UnitKind", string(u.Kind)) {
 			add("P2", u.ID, "is of kind %q, which is none of contract, tests, code", u.Kind)
 		}
-		if len(u.Scope) == 0 || u.Brief == "" {
-			add("P2", u.ID, "has no scope or no brief")
+		if len(u.Scope) == 0 {
+			add("P2", u.ID, "has no scope: a unit writes files — a criterion the existing tests judge is served by the code units, not by a unit of its own")
+		}
+		if u.Brief == "" {
+			add("P2", u.ID, "has no brief: what its agent is to do")
 		}
 		// P3: a unit writes only what the specification lets its kind write.
 		var allowed []string

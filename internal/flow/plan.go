@@ -511,6 +511,9 @@ func (r *Run) unitsOf(p planDraft) ([]unit, string) {
 	if problem != "" {
 		return nil, problem
 	}
+	if problem := r.undeclarable(code); problem != "" {
+		return nil, problem
+	}
 	if problem := r.orderOf(code); problem != "" {
 		return nil, problem
 	}

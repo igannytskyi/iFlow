@@ -497,6 +497,7 @@ type secondTry struct {
 	goals *[]string
 	calls map[string]int
 	wrong int
+	found *[]string // what a tests unit carried again found it had written
 }
 
 func (s secondTry) Name() string    { return "second try" }
@@ -515,6 +516,17 @@ func (s secondTry) Run(_ context.Context, t harness.Task, _ func(harness.Event))
 	if scope == "greet.go" && s.calls["shout_test.go"] <= s.wrong {
 		return harness.Result{Terminal: harness.FailedTask, Summary: "the check fails in shout_test.go, which this unit may not change: undefined: strings.Shouty", Blames: []string{"shout_test.go"}}, nil
 	}
+	if s.found != nil && scope == "shout_test.go" && s.calls[scope] > 1 {
+		for _, f := range []string{scope, LedgerFile} {
+			if _, err := os.Stat(filepath.Join(t.Workspace, f)); err == nil {
+				*s.found = append(*s.found, f)
+			}
+		}
+		if len(*s.found) == 2 {
+			// What it wrote stands: the mend is in the code it was wrong of.
+			return harness.Result{Terminal: harness.Candidate, Summary: "mended " + scope}, nil
+		}
+	}
 	if err := os.WriteFile(filepath.Join(t.Workspace, scope), []byte(files[scope]), 0o644); err != nil {
 		return harness.Result{}, err
 	}
@@ -530,8 +542,8 @@ func TestWrongTestsAreCarriedAgain(t *testing.T) {
 	t.Parallel()
 	repo := estateFixture(t)
 	est := estate.NewLocal()
-	var goals []string
-	ex := secondTry{goals: &goals, calls: map[string]int{}, wrong: 1}
+	var goals, found []string
+	ex := secondTry{goals: &goals, calls: map[string]int{}, wrong: 1, found: &found}
 	cfg := Config{Model: stubModel{answer: spec}, Executor: ex, Estate: est, Gate: gate.New(est), Person: "a test"}
 	var run *Run
 	run = New(cfg, repo, "make it possible to shout the greeting", func() {
@@ -548,14 +560,19 @@ func TestWrongTestsAreCarriedAgain(t *testing.T) {
 	if ex.calls["shout_test.go"] != 2 || ex.calls["greet.go"] != 2 {
 		t.Errorf("carried %v", ex.calls)
 	}
+	// Carried again, the tests unit mends what it wrote: its tests and its
+	// ledger are there, and what it leaves as it was is its candidate still.
+	if !slices.Equal(found, []string{"shout_test.go", LedgerFile}) {
+		t.Errorf("carried again, the tests unit found %v of what it wrote", found)
+	}
 	again := ""
 	for _, g := range goals {
 		if strings.Contains(g, "Why you are asked again") {
 			again = g
 		}
 	}
-	if !strings.Contains(again, "strings.Shouty") {
-		t.Errorf("the tests were not handed what the code found:\n%s", strings.Join(goals, "\n---\n"))
+	if !strings.Contains(again, "strings.Shouty") || !strings.Contains(again, "do not write them again") {
+		t.Errorf("the tests were not handed what the code found, to mend:\n%s", strings.Join(goals, "\n---\n"))
 	}
 	if b, _ := os.ReadFile(filepath.Join(repo, "greet.go")); !strings.Contains(string(b), "Shout") {
 		t.Error("the code did not land")

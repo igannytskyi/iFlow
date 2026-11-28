@@ -298,6 +298,7 @@ func (s *scheduler) next(ctx context.Context, f finished) error {
 		s.again[blamed] = true
 		r.say(4, r.units[blamed].id, "%s is carried again: %s found its tests wrong", r.units[blamed].id, r.units[i].id)
 		r.carriedAgainFor(r.units[blamed].id, f.carried.res.Summary)
+		s.keepToMend(blamed)
 		s.redo(blamed)
 		s.redo(i)
 		return nil
@@ -346,6 +347,29 @@ func (s *scheduler) outcomeOf(i int, f finished) (outcome, int) {
 		return outCannot, -1
 	}
 	return outFailed, -1
+}
+
+// keepToMend sets a unit's last candidate aside before it is carried
+// again, for its agent to mend what it wrote rather than write it anew —
+// the tests a code unit found wrong are mostly right, and written again
+// from nothing they are paid for again and come out wrong elsewhere.
+func (s *scheduler) keepToMend(i int) {
+	store := s.results[i].store
+	if store == "" || s.state[i] == running {
+		return
+	}
+	was := store + ".was"
+	_ = os.RemoveAll(was)
+	if err := os.CopyFS(was, os.DirFS(filepath.Join(store, "files"))); err != nil {
+		_ = os.RemoveAll(was)
+		return // carried again from nothing, as before
+	}
+	s.r.mu.Lock()
+	if s.r.testsToMend == nil {
+		s.r.testsToMend = map[string]string{}
+	}
+	s.r.testsToMend[s.r.units[i].id] = was
+	s.r.mu.Unlock()
 }
 
 // redo sends a unit to be carried again: now, if it is not being carried;
